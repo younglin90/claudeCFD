@@ -2,7 +2,7 @@
 import sys
 sys.path.insert(0, r'D:\work\claude_code\Abgrall_solve_1')
 import numpy as np
-from apec_1d import (initial_condition, rkstep, srk_c2, pe_err, epsilon_v)
+from pressure_eq import (initial_condition, rkstep, srk_c2, pe_err, epsilon_v)
 
 for N in [51, 101, 201, 501]:
     dx   = 1.0 / N

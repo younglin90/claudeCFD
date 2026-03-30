@@ -1,0 +1,159 @@
+{
+  "timestamp": "2026-03-28T02:30:52.428Z",
+  "reason": "compaction",
+  "status": {
+    "version": "3.0",
+    "lastUpdated": "2026-03-28T02:30:24.232Z",
+    "activeFeatures": [
+      "solver",
+      "claudeCFD"
+    ],
+    "primaryFeature": "solver",
+    "features": {
+      "solver": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-03-28T01:59:32.102Z",
+          "lastUpdated": "2026-03-28T02:30:24.232Z"
+        },
+        "lastFile": "D:\\work\\claude_code\\claudeCFD\\solver\\run_all_1d_validations.py"
+      },
+      "claudeCFD": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-03-28T02:02:19.096Z",
+          "lastUpdated": "2026-03-28T02:18:28.970Z"
+        },
+        "lastFile": "D:\\work\\claude_code\\claudeCFD\\validate_1d_all.py"
+      }
+    },
+    "pipeline": {
+      "currentPhase": 1,
+      "level": "Dynamic",
+      "phaseHistory": []
+    },
+    "session": {
+      "startedAt": "2026-03-28T01:45:39.460Z",
+      "onboardingCompleted": false,
+      "lastActivity": "2026-03-28T02:30:24.232Z"
+    },
+    "history": [
+      {
+        "timestamp": "2026-03-28T01:59:32.103Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:02:19.096Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:15:36.873Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:16:42.221Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:16:48.852Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:16:56.971Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:04.115Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:11.659Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:19.302Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:24.279Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:43.205Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:18:28.970Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:23:07.322Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:30:18.449Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:30:24.232Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      }
+    ],
+    "stateMachine": {
+      "defaultWorkflow": "default",
+      "activeWorkflows": {},
+      "totalTransitions": 0
+    },
+    "automation": {
+      "globalLevel": 2,
+      "trustScore": 40,
+      "pendingApprovals": 0,
+      "lastGateResult": null
+    },
+    "team": {
+      "enabled": true,
+      "stateFile": ".bkit/runtime/agent-state.json",
+      "eventsFile": ".bkit/runtime/agent-events.jsonl"
+    }
+  }
+}

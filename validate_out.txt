@@ -1,0 +1,4 @@
+D:\work\claude_code\claudeCFD\solver\cpg_euler_1d.py:66: RuntimeWarning: divide by zero encountered in divide
+  W_mix  = 1.0 / inv_W
+D:\work\claude_code\claudeCFD\solver\cpg_euler_1d.py:67: RuntimeWarning: invalid value encountered in multiply
+  Xs     = Ys / ws * W_mix[..., None]       # 몰분율 (..., Ns)

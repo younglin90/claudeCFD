@@ -2,7 +2,7 @@
 import sys, time
 sys.path.insert(0, r'D:\work\claude_code\Abgrall_solve_1')
 import numpy as np
-from apec_1d import run
+from pressure_eq import run
 
 t0 = time.time()
 x, U, T, p, t_h, pe_h, en_h, div = run(

@@ -1,0 +1,407 @@
+{
+  "timestamp": "2026-03-28T09:13:44.271Z",
+  "reason": "compaction",
+  "status": {
+    "version": "3.0",
+    "lastUpdated": "2026-03-28T09:03:16.052Z",
+    "activeFeatures": [
+      "solver",
+      "claudeCFD",
+      "validate"
+    ],
+    "primaryFeature": "solver",
+    "features": {
+      "solver": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-03-28T01:59:32.102Z",
+          "lastUpdated": "2026-03-28T09:03:16.052Z"
+        },
+        "lastFile": "D:/work/claude_code/claudeCFD/solver/apec.py"
+      },
+      "claudeCFD": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-03-28T02:02:19.096Z",
+          "lastUpdated": "2026-03-28T03:02:01.653Z"
+        },
+        "lastFile": "D:\\work\\claude_code\\claudeCFD\\validate_1d_all.py"
+      },
+      "validate": {
+        "phase": "do",
+        "phaseNumber": 3,
+        "matchRate": null,
+        "iterationCount": 0,
+        "requirements": [],
+        "documents": {},
+        "timestamps": {
+          "started": "2026-03-28T03:21:22.913Z",
+          "lastUpdated": "2026-03-28T05:37:03.704Z"
+        },
+        "lastFile": "D:\\work\\claude_code\\claudeCFD\\solver\\validate\\validate_apec_1d.py"
+      }
+    },
+    "pipeline": {
+      "currentPhase": 1,
+      "level": "Dynamic",
+      "phaseHistory": []
+    },
+    "session": {
+      "startedAt": "2026-03-28T01:45:39.460Z",
+      "onboardingCompleted": false,
+      "lastActivity": "2026-03-28T09:03:16.052Z"
+    },
+    "history": [
+      {
+        "timestamp": "2026-03-28T01:59:32.103Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:02:19.096Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:15:36.873Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:16:42.221Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:16:48.852Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:16:56.971Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:04.115Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:11.659Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:19.302Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:24.279Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:17:43.205Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:18:28.970Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:23:07.322Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:30:18.449Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:30:24.232Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:31:11.080Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:31:15.176Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:31:20.623Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:33:26.026Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:33:37.089Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:33:46.437Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:33:56.906Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:34:03.121Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:38:31.721Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:38:37.053Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:38:56.203Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:42:19.777Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:52:12.651Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:55:23.302Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:55:34.908Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:55:45.674Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:55:57.099Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:56:04.265Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:57:28.340Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T02:58:59.172Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T03:02:01.653Z",
+        "feature": "claudeCFD",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T03:21:22.913Z",
+        "feature": "validate",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T03:21:25.511Z",
+        "feature": "validate",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T03:21:28.546Z",
+        "feature": "validate",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T03:21:30.946Z",
+        "feature": "validate",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T05:17:51.358Z",
+        "feature": "validate",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T05:19:41.710Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T05:23:25.030Z",
+        "feature": "validate",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T05:23:34.989Z",
+        "feature": "validate",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T05:26:10.832Z",
+        "feature": "validate",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T05:26:43.046Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T05:37:03.704Z",
+        "feature": "validate",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T05:40:32.464Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T05:41:01.199Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T08:57:29.083Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T08:57:39.006Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T09:02:48.279Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T09:02:55.150Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      },
+      {
+        "timestamp": "2026-03-28T09:03:16.052Z",
+        "feature": "solver",
+        "phase": "do",
+        "action": "updated"
+      }
+    ],
+    "stateMachine": {
+      "defaultWorkflow": "default",
+      "activeWorkflows": {},
+      "totalTransitions": 0
+    },
+    "automation": {
+      "globalLevel": 2,
+      "trustScore": 40,
+      "pendingApprovals": 0,
+      "lastGateResult": null
+    },
+    "team": {
+      "enabled": true,
+      "stateFile": ".bkit/runtime/agent-state.json",
+      "eventsFile": ".bkit/runtime/agent-events.jsonl"
+    }
+  }
+}

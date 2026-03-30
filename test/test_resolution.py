@@ -1,7 +1,7 @@
 """Test APEC at different resolutions to find where it stabilizes."""
 import sys, time
 sys.path.insert(0, r'D:\work\claude_code\Abgrall_solve_1')
-from apec_1d import run
+from pressure_eq import run
 
 for N in [51, 101, 201, 501]:
     t0 = time.time()

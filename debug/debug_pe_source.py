@@ -2,7 +2,7 @@
 import sys
 sys.path.insert(0, r'D:\work\claude_code\Abgrall_solve_1')
 import numpy as np
-from apec_1d import (initial_condition, srk_c2, srk_p, prim, pe_err,
+from pressure_eq import (initial_condition, srk_c2, srk_p, prim, pe_err,
                      epsilon_v, _minmod)
 
 N    = 501
@@ -73,13 +73,13 @@ def one_step_1st(r1, r2, u, rhoe, rhoE, T, p, scheme='FC', eps_pair=None):
     u_new   = rhoU_new / np.maximum(rho_new, 1e-30)
     rhoe_new= rhoE_new - 0.5*rho_new*u_new**2
     # Compute p directly
-    from apec_1d import T_from_rhoe
+    from pressure_eq import T_from_rhoe
     T_new = T_from_rhoe(r1_new, r2_new, rhoe_new, T)
     p_new = srk_p(r1_new, r2_new, T_new)
     return r1_new, r2_new, u_new, rhoe_new, rhoE_new, T_new, p_new
 
 # Fix the function above
-from apec_1d import T_from_rhoe, srk_p as _srk_p
+from pressure_eq import T_from_rhoe, srk_p as _srk_p
 
 def step1(r1, r2, u, rhoe, rhoE, T, p, scheme='FC', eps_pair=None):
     lam_cell_ = np.abs(u) + np.sqrt(srk_c2(r1, r2, T))

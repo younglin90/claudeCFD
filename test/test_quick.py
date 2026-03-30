@@ -1,7 +1,7 @@
 """Quick test: N=51, t_end=0.02 for all 3 schemes."""
 import sys
 sys.path.insert(0, r'D:\work\claude_code\Abgrall_solve_1')
-from apec_1d import run
+from pressure_eq import run
 import numpy as np
 
 N = 51

@@ -2,7 +2,7 @@
 import sys
 sys.path.insert(0, r'D:\work\claude_code\Abgrall_solve_1')
 import numpy as np
-from apec_1d import (initial_condition, epsilon_v, srk_p, srk_c2, prim,
+from pressure_eq import (initial_condition, epsilon_v, srk_p, srk_c2, prim,
                       _mix, srk_rhoe, _dpdT, _dpdr, _drhoedr, srk_Cv)
 
 N   = 51

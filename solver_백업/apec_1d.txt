@@ -1,0 +1,186 @@
+=============================================================
+  apec_1d.py — 코드 구조 및 구현 설명서
+  (구 파일명: apec_yyl_1d.py)
+  기반 논문: Terashima, Ly & Ihme, JCP 524 (2025)
+=============================================================
+
+1. 파일 개요
+─────────────
+이 파일은 1차원 다성분 압축성 유동에서 압력평형보존(PE-Preserving)
+수치기법을 구현하고 검증하는 단일 파이썬 스크립트다.
+
+구현된 기법:
+  - FC-NPE  : 완전 보존형 / 비압력평형 (기준선)
+  - APEC    : 근사 압력평형보존 (KEEP 기반, Eq. 35-40)
+  - PEqC    : 준보존 압력평형 (KEEP 기반, Eq. 54-56)
+  + 업윈드 변형: MUSCL-LLF 기반 FC / APEC
+
+지원 EOS:
+  - SRK (Soave-Redlich-Kwong) : CH4/N2 초임계 혼합물 (§3.2용)
+  - CPG (Calorically Perfect Gas): N2-유사/He-유사 2성분 (§3.1 검증)
+
+실행:
+  py solver/apec_1d.py
+  → solver/output/ 폴더에 cpg_fig1~7.png 저장
+
+
+2. 물성 파라미터
+─────────────────
+[SRK용 — CH4(0) / N2(1)]
+  Ru  = 8.314 J/(mol·K)
+  M   = [16.043e-3, 28.014e-3] kg/mol
+  Tc  = [190.56, 126.19] K
+  pc  = [4.599e6, 3.396e6] Pa
+  ω   = [0.0115, 0.0372]   (이심인자)
+
+[CPG용 — Species0(N2-유사) / Species1(He-유사)]
+  γ   = [1.4,  1.66]
+  M   = [28.0, 4.0]  g/mol (무차원 단위)
+
+
+3. 코드 구조 (함수 목록)
+─────────────────────────
+
+[SRK EOS 함수군]
+  _mix(r1, r2, T)        : SRK 혼합 인자 계산 (내부 전처리)
+  srk_p(r1, r2, T)       : SRK 압력 계산
+  srk_rhoe(r1, r2, T)    : SRK 내부에너지 계산
+  T_from_rhoe(r1, r2, rhoe_target) : 내부에너지에서 온도 역산 (Newton법)
+  srk_c2(r1, r2, T)      : 음속의 제곱 (c²)
+  epsilon_v(r1, r2, T, s): ε_s = (∂ρe/∂ρ_s)_p 수치 미분
+
+[CPG EOS 함수군]
+  _cpg_inv_gm1(r1, r2)   : 1/(γ̄-1) 혼합값 계산
+  cpg_rhoe_from_p(r1,r2,p): ρe = p/(γ̄-1)
+  cpg_p_from_rhoe(r1,r2,rhoe): p = ρe·(γ̄-1)
+  cpg_c2(r1, r2, p)      : 음속의 제곱
+  cpg_T(r1, r2, rhoe)    : 혼합 온도 T = ρe / Σ ρY_i·cv_i
+  cpg_epsilon(r1, r2, p) : ε_i = (∂ρe/∂ρ_i)_p  (CPG 해석적 식)
+
+[초기조건]
+  initial_condition(x, p_inf, k) : SRK §3.2용 CH4/N2 초기조건
+  cpg_initial(x, p0, k)          : CPG §3.1용 tanh 인터페이스 초기조건
+    → w1=0.6, w2=0.2, xc=0.5, rc=0.25, k=20
+
+[인터페이스 플럭스]
+  muscl_lr(q)            : MUSCL minmod 재구성 → (qL, qR)
+
+  interface_fluxes(r1,r2,u,rhoe,p,T,lam_cell,scheme,eps_pair,eos)
+    - SRK 또는 CPG 모두 지원
+    - scheme='FC'  : MUSCL-LLF 표준 플럭스
+    - scheme='APEC': CPG → MUSCL-일관 PE 소산
+                     SRK → Appendix A (Eq. A.4)
+
+  interface_fluxes_keep(r1,r2,u,rhoe,p,scheme,eps_pair)
+    - KEEP 분할형 플럭스 (소산 없음, §3.1 메인 기법)
+    - Eq. 35: F1, F2 = ρY_i_h · u_h  (산술평균 질량 플럭스)
+    - Eq. 36: FU = ρ_h · u · u_p + p_h  (KE 보존 운동량)
+    - Eq. 38: F_KE = 0.5·ρ_h·u·u_p·u_h  (운동에너지 수송)
+    - Eq. 39: F_pu = 0.5·(p·u_p + p_p·u)  (압력일)
+    - Eq. 40(APEC): ρe_h = (ρe_m+ρe_{m+1})/2 - Σ Δε_i/2·Δ(ρY_i)/2
+    - FC-NPE: ρe_h = (ρe_m + ρe_{m+1})/2
+    - PEqC: 에너지 플럭스는 FC, rhs_cpg에서 소스항으로 처리
+
+[RHS / 시간적분]
+  rhs(U, scheme, dx, T_prev)     : SRK용 RHS (SSP-RK3 스텝용)
+  rhs_cpg(U, scheme, dx)         : CPG KEEP 기반 RHS
+    - FC, APEC: interface_fluxes_keep 직접 사용
+    - PEqC: FC 플럭스 + 준보존 소스항
+      src = div(ρe_h·u_h) - Σ_i ε_i·div(F_i)
+  rhs_cpg_upwind(U, scheme, dx)  : CPG MUSCL-LLF 기반 RHS
+
+  _clip(U)       : SRK 밀도 하한 (0 이상)
+  _clip_cpg(U)   : CPG 밀도 하한 (1e-10 이상)
+
+  rkstep(U, scheme, dx, dt, T_prev)         : SRK SSP-RK3
+  rkstep_cpg(U, scheme, dx, dt, rhs_fn)     : CPG SSP-RK3
+    - rhs_fn=rhs_cpg (기본, KEEP) 또는 rhs_cpg_upwind
+
+[실행 함수]
+  run(scheme, N, t_end, CFL, p_inf, k)      : SRK 시뮬레이션 실행
+  run_cpg(scheme, N, t_end, CFL, p0, k, flux) : CPG 시뮬레이션 실행
+    - flux='KEEP'   (기본): KEEP 중심차분
+    - flux='UPWIND' : MUSCL-LLF 업윈드
+
+[오차 계산]
+  pe_err(p, p0)           : SRK PE 오차 (최대 상대값)
+  pe_err_cpg(p, p0)       : CPG PE 오차 RMS: sqrt(mean((p/p0-1)²))
+  energy_err(rhoE, rhoE0) : 에너지 보존 오차
+  _cpg_pe_error_spatial(r1,r2,p,dx) : 이론 PE 오차 공간 분포
+    - e_APEC: 계수 1/12  (Eq. 32)
+    - e_FC  : 계수 1/3   (Eq. 33)
+
+[검증]
+  validate_cpg_311(N, t_end, CFL)
+    - §3.1 CPG 매끄러운 계면 이송 검증
+    - Fig1: t=t_end 공간분포 (ρ1, ρ2, u, p)
+    - Fig2: PE 오차 + 에너지 보존 시간 이력
+    - Fig3: t=0 이론 PE 오차 공간분포
+    - Fig4: PE 오차 놈 시간 이력
+    - Fig5: 격자 수렴성 (N=251 vs 501, t=20)
+    - Fig6: KEEP vs Upwind PE 오차 비교
+    - Fig7: p, u, T, Y1 공간 분포 (전 기법 비교)
+
+
+4. 핵심 수치 기법 설명
+───────────────────────
+
+[KEEP 분할형 + APEC (메인 기법)]
+  - 질량/운동량: 소산 없는 산술평균 플럭스 (중심차분)
+  - 에너지: ρe 반점값에 Eq. 40 보정 적용
+  - PE 오차 계수: FC 1/3 → APEC 1/12 (4× 이론 개선)
+  - 실제 결과 (N=501, t=8): FC 대비 335× 개선
+
+[PEqC (준보존)]
+  - 에너지 방정식을 준보존 형식으로 교체
+  - dρE/dt = -∂(F_KE+F_pu)/∂x - Σ_i ε_i · ∂F_{ρY_i}/∂x
+  - PE 오차 ~3×10⁻⁷ (거의 기계 정밀도)
+  - 총에너지 보존 不満足 (드리프트 ~3×10⁻⁵)
+
+[업윈드 APEC (MUSCL-LLF)]
+  - CPG에서 APEC = FC (개선 없음)
+  - 이유: CPG에서 ΔρE = Σ ε_i·Δ(ρY_i) + KE항 이 항등식으로 성립
+    → MUSCL-LLF 에너지 소산이 이미 PE-일관
+  - 실기체(SRK)에서는 EOS 비선형성으로 개선 가능
+
+[CPG ε_i 특성]
+  - Σ_i ε_i · ρY_i = 0  (CPG 항등식)
+  - PEqC를 flux 형식(Σ ε_{i,h}·F_i)으로 구현하면 내부에너지 소실 → 발산
+  - 반드시 소스항 형식으로 구현해야 함
+
+
+5. 검증 결과 요약 (N=501, t=8, CFL=0.6)
+──────────────────────────────────────────
+  기법           PE 오차     에너지 보존    비고
+  ─────────────  ─────────  ────────────  ──────────────────
+  KEEP-FC        1.33e-2    기계정밀도     지수 성장, t≈9 발산
+  KEEP-APEC      3.97e-5    기계정밀도     FC 대비 335× 개선
+  KEEP-PEqC      ~3e-7      ~3.6e-5       PE 최소, 에너지 드리프트
+  UPWIND-FC      4.40e-3    기계정밀도     LLF 소산으로 선형 성장
+  UPWIND-APEC    4.40e-3    기계정밀도     FC와 동일 (CPG 특성)
+
+격자 수렴성 (KEEP-APEC, t=20):
+  N=251: PE_rms = 8.31e-3
+  N=501: PE_rms = 9.63e-4  (약 8.6× 개선, ~2차 이상)
+
+
+6. 출력 파일 (solver/output/)
+───────────────────────────────
+  cpg_fig1_spatial.png     : t=8 ρ1, ρ2, u, p 공간 분포
+  cpg_fig2_timehist.png    : PE + 에너지 오차 시간 이력
+  cpg_fig3_pe_spatial.png  : t=0 이론 PE 오차 공간 분포
+  cpg_fig4_pe_norm.png     : PE 오차 놈 시간 이력
+  cpg_fig5_convergence.png : 격자 수렴성
+  cpg_fig6_keep_vs_upwind.png : KEEP vs Upwind 비교
+  cpg_fig7_profiles.png    : p, u, T, Y1 전 기법 비교
+
+
+7. 실행 방법
+─────────────
+  # CPG 검증 전체 실행 (Fig1~7 생성)
+  py solver/apec_1d.py
+
+  # 특정 기법만 테스트 (Python 인터랙티브)
+  from solver.apec_1d import run_cpg
+  x, U, p, t_h, pe_h, en_h, div = run_cpg('APEC', N=501, t_end=8.0, flux='KEEP')
+  x, U, p, t_h, pe_h, en_h, div = run_cpg('FC',   N=501, t_end=8.0, flux='UPWIND')

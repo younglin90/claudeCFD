@@ -1,0 +1,126 @@
+===============================================================================
+CODE VALIDATOR STATUS — Round 2
+===============================================================================
+Date: 2026-03-31 16:46 UTC
+Status: AWAITING code_maker FIX
+
+===============================================================================
+VALIDATION CHECKPOINT SUMMARY
+===============================================================================
+
+Pre-flight check for 1D Case A (Ideal Gas, Smooth Interface Advection):
+  - Test script: pipeline/quick_1d_test.py
+  - Test case: Ideal Gas, n_cells=101, t_end=0.5s, TVD-RK3, CFL=0.6
+  - Result: FAIL at t≈0.004s (step 800)
+
+Pre-flight check for 1D Case C (Air/Water NASG):
+  - Test script: pipeline/quick_1d_test.py
+  - Test case: Air-Water, n_cells=50, Forward Euler
+  - Result: FAIL at initialization (first flux computation)
+
+===============================================================================
+CRITICAL BUGS FOUND
+===============================================================================
+
+BUG #1: NEGATIVE DENSITY IN TVD-RK3 (Case A)
+Location: solver/solve.py line 252 (_tvd_rk3_step)
+Error: ValueError: cons_to_prim: non-positive density rho=-0.0005501362868886371
+Cause: Flux divergence producing negative density during time integration
+Impact: BLOCKS Case A validation
+
+BUG #2: SHAPE MISMATCH IN cons_to_prim (Case C)  
+Location: solver/utils.py line 540 (cons_to_prim shape check)
+Error: ValueError: cons_to_prim: U has 3 elements, expected 4 for 2 species
+Cause: Array shape inconsistency in multi-species system
+Impact: BLOCKS Case C validation
+
+===============================================================================
+REQUIRED FIXES
+===============================================================================
+
+code_maker MUST fix:
+
+1. solver/solve.py
+   - Add defensive density checks after each TVD-RK3 stage
+   - Add debug logging for flux divergence computation
+   - Verify _apply_bc maintains array shapes correctly
+
+2. solver/flux.py
+   - Add assertions that UL, UR have correct shape (3 + N - 1)
+   - Verify APEC flux implementation against docs/APEC_flux.md
+
+3. solver/utils.py
+   - Enhance cons_to_prim shape validation with debug output
+   - Add check for non-finite flux values
+
+4. pipeline/quick_1d_test.py
+   - Verify initial U construction: U.shape must be (n_cells, 3 + N_species - 1)
+
+===============================================================================
+VALIDATION PROTOCOL
+===============================================================================
+
+Phase 1 (Current): Identify and report bugs
+- COMPLETED: Identified 2 critical bugs
+- Report location: qa_report.md, fix_report.md
+
+Phase 2: code_maker fixes bugs and recreates code_ready.flag
+- Pending: Awaiting code_maker action
+- Must recreate: pipeline/code_ready.flag
+
+Phase 3: Revalidation
+- Will rerun quick_1d_test.py
+- If PASS: Proceed to full 1D suite (Case A/B/C)
+- If FAIL: Iterate with new error analysis
+
+Phase 4: Full 1D validation (if Phase 3 PASS)
+- Run Case A (Ideal Gas) with full spec: n_cells=501, t_end=8.0s
+- Run Case B (SRK CH₄/N₂) — ONLY if Case A passes
+- Run Case C (Air/Water NASG) — ONLY if Case A/B pass
+- All results saved to results/1D/{CaseName}/
+
+Phase 5: 2D/3D validation (if 1D PASS)
+- BLOCKED until 1D fully passes
+- Non-negotiable per protocol
+
+===============================================================================
+FILES MODIFIED BY VALIDATOR
+===============================================================================
+
+Written:
+- pipeline/qa_report.md — Main validation report (CRITICAL)
+- pipeline/fix_report.md — Debug analysis (CRITICAL)
+- pipeline/VALIDATOR_STATUS.txt — This status file
+
+Deleted:
+- pipeline/code_ready.flag — Validation started, bugs found
+
+NOT MODIFIED (code_maker only):
+- solver/*.py — Code fixes only by code_maker
+- solver/eos/*.py — Code fixes only by code_maker
+
+===============================================================================
+ABSOLUTE RULE
+===============================================================================
+
+1D VALIDATION MUST BE 100% COMPLETE AND PASS BEFORE 2D/3D.
+
+No exceptions. No skipping. No partial validation.
+
+===============================================================================
+NEXT ACTION
+===============================================================================
+
+code_maker:
+1. Read qa_report.md and fix_report.md
+2. Fix bugs in solver/solve.py, solver/utils.py, etc.
+3. Verify fixes with: python3 pipeline/quick_1d_test.py
+4. If all tests PASS, recreate: touch pipeline/code_ready.flag
+5. Report completion
+
+code_validator:
+1. Wait for code_ready.flag
+2. Run full validation suite
+3. Generate comprehensive results and final report
+
+===============================================================================

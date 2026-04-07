@@ -2,163 +2,199 @@
 
 ## 프로젝트 개요
 
-압축성 다상유동 Finite Volume Method (FVM) CFD 검증 해석 툴.
+압축성 2상 유동 1D CFD 솔버.  
+**Demou, Scapin, Pelanti, Brandt (JCP 448, 2022)** 의 4-equation pressure-based model을 1D로 구현·검증하는 것이 현재 목표.  
+전체 스킴 명세: `docs/DENNER_SCHEME.md` 참조.
 
 **핵심 목표**
-- pressure, velocity numerical oscillation 또는 checkerboard 현상, 그리고 Abgrall 문제(인터페이스 가짜 압력 진동) 들이 발생하지 않는 강건한 수치 기법 개발
-- 특정 EOS에 종속되지 않는 General EOS 프레임워크 적용
-- 각 화학종(Y_i)에 독립적인 EOS 적용 가능, 혼합물 열역학 물성치는 혼합물 이론으로 산출
+- 4-equation model (α₁, T, u, p): pressure-based, diffuse interface
+- Mode A (현재): Explicit RK3 + Fractional-Step (Helmholtz 압력 implicit)
+- Mode B (차후): Fully-Coupled Implicit BDF2 (음향 CFL 제거)
+- EOS: NASG (Noble-Abel Stiffened Gas), 각 상별 독립 적용
 
 **언어**: Python 전용 (NumPy/SciPy 허용, C extension 금지)
 
 ---
 
-## Primitive & Conservative Variables
+## 솔버 구분
 
-### Primitive variables
-| 차원 | 변수 벡터 |
-|------|-----------|
-| 1D | `{p, u, T, Y_1, Y_2, ...}` |
-| 2D | `{p, u, v, T, Y_1, Y_2, ...}` |
-| 3D | `{p, u, v, w, T, Y_1, Y_2, ...}` |
+| 솔버 | 경로 | 기법 | 상태 |
+|------|------|------|------|
+| **Demou 2022** (★ 주 개발 대상) | `solver/demou2022_1d/` | RK3+Helmholtz, (α₁,T,u,p) | **개발 중** |
+| Denner 2018 (구 버전) | `solver/denner2018_1d.py` | PISO+ACID, (p,u,T,ψ) | 참고용 유지 |
+| APEC (보존형) | `solver/solve.py` | APEC flux, 보존변수 | 참고용 유지 |
 
-### Conservative variables (1D 기준)
+---
+
+## 주요 수식 요약
+
+> 상세 수식은 `docs/DENNER_SCHEME.md` 참조.
+
+### 원시변수
+
+| 변수 | 의미 |
+|------|------|
+| α₁ | Phase 1 체적분율 |
+| T | 혼합 온도 |
+| u | 혼합 속도 |
+| p | 압력 |
+
+### NASG EOS (핵심 수식)
+
 ```
-U = [ρ, ρu, ρE, ρY_1, ρY_2, ...]
+ρₖ(p,T) = (p + p∞ₖ) / [κᵥₖ T (γₖ-1) + bₖ(p + p∞ₖ)]
+cₖ²     = γₖ(p + p∞ₖ) / [ρₖ(1 - bₖρₖ)]
+Γₖ      = (γₖ-1) / (1 - bₖρₖ)
+hₖ      = κₚₖ T + bₖ p + ηₖ        (κₚₖ = γₖ κᵥₖ)
 ```
 
-### 혼합 물성치
+이상기체 극한: p∞=0, b=0, η=0 → p = ρ(γ-1)κᵥ T
+
+**표준 물성치**
+
+| 물질 | γ | p∞ [Pa] | b [m³/kg] | κᵥ [J/kg/K] | η [J/kg] |
+|------|---|---------|-----------|-------------|----------|
+| Air  | 1.4 | 0 | 0 | 717.5 | 0 |
+| Water(liquid) | 1.187 | 7.028×10⁸ | 6.61×10⁻⁴ | 3610 | −1.177788×10⁶ |
+| Water(vapor)  | 1.467 | 0 | 0 | 955 | 2.077616×10⁶ |
+
+### Mode A 알고리즘 (RK3 부분단계, 서브스텝 m마다)
+
 ```
-ρ   = Σ ρ_i = Σ (Y_i * ρ)
-1/ρ = Σ (Y_i / ρ_i)          # 체적분율 혼합 규칙
-e   = Σ (Y_i * e_i(T, p))    # 비내부에너지
+1. 상태 갱신:  ρₖ, cₖ, Γₖ, hₖ, φₖ, ζₖ, c_mix, S^(2), S^(3)
+2. α₁ 이송:   CICSAM + S^(3) 발산 보정
+3. T  이송:   van Leer + S^(3) 발산 보정
+4. u* 예측:   van Leer 대류, 압력 기울기 제외
+5. Helmholtz:  삼중대각 → Thomas algorithm → p^{m+1}
+6. u 보정:     u^{m+1} = u* - γ̃ₘΔt/ρ · ∇p^{m+1}
+7. 상태 재계산 (다음 서브스텝 준비)
 ```
 
 ---
 
-## 지배방정식 (1D Euler, Conservative Form)
-```
-∂U/∂t + ∂F/∂x = 0
+## 파일 구조
 
-U = [ρ, ρu, ρE, ρY_k]^T
-F = [ρu, ρu²+p, (ρE+p)u, ρY_k·u]^T
-
-E = e + u²/2
-```
-
-다성분: k = 1, ..., N-1  (마지막 종은 Y_N = 1 - ΣY_k 로 결정)
-
----
-
-## 물리 배경
-
-### Abgrall 문제
-
-보존형 다성분 유동에서 비선형 실기체 EOS 사용 시 인터페이스에서 가짜 압력 진동 발생.
-
-**근본 원인**
-- 보존변수 `ρE` → `e` → `T` → `p` 역산 시 EOS 비일관성
-- 균일 압력 초기조건이 이송 후 압력 진동으로 오염
-- 보존변수의 선형 합산과 비선형 EOS 사이의 불일치
-
-**판별 기준**: 균일 압력·속도 초기조건에서 이송 후 압력이 기계적 정밀도 이상으로 변동하면 실패
-
----
-
-### EOS 종류
-
-#### 1. Ideal Gas EOS
-```
-p = ρ R_s T = ρ (γ-1) e
-e = c_v T
-c_v = R_s / (γ-1)
-```
-
-#### 2. NASG (Noble-Abel Stiffened Gas) EOS
-```
-p = (γ-1) ρ (e - q) / (1 - b ρ) - p_∞
-e = c_v T + q + p_∞/ρ    (근사)
-c_v, γ, p_∞, b, q : 물질 상수
-```
-
-#### 3. SRK (Soave-Redlich-Kwong) EOS
-```
-p = R_u T / (v - b)  -  a·α(T) / [v(v + b)]
-
-α(T)  = [1 + m(1 - √(T/T_c))]²
-m     = 0.48 + 1.574ω - 0.176ω²
-a     = 0.42748 R_u² T_c² / p_c
-b     = 0.08664 R_u T_c / p_c
-```
-적용 대상: CH₄/N₂ 혼합물  
-역산(T→p): `scipy.optimize.brentq` 사용
-
----
-
-## 적용 수치 기법
-
-### 시간 차분
-
-| 조건 | 기법 | 비고 |
-|------|------|------|
-| 초음속 (Ma > 1) | Forward Euler (명시) | CFL ≤ 0.8 |
-| 아음속 (Ma < 1) | Backward Euler (암시) | Newton 반복, 수렴 판정 `‖ΔU‖/‖U‖ < 1e-8` |
-
-### Flux 기법: APEC (Approximate Pressure-Equilibrium-preserving with Conservation)
-docs/APEC_flux.md 참고
----
-
-### Jacobian 계산 (Backward Euler용)
-- **Phase 1 (현재)**: 수치 미분 (Finite Difference)
-```python
-  dF/dU ≈ [F(U + ε·e_j) - F(U)] / ε,  ε = 1e-7 * |U_j|
-```
-- **Phase 2 (검증 완료 후)**: 이론적 해석 Jacobian으로 교체
-
-### High-order 기법
-MUSCL 등 고차 기법은 **현재 미적용** (검증 단계 완료 후 추가 예정)
-
----
-
-## 구현 파일 구조
 ```
 claudeCFD/
 ├── CLAUDE.md
+├── docs/
+│   ├── DENNER_SCHEME.md      # ★ 스킴 전체 명세 (수식, 알고리즘)
+│   └── APEC_flux.md          # APEC flux 참고
 ├── solver/
-│   ├── solve.py         # 메인 솔버 (EOS + APEC flux + time integration)
-│   ├── eos/
-│   │   ├── ideal.py     # Ideal gas EOS
-│   │   ├── nasg.py      # NASG EOS
-│   │   └── srk.py       # SRK EOS
-│   ├── flux.py          # APEC flux 계산
-│   ├── jacobian.py      # 수치/해석 Jacobian
-│   └── utils.py         # 보존↔원시변수 변환, 혼합 물성치
+│   ├── demou2022_1d/         # ★ 주 솔버 패키지
+│   │   ├── __init__.py
+│   │   ├── config.py         # EOS 파라미터, 격자, 모드 설정
+│   │   ├── eos.py            # NASG EOS
+│   │   ├── source_terms.py   # S^(2), S^(3), c_mix
+│   │   ├── grid.py           # 1D 격자, ghost cells
+│   │   ├── cicsam.py         # CICSAM (1D Hyper-C)
+│   │   ├── flux_limiter.py   # van Leer
+│   │   ├── spatial.py        # gradient, divergence, Laplacian
+│   │   ├── helmholtz.py      # Thomas algorithm
+│   │   ├── rk3.py            # RK3 드라이버 (Mode A)
+│   │   ├── boundary.py       # BC (periodic, transmissive, wall)
+│   │   ├── timestepping.py   # CFL 기반 dt
+│   │   ├── io_utils.py       # 결과 저장
+│   │   └── run.py            # 진입점
+│   ├── denner2018_1d.py      # 구 솔버 (참고용)
+│   ├── solve.py              # APEC 솔버 (참고용)
+│   └── eos/                  # APEC용 EOS 클래스
 ├── validation/
-│   ├── 1D               # 1D 검증 문제 모음
-│   ├── 2D               # 2D 검증 문제 모음
-│   ├── 3D               # 3D 검증 문제 모음
-└── results/
-    └── figures/         # 검증 결과 플롯
+│   └── 1D/                   # 검증 케이스 명세 (*.md)
+└── results/                  # 검증 결과 출력
 ```
+
+---
+
+## 검증 계획 (Denner 2018 솔버)
+
+### Phase 1 (현재): 1D Smooth Interface Advection — Water/Air
+
+**솔버**: `solver/demou2022_1d/`  
+**스킴**: Mode A (RK3 + Helmholtz)
+
+#### 케이스 설명
+
+| 항목 | 값 |
+|------|-----|
+| 도메인 | [0, 1] m, periodic BC (좌우 모두) |
+| 격자 수 | **N = 10** (초기 검증용, 빠른 확인 목적) |
+| dx | 0.1 m |
+| Water(NASG, phase 1) 영역 | x ∈ [0.4, 0.6] |
+| Air(Ideal Gas, phase 2) 영역 | x ∉ [0.4, 0.6] |
+| 초기 속도 | u = 1.0 m/s (전 도메인 균일) |
+| 초기 압력 | p₀ = 1×10⁵ Pa (전 도메인 균일) |
+| 초기 온도 | T₀ = 300 K (전 도메인 균일) |
+| CFL | 0.5 (물의 음속 기준 자동 결정) |
+| 종료 시간 | t_end = 1.0 s (1 flow-through 주기) |
+
+#### 초기 α₁ 프로파일 (smooth tanh)
+
+```
+α₁(x) = 0.5 * [tanh((x - 0.4)/δ) - tanh((x - 0.6)/δ)]
+
+δ = 0.5 * dx  (인터페이스 두께)
+```
+
+α₁ = 1 → pure water, α₁ = 0 → pure air
+
+#### EOS 파라미터
+
+| 상 | γ | p∞ [Pa] | b [m³/kg] | κᵥ [J/kg/K] | η [J/kg] |
+|----|---|---------|-----------|-------------|----------|
+| Water (phase 1) | 1.187 | 7.028×10⁸ | 6.61×10⁻⁴ | 3610 | −1.177788×10⁶ |
+| Air (phase 2) | 1.4 | 0 | 0 | 717.5 | 0 |
+
+#### 이론해 (Exact Solution)
+
+균일 속도 u₀=1 m/s로 이송 → t=1.0 s 후 α₁ 프로파일이 초기 상태로 복원(주기 BC).
+
+| 물리량 | 이론값 |
+|--------|--------|
+| p | p₀ = 1×10⁵ Pa (전 도메인 균일 유지) |
+| u | u₀ = 1.0 m/s (전 도메인 균일 유지) |
+| T | T₀ = 300 K (전 도메인 균일 유지) |
+| α₁(t=1.0) | α₁(t=0) 복원 (1 주기 후 원위치) |
+
+#### PASS 기준
+
+| 검증 항목 | 기준 |
+|-----------|------|
+| 수치 발산 없이 t=1.0 s 완료 | 필수 |
+| 압력 편차 max\|p-p₀\|/p₀ | < 1×10⁻³ |
+| 속도 편차 max\|u-u₀\| | < 1×10⁻³ m/s |
+| α₁ 범위 | 0 ≤ α₁ ≤ 1 유지 |
+
+> **N=10은 수치 정확도보다 알고리즘 안정성 확인이 목적.**  
+> PASS 후 격자를 늘려 정확도·수렴성 검증 진행.
+
+---
+
+### Phase 2 이후: 미정
+
+Phase 1 통과 후 다음 검증 케이스를 별도로 결정.
 
 ---
 
 ## 작업 플로우
-```
-코드 수정 → pytest validation/ → 전체 통과 시 커밋 → 반복
-```
 
-검증 전체 통과 후 → 해석 Jacobian 교체 → 재검증
+```
+코드 수정 → 검증 케이스 실행 → PASS 확인 → 커밋 → 반복
+```
 
 ---
 
-## 주의
-백업 폴더는 건드리지 않고, 읽지도 않는다.
-(백업_* 폴더)
+## 주의사항
+
+- 백업 폴더(`백업_*`)는 읽지도, 수정하지도 않는다.
+- `denner2018_1d.py` 내 EOS는 NASG 전용 인라인 함수(`_rho`, `_a2`, `_h`)로 구현되어 있으며 `solver/eos/` 의 클래스와 별도임.
+- CFL은 반드시 `_cfl_dt()` 함수를 통해 계산 (물의 음속 기준 자동 결정).
+- `dt_fixed` 파라미터 사용 시 물의 음속 CFL 조건을 수동으로 만족시켜야 함.
 
 ---
 
 ## GitHub
+
 ```
 https://github.com/younglin90/claudeCFD.git  (main 브랜치)
 ```

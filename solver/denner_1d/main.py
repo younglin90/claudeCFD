@@ -81,6 +81,7 @@ def run(case_params):
         'max_inner':  case_params.get('max_inner',  10),
         'inner_tol':  case_params.get('inner_tol',  case_params.get('picard_tol', 1e-6)),
         'outer_tol':  case_params.get('outer_tol',  1e-6),
+        'variable_set': case_params.get('variable_set', 'puh'),  # 'puh' or 'puT'
         # legacy aliases kept for backward compat
         'max_picard_iter': case_params.get('max_picard_iter', 5),
         'picard_tol':      case_params.get('picard_tol',      1e-6),

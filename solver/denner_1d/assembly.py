@@ -36,6 +36,9 @@ def assemble_newton_3N(
     ph1, ph2,
     bc_l, bc_r,
     freeze_h=False,
+    third_var='h',    # 'h' = (p,u,h), 'T' = (p,u,T)
+    T_old=None,       # needed when third_var='T'
+    phi_k=None,       # dρ/dT (needed for third_var='T')
 ):
     """
     Newton-linearised (p, u, h) system.
@@ -69,15 +72,34 @@ def assemble_newton_3N(
         r2 = (p_val + pi2) / A2
         return psi_ref * r1 + (1.0 - psi_ref) * r2
 
-    def _acid_rh(p_val, T_val, psi_ref):
-        """ACID ρh at (p_val,T_val) with this-cell ψ_ref."""
+    def _acid_rh(p_val, T_val, u_val, psi_ref):
+        """ACID ρH_total at (p,T,u) with this-cell ψ_ref (Denner 2018 Eq. 45-49).
+        H = ρ★·h★ where h★ = c★p·T + ½u² (total specific enthalpy)."""
         A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
         r1 = (p_val + pi1) / A1
-        h1 = g1 * kv1 * T_val + b1 * p_val + eta1
+        h1 = g1 * kv1 * T_val + b1 * p_val + eta1 + 0.5 * u_val * u_val
         A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
         r2 = (p_val + pi2) / A2
-        h2 = g2 * kv2 * T_val + b2 * p_val + eta2
+        h2 = g2 * kv2 * T_val + b2 * p_val + eta2 + 0.5 * u_val * u_val
         return psi_ref * r1 * h1 + (1.0 - psi_ref) * r2 * h2
+
+    def _acid_cp(p_val, T_val, psi_ref):
+        """ACID mixture cp (Denner 2018 Eq. 46): density-weighted average."""
+        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
+        r1 = (p_val + pi1) / A1
+        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
+        r2 = (p_val + pi2) / A2
+        rho_mix = psi_ref * r1 + (1.0 - psi_ref) * r2 + 1e-300
+        return (psi_ref * r1 * g1 * kv1 + (1.0 - psi_ref) * r2 * g2 * kv2) / rho_mix
+
+    def _acid_bm(p_val, T_val, psi_ref):
+        """ACID mixture b_mix = dh_static/dp (density-weighted)."""
+        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
+        r1 = (p_val + pi1) / A1
+        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
+        r2 = (p_val + pi2) / A2
+        rho_mix = psi_ref * r1 + (1.0 - psi_ref) * r2 + 1e-300
+        return (psi_ref * r1 * b1 + (1.0 - psi_ref) * r2 * b2) / rho_mix
 
     for i in range(N):
         rp = _ci(0, i, N)
@@ -165,53 +187,84 @@ def assemble_newton_3N(
         A[ru, cp_L] -= 1.0 / (2.0 * dx)
 
         # -----------------------------------------------------------
-        # ENTHALPY ENERGY
+        # ENERGY EQUATION (block 2)
         # -----------------------------------------------------------
         if freeze_h:
-            # Inner loop: h row = identity
+            # Inner barotropic loop: third variable frozen (identity row)
             A[rh_row, ch] = 1.0
             b[rh_row]     = h_k[i]
-        else:
-            # Discrete: [ρ_k·h^{n+1} + ζ·(p^{n+1}-p_k)·h_k − ρ^n·h^n]/dt
-            #           + div(ρ̃·ϑ·h^{n+1}) − (p^{n+1}−p^n)/dt = 0
-            # Rearranged A*x = b:
-            #   (ρ_k/dt + ζ·h_k/dt − 1/dt)·... wait, expand:
-            #   ρ_k/dt·h_i + (ζ·h_k/dt − 1/dt)·p_i + conv = ρ^n·h^n/dt + ζ·h_k·p_k/dt + p^n/dt
-            # Note: the −1/dt·p_i comes from −(p^{n+1}−p^n)/dt
-
-            # Discrete energy: (ρ^{n+1}h^{n+1} - ρ^n·h^n)/dt + div - (p^{n+1}-p^n)/dt = 0
+        elif third_var == 'h':
+            # --- (p, u, h) mode: Denner 2018 enthalpy equation ---
+            # (ρ^{n+1}h^{n+1} - ρ^n·h^n)/dt + div(ρ̃ϑh) = (p^{n+1}-p^n)/dt
             # Newton: ρ_k/dt·h + (ζ·h_k - 1)/dt·p = ρ^n·h^n/dt - p^n/dt + ζ·h_k·p_k/dt
             A[rh_row, ch] += rho_i / dt
             A[rh_row, cp] += zeta_i * h_i / dt - 1.0 / dt
             b[rh_row]     += (rho_old[i] * h_old[i] / dt
                               - p_old[i] / dt
                               + zeta_i * h_i * p_k[i] / dt)
-
-            # Convective: ρ̃·ϑ·h (upwind h, ACID deferred face enthalpy)
-            psi_i    = float(psi_k[i])
-            H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), psi_i)
-            H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), psi_i)
-
-            # The upwind h^{n+1}·mR part goes into A; the ACID face enthalpy
-            # correction (H_acid − rho·h_upwind) is deferred to b:
+            # Convective + ACID
+            H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
+            H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
             h_up_R = h_k[i]   if mR >= 0.0 else h_k[iR]
             h_up_L = h_k[iL]  if mL >= 0.0 else h_k[i]
-
-            # Standard upwind (implicit h):
-            if mR >= 0.0:
-                A[rh_row, ch]  += mR / dx
-            else:
-                A[rh_row, ch_R] += mR / dx
-            if mL >= 0.0:
-                A[rh_row, ch_L] -= mL / dx
-            else:
-                A[rh_row, ch]   -= mL / dx
-
-            # ACID deferred correction: (H_acid - rho*h_upwind_k) * theta / dx
-            # At uniform state: H_acid = rho*h_upwind → correction = 0 ✓
+            if mR >= 0.0: A[rh_row, ch]   += mR / dx
+            else:         A[rh_row, ch_R] += mR / dx
+            if mL >= 0.0: A[rh_row, ch_L] -= mL / dx
+            else:         A[rh_row, ch]   -= mL / dx
             acid_corr_R = (H_R_acid - rfR * h_up_R) * tR / dx
             acid_corr_L = (H_L_acid - rfL * h_up_L) * tL / dx
             b[rh_row] -= (acid_corr_R - acid_corr_L)
+        else:
+            # --- (p, u, T) mode: same ρh energy eq but T is variable ---
+            # h_total = cp_mix·T + ½u² → linearize: h ≈ cp·T + u_k·u - ½u_k²
+            # Temporal: ρ^{n+1}·h^{n+1} ≈ ρ_k·(cp·T + u_k·u) + (ζ·δp + φ·δT)·h_k
+            # Full Newton product (ρ·h): ρ_k·h^{n+1} + ρ^{n+1}·h_k - ρ_k·h_k
+            #   where ρ^{n+1} = ρ_k + ζ·δp + φ·δT
+            #   and   h^{n+1} = cp·T + u_k·u - ½u_k² (linearized around x_k)
+            #
+            # T-coefficient: ρ_k·cp/dt + h_k·φ/dt   (≈ ρ_k·cp for ideal gas)
+            # u-coefficient: ρ_k·u_k/dt               (from d(½u²)/du)
+            # p-coefficient: (ζ·h_k - 1)/dt           (from Newton ρ·h + dp/dt)
+            phi_i = float(phi_k[i]) if phi_k is not None else 0.0
+            cp_i  = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
+            bm_i  = _acid_bm(float(p_k[i]), float(T_k[i]), psi_i)
+            T_i   = T_k[i]
+
+            # Newton product-rule linearization of ρ·h where h = cp*T + b*p + η + ½u²
+            # d(ρh)/dT = ρ_k·cp + h_k·φ (= ρ·dh/dT + h·dρ/dT)
+            # d(ρh)/dp = ρ_k·b_mix + h_k·ζ (= ρ·dh/dp + h·dρ/dp)
+            # d(ρh)/du = ρ_k·u_k
+            # Full eq: d(ρh)/dT·T + d(ρh)/dp·p + d(ρh)/du·u − dp/dt
+            #        = ρ^n·h^n + [d(ρh)/dT·T_k + d(ρh)/dp·p_k + d(ρh)/du·u_k − ρ_k·h_k] − p^n/dt
+            drhdt = rho_i * cp_i + h_i * phi_i
+            drhdp = rho_i * bm_i + h_i * zeta_i
+            drhdu = rho_i * u_i
+
+            A[rh_row, ch] += drhdt / dt             # T column
+            A[rh_row, cu] += drhdu / dt              # u coupling from ½u²
+            A[rh_row, cp] += (drhdp - 1.0) / dt     # p coupling (−1 from dp/dt source)
+            b[rh_row]     += (rho_old[i] * h_old[i] / dt
+                              - p_old[i] / dt
+                              + (drhdt * T_i + drhdp * p_k[i] + drhdu * u_i
+                                 - rho_i * h_i) / dt)
+
+            # Convective for T-mode: use ACID face enthalpy DIRECTLY.
+            # Split H_acid = rfR·(cp_i·T + rest). Implicit: cp_i·T; deferred: rest.
+            # At uniform (p,T,u): both faces give same H_acid → net flux = 0 ✓
+            H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
+            H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+            # Full ACID flux deferred to b:
+            b[rh_row] -= (H_R_acid * tR - H_L_acid * tL) / dx
+            # Implicit cp·T part in A (upwind T):
+            cp_i_acid = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
+            if mR >= 0.0: A[rh_row, ch]   += mR * cp_i_acid / dx
+            else:         A[rh_row, ch_R] += mR * cp_i_acid / dx
+            if mL >= 0.0: A[rh_row, ch_L] -= mL * cp_i_acid / dx
+            else:         A[rh_row, ch]   -= mL * cp_i_acid / dx
+            # Subtract the deferred cp·T part (already in b via full flux):
+            T_up_R = T_k[i]  if mR >= 0.0 else T_k[iR]
+            T_up_L = T_k[iL] if mL >= 0.0 else T_k[i]
+            b[rh_row] += (mR * cp_i_acid * T_up_R - mL * cp_i_acid * T_up_L) / dx
 
     return A.tocsr(), b
 

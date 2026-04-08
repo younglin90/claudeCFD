@@ -76,6 +76,7 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
     max_inner  = cfg.get('max_inner', _MAX_INNER)
     inner_tol  = cfg.get('inner_tol', _INNER_TOL)
     outer_tol  = cfg.get('outer_tol', _OUTER_TOL)
+    variable_set = cfg.get('variable_set', 'puh')  # 'puh' or 'puT'
 
     N = len(state['p'])
     p_n   = state['p'].copy()
@@ -105,6 +106,12 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
     T_k = T_n.copy()
     h_k = h_old.copy()
 
+    # For puT mode, phi_k is needed (dρ/dT)
+    if variable_set == 'puT':
+        phi_k_arr = compute_mixture_props(p_k, u_k, T_k, psi_new, ph1, ph2)['phi_v']
+    else:
+        phi_k_arr = None
+
     info_outer = {'converged': False, 'outer_iters': 0, 'inner_iters': []}
 
     for outer in range(max_outer):
@@ -121,8 +128,10 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
         d_hat  = mwi_face_coeff_denner(e_diag, rho_star, dx, dt, bc_l, bc_r)
         theta_k = _compute_face_velocity(u_k, p_k, d_hat, dx, bc_l, bc_r)
 
-        # ---- Inner barotropic loop (T fixed, h frozen) ----
+        # ---- Inner barotropic loop (T fixed, h/T frozen) ----
         inner_iters = 0
+        # For puT mode, third block = T; for puh mode, third block = h
+        third_block = T_k if variable_set == 'puT' else h_k
         for inner in range(max_inner):
             A, b_vec = assemble_newton_3N(
                 N, dx, dt,
@@ -132,19 +141,20 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
                 rho_face_acid, d_hat, theta_k,
                 ph1, ph2, bc_l, bc_r,
                 freeze_h=True,
+                third_var=variable_set[-1] if variable_set == 'puT' else 'h',
+                phi_k=phi_k_arr,
             )
 
-            x_k = np.concatenate([p_k, u_k, h_k])
+            x_k = np.concatenate([p_k, u_k, third_block])
             r   = b_vec - A.dot(x_k)
 
             p_ref = float(max(np.mean(np.abs(p_k)), 1.0))
             u_ref = float(max(np.mean(np.abs(u_k)), 1e-6))
-            h_ref = float(max(np.mean(np.abs(h_k)), 1.0))
+            h_ref = float(max(np.mean(np.abs(third_block)), 1.0))
             dx_vec = solve_linear_system(A, r, p_ref=p_ref, u_ref=u_ref, h_ref=h_ref)
 
             dp = dx_vec[0:N]
             du = dx_vec[N:2*N]
-            # h frozen in inner loop
 
             p_k = np.maximum(p_k + dp, _P_FLOOR)
             u_k = u_k + du
@@ -162,11 +172,12 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
 
         info_outer['inner_iters'].append(inner_iters)
 
-        # ---- Outer: full energy solve for h ----
-        # Re-compute face quantities with updated p_k, u_k
+        # ---- Outer: full energy solve ----
         props_k      = compute_mixture_props(p_k, u_k, T_k, psi_new, ph1, ph2)
         rho_k        = props_k['rho']
         zeta_k       = props_k['zeta_v']
+        if variable_set == 'puT':
+            phi_k_arr = props_k['phi_v']
         rho_face_acid = acid_face_density(
             rho_k, props_k['c_mix'], psi_new, bc_l, bc_r)
         rho_star      = harmonic_face_density(rho_k, bc_l, bc_r)
@@ -174,6 +185,10 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
         d_hat         = mwi_face_coeff_denner(e_diag, rho_star, dx, dt, bc_l, bc_r)
         theta_k       = _compute_face_velocity(u_k, p_k, d_hat, dx, bc_l, bc_r)
 
+        # Update h_k from current (p, u, T) for assembly consistency
+        h_k = compute_specific_total_enthalpy(p_k, u_k, T_k, psi_new, ph1, ph2)
+
+        tv = 'T' if variable_set == 'puT' else 'h'
         A_full, b_full = assemble_newton_3N(
             N, dx, dt,
             rho_old, u_n, h_old, p_n,
@@ -182,21 +197,25 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
             rho_face_acid, d_hat, theta_k,
             ph1, ph2, bc_l, bc_r,
             freeze_h=False,
+            third_var=tv,
+            phi_k=phi_k_arr,
         )
 
-        x_k_full = np.concatenate([p_k, u_k, h_k])
+        third_block = T_k if variable_set == 'puT' else h_k
+        x_k_full = np.concatenate([p_k, u_k, third_block])
         r_full   = b_full - A_full.dot(x_k_full)
         p_ref = float(max(np.mean(np.abs(p_k)), 1.0))
         u_ref = float(max(np.mean(np.abs(u_k)), 1e-6))
-        h_ref = float(max(np.mean(np.abs(h_k)), 1.0))
+        h_ref = float(max(np.mean(np.abs(third_block)), 1.0))
         dx_full = solve_linear_system(A_full, r_full, p_ref=p_ref, u_ref=u_ref, h_ref=h_ref)
 
-        dh = dx_full[2*N:3*N]
-        h_k = h_k + dh
-
-        # Update T from new h
-        T_k_new = recover_T_from_h(h_k, u_k, p_k, psi_new, ph1, ph2, T_guess=T_k)
-        T_k_new = np.maximum(T_k_new, _T_FLOOR)
+        d3 = dx_full[2*N:3*N]
+        if variable_set == 'puT':
+            T_k_new = np.maximum(T_k + d3, _T_FLOOR)
+        else:
+            h_k = h_k + d3
+            T_k_new = recover_T_from_h(h_k, u_k, p_k, psi_new, ph1, ph2, T_guess=T_k)
+            T_k_new = np.maximum(T_k_new, _T_FLOOR)
 
         # Outer convergence: relative density change
         rho_k_new = _mixture_rho(p_k, T_k_new, psi_new, ph1, ph2)

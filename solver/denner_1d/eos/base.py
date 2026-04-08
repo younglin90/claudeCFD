@@ -185,3 +185,44 @@ def compute_mixture_props(p, u, T, psi, ph1, ph2):
         'd_rho_h_dp_v':   d_rho_h_dp_v,
         'd_rho_h_dT_v':   d_rho_h_dT_v,
     }
+
+
+def compute_specific_total_enthalpy(p, u, T, psi, ph1, ph2):
+    """h_total = rho_h/rho + 0.5*u^2  (total specific enthalpy)."""
+    props = compute_mixture_props(p, u, T, psi, ph1, ph2)
+    rho = props['rho']
+    rho_h = props['rho_h']
+    h_static = rho_h / (rho + 1e-300)
+    return h_static + 0.5 * u * u
+
+
+def recover_T_from_h(h_total, u, p, psi, ph1, ph2, T_guess=None, tol=1e-10, max_iter=50):
+    """
+    Newton iteration: find T such that h_static(p,T,psi) + 0.5*u^2 = h_total.
+    Works element-wise on arrays.
+    """
+    h_target = h_total - 0.5 * u * u
+
+    if T_guess is None:
+        T = np.full_like(np.asarray(p, dtype=float), 300.0)
+    else:
+        T = np.asarray(T_guess, dtype=float).copy()
+
+    for _ in range(max_iter):
+        props = compute_mixture_props(p, u, T, psi, ph1, ph2)
+        rho = props['rho']
+        rho_h = props['rho_h']
+        h_static = rho_h / (rho + 1e-300)
+
+        d_rho_h_dT = props['d_rho_h_dT_v']
+        phi = props['phi_v']
+        dh_dT = (d_rho_h_dT * rho - rho_h * phi) / (rho * rho + 1e-300)
+
+        residual = h_static - h_target
+        dT = -residual / (dh_dT + 1e-300)
+        T = np.maximum(T + dT, 1.0)
+
+        if np.max(np.abs(dT)) < tol:
+            break
+
+    return T

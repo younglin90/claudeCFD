@@ -9,9 +9,33 @@
 import numpy as np
 from .boundary import apply_ghost, apply_ghost_velocity
 from .interface.cicsam import cicsam_face
+from .eos.base import compute_phase_props
 
 
-def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost):
+def _compute_K(psi, ph1, ph2, p, T):
+    """
+    Denner 2018 compressibility factor K for the compressible VOF equation.
+
+    K = (Z_b - Z_a) / (Z_a/(1-psi+eps) + Z_b/(psi+eps))
+
+    where Z_k = rho_k * c_k^2 (acoustic impedance squared).
+
+    Phase 1 (ph1) is treated as phase 'a' (psi = volume fraction of ph1).
+    Phase 2 (ph2) is treated as phase 'b'.
+    """
+    eps = 1e-10
+    props_a = compute_phase_props(p, T, ph1)
+    props_b = compute_phase_props(p, T, ph2)
+    rho_a = props_a['rho'];  c_a = props_a['c']
+    rho_b = props_b['rho'];  c_b = props_b['c']
+    Z_a = rho_a * c_a ** 2
+    Z_b = rho_b * c_b ** 2
+    denom = Z_a / np.maximum(1.0 - psi, eps) + Z_b / np.maximum(psi, eps)
+    return (Z_b - Z_a) / np.maximum(denom, eps)
+
+
+def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost,
+                 ph1=None, ph2=None, p=None, T=None):
     """
     Single explicit VOF sub-step (Co ≤ 1 guaranteed by caller).
 
@@ -25,15 +49,28 @@ def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost):
     flux_div = (flux_R - flux_L) / dx
 
     du_dx = (u_face[1:] - u_face[:-1]) / dx
-    source = psi * du_dx
+
+    # Compressible VOF: ∂ψ/∂t + ∇·(uψ) - (ψ + K)*∇·u = 0
+    # where K = Denner 2018 compressibility factor (zero for incompressible flow).
+    if ph1 is not None and ph2 is not None and p is not None and T is not None:
+        K = _compute_K(psi, ph1, ph2, p, T)
+        source = (psi + K) * du_dx
+    else:
+        source = psi * du_dx  # incompressible fallback
 
     psi_new = psi - dt_sub * flux_div + dt_sub * source
-    psi_new = np.clip(psi_new, 1e-8, 1.0 - 1e-8)
+    # Clip to [psi_min, 1-psi_min] with psi_min=0.01.
+    # Rationale: values below 1% are sub-grid; allowing psi→0 or psi→1 creates
+    # a 900:1 density ratio at a single cell face which makes the Picard
+    # iteration ill-conditioned and causes exponential error growth.
+    # 0.01 clip limits the density ratio to ~89:1, which is numerically stable.
+    psi_new = np.clip(psi_new, 0.0, 1.0)  # physical bounds only; 0.01 clip removed
 
     return psi_new, psi_face
 
 
-def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2):
+def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2,
+             ph1=None, ph2=None, p=None, T=None):
     """
     VOF update using CICSAM face values, with automatic sub-stepping.
 
@@ -51,6 +88,8 @@ def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2):
     bc_l   : str
     bc_r   : str
     n_ghost: int
+    ph1, ph2 : dict or None   EOS parameters (for compressible VOF K factor)
+    p, T     : ndarray (N,) or None  pressure and temperature (for K computation)
 
     Returns
     -------
@@ -83,7 +122,9 @@ def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2):
 
     for _ in range(N_sub):
         psi_ext = apply_ghost(psi_cur, bc_l, bc_r, ng)
-        psi_cur, psi_face_sub = _vof_substep(psi_cur, u_face, psi_ext, dt_sub, dx, ng)
+        psi_cur, psi_face_sub = _vof_substep(
+            psi_cur, u_face, psi_ext, dt_sub, dx, ng,
+            ph1=ph1, ph2=ph2, p=p, T=T)
         psi_face_accum += psi_face_sub
 
     # Time-averaged psi_face for mass-flux consistency with the full dt

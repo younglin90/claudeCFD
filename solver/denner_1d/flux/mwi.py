@@ -62,6 +62,30 @@ def acid_face_density(rho, c_mix, psi, bc_l, bc_r, n_ghost=2):
     return rho_face
 
 
+def geometric_face_density(rho, bc_l, bc_r, n_ghost=2):
+    """
+    Geometric-mean face density: sqrt(rho_L * rho_R).
+
+    Used for the MWI coefficient d_hat instead of ACID density.
+    At high-density-ratio interfaces (e.g. water/air = 903:1),
+    ACID gives rho_face ≈ rho_light (≈ 1.16 kg/m³), making
+    d_hat = dt/rho_face very large and causing Picard oscillations.
+    Geometric mean (sqrt(1048*1.16) ≈ 34.9) reduces d_hat by ~30×,
+    preventing pressure over-correction while preserving the Abgrall
+    condition (d_hat * ∇p = 0 when ∇p = 0).
+    For same-phase faces: sqrt(ρ*ρ) = ρ → identical to current behaviour.
+    """
+    rho_ext = apply_ghost(rho, bc_l, bc_r, n_ghost)
+    N  = len(rho)
+    ng = n_ghost
+    rho_geo = np.empty(N + 1)
+    for f in range(N + 1):
+        rho_L = rho_ext[ng + f - 1]
+        rho_R = rho_ext[ng + f]
+        rho_geo[f] = np.sqrt(rho_L * rho_R + 1e-300)
+    return rho_geo
+
+
 def mwi_face_coeff(rho_face, dt):
     """
     Compute MWI coefficient d_hat_f = dt / rho_face [Eq. 17].
@@ -78,10 +102,44 @@ def mwi_face_coeff(rho_face, dt):
     return dt / (rho_face + 1e-300)
 
 
+def harmonic_face_density(rho, bc_l, bc_r, n_ghost=2):
+    """Harmonic mean face density: 2*rho_L*rho_R/(rho_L+rho_R). Denner 2018 Eq. 20."""
+    rho_ext = apply_ghost(rho, bc_l, bc_r, n_ghost)
+    N = len(rho)
+    ng = n_ghost
+    rho_face = np.empty(N + 1)
+    for f in range(N + 1):
+        rho_L = rho_ext[ng + f - 1]
+        rho_R = rho_ext[ng + f]
+        rho_face[f] = 2.0 * rho_L * rho_R / (rho_L + rho_R + 1e-300)
+    return rho_face
+
+
+def mwi_face_coeff_denner(e_diag, rho_star_face, dx, dt, bc_l, bc_r, n_ghost=2):
+    """
+    MWI coefficient per Denner 2018 Eq. 20.
+
+    d_hat_f = (V/e_L + V/e_R) / (V/e_L + V/e_R + 2*rho_star_f/dt)
+
+    For 1D uniform mesh V = dx (volume per unit area).
+    """
+    e_ext = apply_ghost(e_diag, bc_l, bc_r, n_ghost)
+    N = len(e_diag)
+    ng = n_ghost
+    d_hat = np.empty(N + 1)
+    for f in range(N + 1):
+        e_L = max(float(e_ext[ng + f - 1]), 1e-300)
+        e_R = max(float(e_ext[ng + f]),     1e-300)
+        ve_sum = dx / e_L + dx / e_R
+        d_hat[f] = ve_sum / (ve_sum + 2.0 * rho_star_face[f] / dt + 1e-300)
+    return d_hat
+
+
 def mwi_face_velocity_components(u, p, rho_face, d_hat, dx,
                                   u_face_old, rho_face_old, dt,
                                   bc_l, bc_r, n_ghost=2,
-                                  include_transient=True):
+                                  include_transient=True,
+                                  u_old=None):
     """
     Decompose MWI face velocity into components for implicit assembly.
 
@@ -131,8 +189,10 @@ def mwi_face_velocity_components(u, p, rho_face, d_hat, dx,
         dp_f[f]      = (p_ext[iR] - p_ext[iL]) / dx
 
     # Transient correction [Eq. 17]: d_hat * rho_face_old/dt * (u_face_old - u_arith_old)
+    # u_old should be the velocity at the previous time step (u^n), not the Picard iterate.
     if include_transient and (u_face_old is not None):
-        u_old_ext = apply_ghost_velocity(u, bc_l, bc_r, ng)  # use current u as old (Picard)
+        u_for_arith_old = u_old if u_old is not None else u
+        u_old_ext = apply_ghost_velocity(u_for_arith_old, bc_l, bc_r, ng)
         u_arith_old = np.empty(N + 1)
         for f in range(N + 1):
             iL = ng + f - 1

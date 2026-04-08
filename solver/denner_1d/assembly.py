@@ -39,6 +39,7 @@ def assemble_newton_3N(
     third_var='h',    # 'h' = (p,u,h), 'T' = (p,u,T)
     T_old=None,       # needed when third_var='T'
     phi_k=None,       # dρ/dT (needed for third_var='T')
+    mixing_type='volume',  # 'volume' (ψ-based) or 'mass' (Y-based) ACID helpers
 ):
     """
     Newton-linearised (p, u, h) system.
@@ -101,6 +102,37 @@ def assemble_newton_3N(
         rho_mix = psi_ref * r1 + (1.0 - psi_ref) * r2 + 1e-300
         return (psi_ref * r1 * b1 + (1.0 - psi_ref) * r2 * b2) / rho_mix
 
+    # --- Y-based (mass fraction) ACID helpers ---
+    def _acid_rho_Y(p_val, T_val, Y_ref):
+        """Harmonic mixture density: 1/(Y/r1 + (1-Y)/r2)."""
+        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
+        r1 = (p_val + pi1) / A1
+        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
+        r2 = (p_val + pi2) / A2
+        inv_rho = Y_ref / (r1 + 1e-300) + (1.0 - Y_ref) / (r2 + 1e-300)
+        return 1.0 / (inv_rho + 1e-300)
+
+    def _acid_rh_Y(p_val, T_val, u_val, Y_ref):
+        """Mass-weighted total enthalpy density: rho_star * (Y*h1 + (1-Y)*h2 + 0.5*u^2)."""
+        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
+        r1 = (p_val + pi1) / A1
+        h1 = g1 * kv1 * T_val + b1 * p_val + eta1
+        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
+        r2 = (p_val + pi2) / A2
+        h2 = g2 * kv2 * T_val + b2 * p_val + eta2
+        inv_rho = Y_ref / (r1 + 1e-300) + (1.0 - Y_ref) / (r2 + 1e-300)
+        rho_star = 1.0 / (inv_rho + 1e-300)
+        h_static = Y_ref * h1 + (1.0 - Y_ref) * h2
+        return rho_star * (h_static + 0.5 * u_val * u_val)
+
+    def _acid_cp_Y(p_val, T_val, Y_ref):
+        """Mass-weighted mixture cp: Y*γ₁κᵥ₁ + (1-Y)*γ₂κᵥ₂."""
+        return Y_ref * g1 * kv1 + (1.0 - Y_ref) * g2 * kv2
+
+    def _acid_bm_Y(p_val, T_val, Y_ref):
+        """Mass-weighted mixture b_mix: Y*b1 + (1-Y)*b2."""
+        return Y_ref * b1 + (1.0 - Y_ref) * b2
+
     for i in range(N):
         rp = _ci(0, i, N)
         ru = _ci(1, i, N)
@@ -121,17 +153,21 @@ def assemble_newton_3N(
         zeta_i = zeta_k[i]
         u_i    = u_k[i]
         h_i    = h_k[i]
-        psi_i  = float(psi_k[i])
+        psi_i  = float(psi_k[i])   # volume fraction (or Y if mixing_type='mass')
 
         tR = theta_k[f_R]
         tL = theta_k[f_L]
         dR  = d_hat[f_R]
         dL  = d_hat[f_L]
 
-        # ACID face density: computed with cell i's ψ applied to neighbor's (p,T)
+        # ACID face density: computed with cell i's ψ (or Y) applied to neighbor's (p,T)
         # At uniform (p,T): rfR = rfL = _acid_rho(p, T, psi_i) → div=0 ✓
-        rfR = _acid_rho(float(p_k[iR]), float(T_k[iR]), psi_i)
-        rfL = _acid_rho(float(p_k[iL]), float(T_k[iL]), psi_i)
+        if mixing_type == 'mass':
+            rfR = _acid_rho_Y(float(p_k[iR]), float(T_k[iR]), psi_i)
+            rfL = _acid_rho_Y(float(p_k[iL]), float(T_k[iL]), psi_i)
+        else:
+            rfR = _acid_rho(float(p_k[iR]), float(T_k[iR]), psi_i)
+            rfL = _acid_rho(float(p_k[iL]), float(T_k[iL]), psi_i)
 
         # Deferred mass fluxes at x_k
         mR = rfR * tR
@@ -203,8 +239,12 @@ def assemble_newton_3N(
                               - p_old[i] / dt
                               + zeta_i * h_i * p_k[i] / dt)
             # Convective + ACID
-            H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
-            H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+            if mixing_type == 'mass':
+                H_R_acid = _acid_rh_Y(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
+                H_L_acid = _acid_rh_Y(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+            else:
+                H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
+                H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
             h_up_R = h_k[i]   if mR >= 0.0 else h_k[iR]
             h_up_L = h_k[iL]  if mL >= 0.0 else h_k[i]
             if mR >= 0.0: A[rh_row, ch]   += mR / dx
@@ -226,8 +266,12 @@ def assemble_newton_3N(
             # u-coefficient: ρ_k·u_k/dt               (from d(½u²)/du)
             # p-coefficient: (ζ·h_k - 1)/dt           (from Newton ρ·h + dp/dt)
             phi_i = float(phi_k[i]) if phi_k is not None else 0.0
-            cp_i  = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
-            bm_i  = _acid_bm(float(p_k[i]), float(T_k[i]), psi_i)
+            if mixing_type == 'mass':
+                cp_i = _acid_cp_Y(float(p_k[i]), float(T_k[i]), psi_i)
+                bm_i = _acid_bm_Y(float(p_k[i]), float(T_k[i]), psi_i)
+            else:
+                cp_i = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
+                bm_i = _acid_bm(float(p_k[i]), float(T_k[i]), psi_i)
             T_i   = T_k[i]
 
             # Newton product-rule linearization of ρ·h where h = cp*T + b*p + η + ½u²
@@ -251,12 +295,17 @@ def assemble_newton_3N(
             # Convective for T-mode: use ACID face enthalpy DIRECTLY.
             # Split H_acid = rfR·(cp_i·T + rest). Implicit: cp_i·T; deferred: rest.
             # At uniform (p,T,u): both faces give same H_acid → net flux = 0 ✓
-            H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
-            H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+            if mixing_type == 'mass':
+                H_R_acid = _acid_rh_Y(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
+                H_L_acid = _acid_rh_Y(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+                cp_i_acid = _acid_cp_Y(float(p_k[i]), float(T_k[i]), psi_i)
+            else:
+                H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
+                H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+                cp_i_acid = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
             # Full ACID flux deferred to b:
             b[rh_row] -= (H_R_acid * tR - H_L_acid * tL) / dx
             # Implicit cp·T part in A (upwind T):
-            cp_i_acid = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
             if mR >= 0.0: A[rh_row, ch]   += mR * cp_i_acid / dx
             else:         A[rh_row, ch_R] += mR * cp_i_acid / dx
             if mL >= 0.0: A[rh_row, ch_L] -= mL * cp_i_acid / dx

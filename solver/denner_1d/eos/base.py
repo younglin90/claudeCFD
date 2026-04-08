@@ -187,12 +187,119 @@ def compute_mixture_props(p, u, T, psi, ph1, ph2):
     }
 
 
+def compute_mixture_props_Y(p, u, T, Y, ph1, ph2):
+    """
+    Compute mixture thermodynamic properties using mass fraction Y (phase 1).
+
+    Parameters
+    ----------
+    p, u, T : ndarray (N,)
+    Y       : ndarray (N,)  -- mass fraction of phase 1
+    ph1, ph2 : dict         -- EOS parameters for each phase
+
+    Returns
+    -------
+    dict with same keys as compute_mixture_props, plus 'rho1', 'rho2'.
+    """
+    props1 = compute_phase_props(p, T, ph1)
+    props2 = compute_phase_props(p, T, ph2)
+
+    rho1 = props1['rho']
+    rho2 = props2['rho']
+    E1   = props1['E']
+    E2   = props2['E']
+
+    # Mixture density: harmonic in volume fractions → 1/rho = Y/rho1 + (1-Y)/rho2
+    inv_rho = Y / (rho1 + 1e-300) + (1.0 - Y) / (rho2 + 1e-300)
+    rho = 1.0 / (inv_rho + 1e-300)
+
+    # Mass-weighted specific internal energy: e_mix = Y*e1 + (1-Y)*e2
+    e1 = E1 / (rho1 + 1e-300)
+    e2 = E2 / (rho2 + 1e-300)
+    E_int   = rho * (Y * e1 + (1.0 - Y) * e2)
+    E_total = E_int + 0.5 * rho * u * u
+
+    # ψ₁ = volume fraction of phase 1 = ρ·Y/ρ₁
+    psi = rho * Y / (rho1 + 1e-300)
+
+    # Mixture density derivatives (via volume fractions)
+    zeta_v = psi * props1['zeta'] + (1.0 - psi) * props2['zeta']
+    phi_v  = psi * props1['phi']  + (1.0 - psi) * props2['phi']
+
+    # Mixture energy derivatives (total energy includes KE)
+    dEdp_v = (psi * props1['dEdp'] + (1.0 - psi) * props2['dEdp']
+              + 0.5 * u * u * zeta_v)
+    dEdT_v = (psi * props1['dEdT'] + (1.0 - psi) * props2['dEdT']
+              + 0.5 * u * u * phi_v)
+    dEdu_v = rho * u
+
+    # Mixture sound speed (volume-fraction weighted)
+    c_mix = psi * props1['c'] + (1.0 - psi) * props2['c']
+
+    Delta_rho_psi = rho1 - rho2
+    dEdpsi = (E1 - E2) + 0.5 * u * u * Delta_rho_psi
+
+    # ρh formulation (for ACID energy equation) — mass-weighted h
+    h1 = props1['h']
+    h2 = props2['h']
+    h_mix = Y * h1 + (1.0 - Y) * h2             # mass-weighted static enthalpy
+    rho_h = rho * h_mix
+
+    b1 = float(ph1['b'])
+    b2 = float(ph2['b'])
+    g1kv1 = float(ph1['gamma']) * float(ph1['kv'])
+    g2kv2 = float(ph2['gamma']) * float(ph2['kv'])
+
+    # d(ρh)/dp: ρ² · (Y·ζ₁/ρ₁² + (1-Y)·ζ₂/ρ₂²) · h_mix + ρ·(Y·b₁ + (1-Y)·b₂)
+    zeta_Y = rho * rho * (Y * props1['zeta'] / (rho1 * rho1 + 1e-300)
+                          + (1.0 - Y) * props2['zeta'] / (rho2 * rho2 + 1e-300))
+    d_rho_h_dp_v = zeta_Y * h_mix + rho * (Y * b1 + (1.0 - Y) * b2)
+
+    # d(ρh)/dT: ρ² · (Y·φ₁/ρ₁² + (1-Y)·φ₂/ρ₂²) · h_mix + ρ·(Y·γ₁κᵥ₁ + (1-Y)·γ₂κᵥ₂)
+    phi_Y = rho * rho * (Y * props1['phi'] / (rho1 * rho1 + 1e-300)
+                         + (1.0 - Y) * props2['phi'] / (rho2 * rho2 + 1e-300))
+    d_rho_h_dT_v = phi_Y * h_mix + rho * (Y * g1kv1 + (1.0 - Y) * g2kv2)
+
+    return {
+        'rho1': rho1, 'rho2': rho2,
+        'E1': E1, 'E2': E2,
+        'c1': props1['c'], 'c2': props2['c'],
+        'zeta1': props1['zeta'], 'zeta2': props2['zeta'],
+        'phi1':  props1['phi'],  'phi2':  props2['phi'],
+        'dEdp1': props1['dEdp'], 'dEdp2': props2['dEdp'],
+        'dEdT1': props1['dEdT'], 'dEdT2': props2['dEdT'],
+        'rho': rho,
+        'E_int': E_int,
+        'E_total': E_total,
+        'c_mix': c_mix,
+        'zeta_v': zeta_v,
+        'phi_v': phi_v,
+        'dEdp_v': dEdp_v,
+        'dEdT_v': dEdT_v,
+        'dEdu_v': dEdu_v,
+        'Delta_rho_psi': Delta_rho_psi,
+        'dEdpsi': dEdpsi,
+        # Denner 2018 ρh quantities
+        'rho_h':          rho_h,
+        'd_rho_h_dp_v':   d_rho_h_dp_v,
+        'd_rho_h_dT_v':   d_rho_h_dT_v,
+    }
+
+
 def compute_specific_total_enthalpy(p, u, T, psi, ph1, ph2):
     """h_total = rho_h/rho + 0.5*u^2  (total specific enthalpy)."""
     props = compute_mixture_props(p, u, T, psi, ph1, ph2)
     rho = props['rho']
     rho_h = props['rho_h']
     h_static = rho_h / (rho + 1e-300)
+    return h_static + 0.5 * u * u
+
+
+def compute_specific_total_enthalpy_Y(p, u, T, Y, ph1, ph2):
+    """h_total = Y*h1 + (1-Y)*h2 + 0.5*u^2  (mass-weighted total specific enthalpy)."""
+    props1 = compute_phase_props(p, T, ph1)
+    props2 = compute_phase_props(p, T, ph2)
+    h_static = Y * props1['h'] + (1.0 - Y) * props2['h']
     return h_static + 0.5 * u * u
 
 
@@ -217,6 +324,38 @@ def recover_T_from_h(h_total, u, p, psi, ph1, ph2, T_guess=None, tol=1e-10, max_
         d_rho_h_dT = props['d_rho_h_dT_v']
         phi = props['phi_v']
         dh_dT = (d_rho_h_dT * rho - rho_h * phi) / (rho * rho + 1e-300)
+
+        residual = h_static - h_target
+        dT = -residual / (dh_dT + 1e-300)
+        T = np.maximum(T + dT, 1.0)
+
+        if np.max(np.abs(dT)) < tol:
+            break
+
+    return T
+
+
+def recover_T_from_h_Y(h_total, u, p, Y, ph1, ph2, T_guess=None, tol=1e-10, max_iter=50):
+    """
+    Newton iteration: find T such that Y*h1(p,T) + (1-Y)*h2(p,T) + 0.5*u^2 = h_total.
+    Works element-wise on arrays.
+    """
+    h_target = h_total - 0.5 * u * u
+
+    if T_guess is None:
+        T = np.full_like(np.asarray(p, dtype=float), 300.0)
+    else:
+        T = np.asarray(T_guess, dtype=float).copy()
+
+    g1kv1 = float(ph1['gamma']) * float(ph1['kv'])
+    g2kv2 = float(ph2['gamma']) * float(ph2['kv'])
+
+    for _ in range(max_iter):
+        props1 = compute_phase_props(p, T, ph1)
+        props2 = compute_phase_props(p, T, ph2)
+        h_static = Y * props1['h'] + (1.0 - Y) * props2['h']
+        # dh_static/dT = Y*γ₁κᵥ₁ + (1-Y)*γ₂κᵥ₂
+        dh_dT = Y * g1kv1 + (1.0 - Y) * g2kv2
 
         residual = h_static - h_target
         dT = -residual / (dh_dT + 1e-300)

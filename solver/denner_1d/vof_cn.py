@@ -107,12 +107,21 @@ def Y_to_psi(Y, rho1, rho2):
 
 
 def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2,
-                       use_compress=False):
+                       use_compress=False, return_Y=False):
     """
     Mass fraction transport: advect Y = ρ₁ψ/ρ_mix using CICSAM, then recover ψ.
     ∂(ρY)/∂t + ∇·(ρuY) = 0.
     At constant (p,T): equivalent to advecting Y with flow velocity.
-    Returns psi_new, psi_face, u_face (same interface as vof_step).
+
+    Parameters
+    ----------
+    return_Y : bool
+        If True, return (Y_new, Y_face_avg, u_face) skipping ψ conversion.
+        If False (default), return (psi_new, psi_face_avg, u_face).
+
+    Returns
+    -------
+    (psi_new or Y_new), face_avg, u_face
     """
     N = len(psi)
     ng = n_ghost
@@ -146,8 +155,13 @@ def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2,
             Y_cur -= dt_sub * _compression_flux(Y_cur, Y_ext, u_face, dx, ng)
         Y_cur = np.clip(Y_cur, 0.0, 1.0)
 
-        # Convert Y_face → psi_face for mass-flux consistency
         psi_face_accum += Y_to_psi(Y_face, rho1, rho2)
+
+    Y_cur = np.clip(Y_cur, 0.0, 1.0)
+
+    if return_Y:
+        Y_face_avg = psi_face_accum / N_sub  # averaged psi_face; caller can ignore if using Y
+        return Y_cur, Y_face_avg, u_face
 
     # Convert Y → ψ
     psi_new = Y_to_psi(Y_cur, rho1, rho2)

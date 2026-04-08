@@ -78,6 +78,8 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
     outer_tol  = cfg.get('outer_tol', _OUTER_TOL)
     variable_set = cfg.get('variable_set', 'puh')  # 'puh' or 'puT'
     vof_type     = cfg.get('vof_type', 'volume')  # 'volume' or 'mass'
+    use_K        = cfg.get('use_K', False)         # Denner 2018 compressibility K in VOF
+    use_compress = cfg.get('use_compress', False)  # anti-diffusion compression term
 
     N = len(state['p'])
     p_n   = state['p'].copy()
@@ -90,15 +92,22 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
     # ----------------------------------------------------------------
     psi_reg = np.clip(psi_n, _EPS_PSI, 1.0 - _EPS_PSI)
     if vof_type == 'mass':
-        # Mass fraction transport: Y = ρ₁ψ/ρ_mix
-        # Per-phase densities at uniform (p,T) — use mean values (scalar)
         from .eos.base import compute_phase_props
         rho1_s = float(compute_phase_props(np.mean(p_n), np.mean(T_n), ph1)['rho'])
         rho2_s = float(compute_phase_props(np.mean(p_n), np.mean(T_n), ph2)['rho'])
         psi_new, psi_face_vof, _ = mass_fraction_step(
-            psi_reg, u_n, dx, dt, bc_l, bc_r, rho1_s, rho2_s)
+            psi_reg, u_n, dx, dt, bc_l, bc_r, rho1_s, rho2_s,
+            use_compress=use_compress)
     else:
-        psi_new, psi_face_vof, _ = vof_step(psi_reg, u_n, dx, dt, bc_l, bc_r)
+        # Pass ph1/ph2/p/T to enable K factor when use_K=True
+        vof_ph1 = ph1 if use_K else None
+        vof_ph2 = ph2 if use_K else None
+        vof_p   = p_n if use_K else None
+        vof_T   = T_n if use_K else None
+        psi_new, psi_face_vof, _ = vof_step(
+            psi_reg, u_n, dx, dt, bc_l, bc_r,
+            ph1=vof_ph1, ph2=vof_ph2, p=vof_p, T=vof_T,
+            use_compress=use_compress)
     psi_new = np.clip(psi_new, _EPS_PSI, 1.0 - _EPS_PSI)
 
     # ----------------------------------------------------------------

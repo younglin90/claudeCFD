@@ -34,13 +34,40 @@ def _compute_K(psi, ph1, ph2, p, T):
     return (Z_b - Z_a) / np.maximum(denom, eps)
 
 
+def _compression_flux(phi, phi_ext, u_face, dx, n_ghost):
+    """
+    Anti-diffusion compression flux: ∇·(u_c · φ(1-φ) · n̂).
+
+    u_c = |u_face| (compressive velocity magnitude).
+    n̂ = sign(∇φ) (interface normal direction, 1D).
+    φ(1-φ) is nonzero only at the interface → sharpens the profile.
+    """
+    N = len(phi)
+    ng = n_ghost
+    # Interface normal: sign of gradient
+    grad_phi = np.zeros(N + 1)
+    for f in range(N + 1):
+        grad_phi[f] = (phi_ext[ng + f] - phi_ext[ng + f - 1]) / dx
+    n_hat = np.sign(grad_phi)
+    # Face φ (upwind based on compression direction)
+    phi_face_c = np.empty(N + 1)
+    for f in range(N + 1):
+        iL = ng + f - 1
+        iR = ng + f
+        if n_hat[f] * abs(u_face[f]) >= 0:
+            phi_face_c[f] = phi_ext[iL]
+        else:
+            phi_face_c[f] = phi_ext[iR]
+    # Compression flux: |u|·φ(1-φ)·n̂
+    comp_flux = np.abs(u_face) * phi_face_c * (1.0 - phi_face_c) * n_hat
+    return (comp_flux[1:] - comp_flux[:-1]) / dx
+
+
 def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost,
-                 ph1=None, ph2=None, p=None, T=None):
+                 ph1=None, ph2=None, p=None, T=None,
+                 use_compress=False):
     """
     Single explicit VOF sub-step (Co ≤ 1 guaranteed by caller).
-
-    ψ^{n+1} = ψ^n - dt/dx * [ψ̃_{i+1/2}·u_{i+1/2} - ψ̃_{i-1/2}·u_{i-1/2}]
-                    + dt * ψ_i * [u_{i+1/2} - u_{i-1/2}] / dx
     """
     psi_face = cicsam_face(psi_ext, u_face, dt_sub, dx, n_ghost)
 
@@ -51,21 +78,19 @@ def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost,
     du_dx = (u_face[1:] - u_face[:-1]) / dx
 
     # Compressible VOF: ∂ψ/∂t + ∇·(uψ) - (ψ + K)*∇·u = 0
-    # where K = Denner 2018 compressibility factor (zero for incompressible flow).
     if ph1 is not None and ph2 is not None and p is not None and T is not None:
         K = _compute_K(psi, ph1, ph2, p, T)
         source = (psi + K) * du_dx
     else:
-        source = psi * du_dx  # incompressible fallback
+        source = psi * du_dx
 
     psi_new = psi - dt_sub * flux_div + dt_sub * source
-    # Clip to [psi_min, 1-psi_min] with psi_min=0.01.
-    # Rationale: values below 1% are sub-grid; allowing psi→0 or psi→1 creates
-    # a 900:1 density ratio at a single cell face which makes the Picard
-    # iteration ill-conditioned and causes exponential error growth.
-    # 0.01 clip limits the density ratio to ~89:1, which is numerically stable.
-    psi_new = np.clip(psi_new, 0.0, 1.0)  # physical bounds only; 0.01 clip removed
 
+    # Anti-diffusion compression: ∇·(|u|·ψ(1-ψ)·n̂)
+    if use_compress:
+        psi_new -= dt_sub * _compression_flux(psi, psi_ext, u_face, dx, n_ghost)
+
+    psi_new = np.clip(psi_new, 0.0, 1.0)
     return psi_new, psi_face
 
 
@@ -81,7 +106,8 @@ def Y_to_psi(Y, rho1, rho2):
     return Y * rho2 / np.maximum(denom, 1e-300)
 
 
-def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2):
+def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2,
+                       use_compress=False):
     """
     Mass fraction transport: advect Y = ρ₁ψ/ρ_mix using CICSAM, then recover ψ.
     ∂(ρY)/∂t + ∇·(ρuY) = 0.
@@ -116,6 +142,8 @@ def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2):
         flux_R = Y_face[1:] * u_face[1:]
         flux_L = Y_face[:-1] * u_face[:-1]
         Y_cur = Y_cur - dt_sub * (flux_R - flux_L) / dx
+        if use_compress:
+            Y_cur -= dt_sub * _compression_flux(Y_cur, Y_ext, u_face, dx, ng)
         Y_cur = np.clip(Y_cur, 0.0, 1.0)
 
         # Convert Y_face → psi_face for mass-flux consistency
@@ -130,7 +158,8 @@ def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2):
 
 
 def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2,
-             ph1=None, ph2=None, p=None, T=None):
+             ph1=None, ph2=None, p=None, T=None,
+             use_compress=False):
     """
     VOF update using CICSAM face values, with automatic sub-stepping.
 
@@ -184,7 +213,8 @@ def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2,
         psi_ext = apply_ghost(psi_cur, bc_l, bc_r, ng)
         psi_cur, psi_face_sub = _vof_substep(
             psi_cur, u_face, psi_ext, dt_sub, dx, ng,
-            ph1=ph1, ph2=ph2, p=p, T=T)
+            ph1=ph1, ph2=ph2, p=p, T=T,
+            use_compress=use_compress)
         psi_face_accum += psi_face_sub
 
     # Time-averaged psi_face for mass-flux consistency with the full dt

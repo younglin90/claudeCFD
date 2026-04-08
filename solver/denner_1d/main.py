@@ -83,6 +83,8 @@ def run(case_params):
         'outer_tol':  case_params.get('outer_tol',  1e-6),
         'variable_set': case_params.get('variable_set', 'puh'),  # 'puh' or 'puT'
         'vof_type':     case_params.get('vof_type', 'volume'),  # 'volume' or 'mass'
+        'use_K':        case_params.get('use_K', False),
+        'use_compress': case_params.get('use_compress', False),
         # legacy aliases kept for backward compat
         'max_picard_iter': case_params.get('max_picard_iter', 5),
         'picard_tol':      case_params.get('picard_tol',      1e-6),

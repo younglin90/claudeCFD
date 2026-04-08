@@ -8,6 +8,7 @@ import numpy as np
 from .eos.base import compute_mixture_props
 from .boundary import apply_ghost, apply_ghost_velocity
 from .timestepping import compute_dt
+from .eos.base import compute_specific_total_enthalpy
 from .solver_a import step as mode_a_step
 from .io_utils import make_snapshot, save_snapshots_npz, print_step_info
 
@@ -76,15 +77,23 @@ def run(case_params):
     output_path  = case_params.get('output_path', None)
 
     cfg = {
-        'max_picard_iter': case_params.get('max_picard_iter', 20),
+        'max_outer':  case_params.get('max_outer',  case_params.get('max_picard_iter', 5)),
+        'max_inner':  case_params.get('max_inner',  10),
+        'inner_tol':  case_params.get('inner_tol',  case_params.get('picard_tol', 1e-6)),
+        'outer_tol':  case_params.get('outer_tol',  1e-6),
+        # legacy aliases kept for backward compat
+        'max_picard_iter': case_params.get('max_picard_iter', 5),
         'picard_tol':      case_params.get('picard_tol',      1e-6),
     }
+
+    max_iteration = case_params.get('max_iteration', None)
 
     # -----------------------------------------------------------------
     # Initialise state
     # -----------------------------------------------------------------
-    psi = np.clip(psi_init, 1e-8, 1.0 - 1e-8)
-    props0 = compute_mixture_props(p_init, u_init, T_init, psi, ph1, ph2)
+    psi = np.clip(psi_init, 0.0, 1.0)
+    psi_reg0 = np.clip(psi, 0.01, 0.99)
+    props0 = compute_mixture_props(p_init, u_init, T_init, psi_reg0, ph1, ph2)
 
     # Initial face velocity (arithmetic mean), n_ghost=2
     u_ext0 = apply_ghost_velocity(u_init, bc_l, bc_r, n_ghost=2)
@@ -92,10 +101,13 @@ def run(case_params):
     u_face0 = np.array([0.5 * (u_ext0[ng0 + f - 1] + u_ext0[ng0 + f])
                          for f in range(N + 1)])
 
+    h_init = compute_specific_total_enthalpy(p_init, u_init, T_init, psi_reg0, ph1, ph2)
+
     state = {
         'p':       p_init.copy(),
         'u':       u_init.copy(),
         'T':       T_init.copy(),
+        'h':       h_init.copy(),
         'psi':     psi.copy(),
         'rho':     props0['rho'].copy(),
         'E_total': props0['E_total'].copy(),
@@ -143,7 +155,7 @@ def run(case_params):
     _rho0_ref  = float(np.mean(state['rho']))
     c0_ref     = float(np.sqrt(_gamma_eff * max(p0_ref, 1.0) / max(_rho0_ref, 1e-10)))
 
-    while t < t_end - 1e-14 * t_end:
+    while t < t_end - 1e-14 * t_end and (max_iteration is None or step_num < max_iteration):
         # Compute dt
         if dt_fixed is not None:
             dt = dt_fixed

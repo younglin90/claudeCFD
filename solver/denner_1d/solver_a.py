@@ -14,7 +14,7 @@ from .flux.mwi import (acid_face_density,
                        mwi_face_coeff_denner)
 from .boundary import apply_ghost, apply_ghost_velocity
 from .assembly import assemble_newton_3N, solve_linear_system
-from .vof_cn import vof_step
+from .vof_cn import vof_step, mass_fraction_step
 
 
 _P_FLOOR    = 1.0      # Pa
@@ -77,6 +77,7 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
     inner_tol  = cfg.get('inner_tol', _INNER_TOL)
     outer_tol  = cfg.get('outer_tol', _OUTER_TOL)
     variable_set = cfg.get('variable_set', 'puh')  # 'puh' or 'puT'
+    vof_type     = cfg.get('vof_type', 'volume')  # 'volume' or 'mass'
 
     N = len(state['p'])
     p_n   = state['p'].copy()
@@ -88,7 +89,16 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
     # Step 1: VOF explicit update
     # ----------------------------------------------------------------
     psi_reg = np.clip(psi_n, _EPS_PSI, 1.0 - _EPS_PSI)
-    psi_new, psi_face_vof, _ = vof_step(psi_reg, u_n, dx, dt, bc_l, bc_r)
+    if vof_type == 'mass':
+        # Mass fraction transport: Y = ρ₁ψ/ρ_mix
+        # Per-phase densities at uniform (p,T) — use mean values (scalar)
+        from .eos.base import compute_phase_props
+        rho1_s = float(compute_phase_props(np.mean(p_n), np.mean(T_n), ph1)['rho'])
+        rho2_s = float(compute_phase_props(np.mean(p_n), np.mean(T_n), ph2)['rho'])
+        psi_new, psi_face_vof, _ = mass_fraction_step(
+            psi_reg, u_n, dx, dt, bc_l, bc_r, rho1_s, rho2_s)
+    else:
+        psi_new, psi_face_vof, _ = vof_step(psi_reg, u_n, dx, dt, bc_l, bc_r)
     psi_new = np.clip(psi_new, _EPS_PSI, 1.0 - _EPS_PSI)
 
     # ----------------------------------------------------------------

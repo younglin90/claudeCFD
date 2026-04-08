@@ -69,6 +69,66 @@ def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost,
     return psi_new, psi_face
 
 
+def psi_to_Y(psi, rho1, rho2):
+    """Volume fraction ψ → mass fraction Y = ρ₁ψ / (ρ₁ψ + ρ₂(1-ψ))."""
+    rho_mix = psi * rho1 + (1.0 - psi) * rho2
+    return rho1 * psi / np.maximum(rho_mix, 1e-300)
+
+
+def Y_to_psi(Y, rho1, rho2):
+    """Mass fraction Y → volume fraction ψ = Y·ρ₂ / (ρ₁(1-Y) + Y·ρ₂)."""
+    denom = rho1 * (1.0 - Y) + Y * rho2
+    return Y * rho2 / np.maximum(denom, 1e-300)
+
+
+def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2):
+    """
+    Mass fraction transport: advect Y = ρ₁ψ/ρ_mix using CICSAM, then recover ψ.
+    ∂(ρY)/∂t + ∇·(ρuY) = 0.
+    At constant (p,T): equivalent to advecting Y with flow velocity.
+    Returns psi_new, psi_face, u_face (same interface as vof_step).
+    """
+    N = len(psi)
+    ng = n_ghost
+
+    # Convert ψ → Y
+    Y = psi_to_Y(psi, rho1, rho2)
+
+    # Face velocities
+    u_ext = apply_ghost_velocity(u, bc_l, bc_r, ng)
+    u_face = np.empty(N + 1)
+    for f in range(N + 1):
+        u_face[f] = 0.5 * (u_ext[ng + f - 1] + u_ext[ng + f])
+
+    # Sub-stepping
+    u_max = max(float(np.max(np.abs(u_face))), 1e-300)
+    Co = u_max * dt / dx
+    N_sub = max(1, int(np.ceil(Co)))
+    dt_sub = dt / N_sub
+
+    Y_cur = Y.copy()
+    psi_face_accum = np.zeros(N + 1)
+
+    for _ in range(N_sub):
+        Y_ext = apply_ghost(Y_cur, bc_l, bc_r, ng)
+        Y_face = cicsam_face(Y_ext, u_face, dt_sub, dx, ng)
+
+        flux_R = Y_face[1:] * u_face[1:]
+        flux_L = Y_face[:-1] * u_face[:-1]
+        Y_cur = Y_cur - dt_sub * (flux_R - flux_L) / dx
+        Y_cur = np.clip(Y_cur, 0.0, 1.0)
+
+        # Convert Y_face → psi_face for mass-flux consistency
+        psi_face_accum += Y_to_psi(Y_face, rho1, rho2)
+
+    # Convert Y → ψ
+    psi_new = Y_to_psi(Y_cur, rho1, rho2)
+    psi_new = np.clip(psi_new, 0.0, 1.0)
+    psi_face_avg = psi_face_accum / N_sub
+
+    return psi_new, psi_face_avg, u_face
+
+
 def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2,
              ph1=None, ph2=None, p=None, T=None):
     """

@@ -140,3 +140,72 @@ def cicsam_face_beta(psi_ext, u_face, dt, dx, n_ghost=2):
         beta[f] = float(np.clip(raw_beta, 0.0, 1.0))
 
     return beta
+
+
+def cicsam_face_jacobian(psi_ext, u_face, dt, dx, n_ghost=2):
+    """
+    Compute CICSAM face values AND their exact Newton Jacobian.
+
+    Returns Y_face and ∂Y_face/∂Y_{D,A,UU} for Newton linearization:
+      Y_face(Y) ≈ Y_face(Y_k) + J_D·δY_D + J_A·δY_A + J_UU·δY_UU
+
+    Returns
+    -------
+    psi_face : (N+1,) CICSAM face values
+    jac_D, jac_A, jac_UU : (N+1,) Jacobian w.r.t. Donor, Acceptor, UpUpwind
+    idx_D, idx_A, idx_UU : (N+1,) int — interior 0-based cell indices (periodic-wrapped)
+    """
+    ng = n_ghost
+    N = len(u_face) - 1
+    psi_face = np.zeros(N + 1)
+    jac_D  = np.zeros(N + 1)
+    jac_A  = np.zeros(N + 1)
+    jac_UU = np.zeros(N + 1)
+    idx_D  = np.zeros(N + 1, dtype=int)
+    idx_A  = np.zeros(N + 1, dtype=int)
+    idx_UU = np.zeros(N + 1, dtype=int)
+
+    for f in range(N + 1):
+        uf = u_face[f]
+        if uf >= 0.0:
+            i_D = ng + f - 1; i_A = ng + f; i_UU = ng + f - 2
+            idx_D[f] = f - 1; idx_A[f] = f; idx_UU[f] = f - 2
+        else:
+            i_D = ng + f; i_A = ng + f - 1; i_UU = ng + f + 1
+            idx_D[f] = f; idx_A[f] = f - 1; idx_UU[f] = f + 1
+
+        psi_D  = psi_ext[i_D]
+        psi_A  = psi_ext[i_A]
+        psi_UU = psi_ext[i_UU]
+
+        denom = psi_A - psi_UU
+        if abs(denom) < 1e-10:
+            # Uniform: upwind
+            psi_face[f] = psi_D; jac_D[f] = 1.0
+            continue
+
+        psi_tilde_D = (psi_D - psi_UU) / denom
+        Co_f = max(abs(uf) * dt / dx, 1e-10)
+
+        if 0.0 <= psi_tilde_D <= 1.0:
+            if psi_tilde_D / Co_f <= 1.0:
+                # Interpolated: Y_face = Y_UU + (Y_D - Y_UU) / Co
+                inv_Co = 1.0 / Co_f
+                psi_face[f] = psi_UU + (psi_D - psi_UU) * inv_Co
+                jac_D[f] = inv_Co
+                jac_UU[f] = 1.0 - inv_Co
+            else:
+                # Downwind: Y_face = Y_A
+                psi_face[f] = psi_A
+                jac_A[f] = 1.0
+        else:
+            # Upwind: Y_face = Y_D
+            psi_face[f] = psi_D
+            jac_D[f] = 1.0
+
+    psi_face = np.clip(psi_face, 0.0, 1.0)
+    idx_D  = idx_D % N
+    idx_A  = idx_A % N
+    idx_UU = idx_UU % N
+
+    return psi_face, jac_D, jac_A, jac_UU, idx_D, idx_A, idx_UU

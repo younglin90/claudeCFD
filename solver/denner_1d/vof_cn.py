@@ -34,15 +34,15 @@ def _compute_K(psi, ph1, ph2, p, T):
     return (Z_b - Z_a) / np.maximum(denom, eps)
 
 
-def _compression_flux_bounded(phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost):
+def compute_compression_coefficients(phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost):
     """
-    Conservative, bounded compression flux using Zalesak FCT limiting.
+    Compute frozen Zalesak FCT limiter C_k and interface normal n_hat.
 
-    Raw flux: F = |u_face| · φ(1-φ) · sign(∇φ).
-    Zalesak limiting ensures φ stays in [0, 1] while conserving ∫φ.
-
-    Without limiting, compression pushes cells already at φ=1 above 1.0,
-    and np.clip then destroys mass (∫φ drops each step).
+    Returns
+    -------
+    C_k      : ndarray (N+1,)  per-face limiter [0,1]
+    n_hat    : ndarray (N+1,)  sign(grad phi) at faces
+    raw_flux : ndarray (N+1,)  raw compression flux (before limiting)
     """
     N = len(phi)
     ng = n_ghost
@@ -66,18 +66,15 @@ def _compression_flux_bounded(phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost):
         raw_flux[f] = abs(u_face[f]) * phi_f * (1.0 - phi_f) * n_hat[f]
 
     # --- Zalesak FCT limiting ---
-    # Per-cell: total positive / negative contributions from compression
     P_plus = np.zeros(N)
     P_minus = np.zeros(N)
 
     for i in range(N):
-        # Right face: cell i loses/gains by -(F_R/dx)*dt
         contrib_R = -raw_flux[i + 1] / dx * dt_sub
         if contrib_R > 0:
             P_plus[i] += contrib_R
         else:
             P_minus[i] -= contrib_R
-        # Left face: cell i loses/gains by +(F_L/dx)*dt
         contrib_L = raw_flux[i] / dx * dt_sub
         if contrib_L > 0:
             P_plus[i] += contrib_L
@@ -91,8 +88,7 @@ def _compression_flux_bounded(phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost):
         R_plus = np.where(P_plus > 1e-300, np.minimum(Q_plus / P_plus, 1.0), 1.0)
         R_minus = np.where(P_minus > 1e-300, np.minimum(Q_minus / P_minus, 1.0), 1.0)
 
-    # Limit each face flux
-    limited_flux = np.zeros(N + 1)
+    C_k = np.zeros(N + 1)
     for f in range(N + 1):
         iL_cell = f - 1
         iR_cell = f
@@ -108,14 +104,29 @@ def _compression_flux_bounded(phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost):
                 iR_cell = N - 1
 
         if raw_flux[f] > 0:
-            # Positive flux: outflow from L (decreases φ_L), inflow to R (increases φ_R)
-            C = min(R_minus[iL_cell], R_plus[iR_cell])
+            C_k[f] = min(R_minus[iL_cell], R_plus[iR_cell])
         elif raw_flux[f] < 0:
-            # Negative flux: inflow to L (increases φ_L), outflow from R (decreases φ_R)
-            C = min(R_plus[iL_cell], R_minus[iR_cell])
+            C_k[f] = min(R_plus[iL_cell], R_minus[iR_cell])
         else:
-            C = 1.0
-        limited_flux[f] = C * raw_flux[f]
+            C_k[f] = 1.0
+
+    return C_k, n_hat, raw_flux
+
+
+def _compression_flux_bounded(phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost):
+    """
+    Conservative, bounded compression flux using Zalesak FCT limiting.
+
+    Raw flux: F = |u_face| · φ(1-φ) · sign(∇φ).
+    Zalesak limiting ensures φ stays in [0, 1] while conserving ∫φ.
+
+    Without limiting, compression pushes cells already at φ=1 above 1.0,
+    and np.clip then destroys mass (∫φ drops each step).
+    """
+    C_k, n_hat, raw_flux = compute_compression_coefficients(
+        phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost)
+
+    limited_flux = C_k * raw_flux
 
     return (limited_flux[1:] - limited_flux[:-1]) / dx
 

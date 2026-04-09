@@ -16,8 +16,10 @@ from .flux.mwi import (acid_face_density,
                        harmonic_face_density,
                        mwi_face_coeff_denner)
 from .boundary import apply_ghost, apply_ghost_velocity
-from .assembly import assemble_newton_3N, solve_linear_system
+from .assembly import assemble_newton_3N, assemble_newton_4N, solve_linear_system
 from .vof_cn import vof_step, mass_fraction_step
+from .interface.cicsam import cicsam_face_beta
+from .vof_cn import compute_compression_coefficients
 
 
 _P_FLOOR    = 1.0      # Pa
@@ -94,6 +96,7 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
     vof_type     = cfg.get('vof_type', 'volume')   # 'volume' or 'mass'
     use_K        = cfg.get('use_K', False)          # Denner 2018 compressibility K in VOF
     use_compress = cfg.get('use_compress', False)   # anti-diffusion compression term
+    coupled      = cfg.get('coupled', False)        # fully coupled 4N system
 
     N = len(state['p'])
     p_n   = state['p'].copy()
@@ -110,6 +113,187 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
     rho_star_old  = aux.get('rho_star_old', None)
     if is_first:
         theta_old = u_bar_old = rho_star_old = None
+
+    # ----------------------------------------------------------------
+    # COUPLED PATH: fully coupled 4N×4N Newton system (p, u, T, φ)
+    # ----------------------------------------------------------------
+    if coupled:
+        use_mass = (vof_type == 'mass')
+        mixing_type = 'mass' if use_mass else 'volume'
+        max_newton = cfg.get('max_newton', 20)
+        newton_tol = cfg.get('newton_tol', 1e-6)
+
+        # Convert initial psi to φ (volume or mass fraction)
+        from .eos.base import compute_phase_props
+        rho1_s = float(compute_phase_props(np.mean(p_n), np.mean(T_n), ph1)['rho'])
+        rho2_s = float(compute_phase_props(np.mean(p_n), np.mean(T_n), ph2)['rho'])
+
+        if use_mass:
+            from .vof_cn import psi_to_Y
+            phi_n = psi_to_Y(psi_n, rho1_s, rho2_s)
+        else:
+            phi_n = np.clip(psi_n.copy(), _EPS_PSI, 1.0 - _EPS_PSI)
+
+        phi_old = phi_n.copy()
+
+        def _mix_props_with_phi(p, u, T, phi):
+            if use_mass:
+                return compute_mixture_props_Y(p, u, T, phi, ph1, ph2)
+            return compute_mixture_props(p, u, T, phi, ph1, ph2)
+
+        def _mix_h_with_phi(p, u, T, phi):
+            if use_mass:
+                return compute_specific_total_enthalpy_Y(p, u, T, phi, ph1, ph2)
+            return compute_specific_total_enthalpy(p, u, T, phi, ph1, ph2)
+
+        # Old-time quantities
+        props_old = _mix_props_with_phi(p_n, u_n, T_n, phi_old)
+        rho_old = props_old['rho']
+        h_old = _mix_h_with_phi(p_n, u_n, T_n, phi_old)
+
+        # Initialise iterate
+        p_k = p_n.copy()
+        u_k = u_n.copy()
+        T_k = T_n.copy()
+        phi_k = phi_old.copy()
+
+        # Face velocity for CICSAM (frozen from old-time velocity)
+        u_ext_vof = apply_ghost_velocity(u_n, bc_l, bc_r, 2)
+        u_face_vof = np.array([0.5 * (u_ext_vof[2 + f - 1] + u_ext_vof[2 + f])
+                                for f in range(N + 1)])
+
+        info_outer = {'converged': False, 'outer_iters': 0, 'inner_iters': []}
+
+        for niter in range(max_newton):
+            props_k = _mix_props_with_phi(p_k, u_k, T_k, phi_k)
+            rho_k_arr = props_k['rho']
+            zeta_k_arr = props_k['zeta_v']
+            phi_T_k_arr = props_k['phi_v']   # dρ/dT
+
+            if use_mass:
+                alpha_k = props_k['d_rho_dY']
+                d_rho_h_dphi_k = props_k['d_rho_h_dY']
+            else:
+                alpha_k = props_k['Delta_rho_psi']
+                d_rho_h_dphi_k = props_k['d_rho_h_dpsi']
+
+            h_k = _mix_h_with_phi(p_k, u_k, T_k, phi_k)
+
+            # ACID, MWI, face velocity
+            rho_face_acid = acid_face_density(
+                rho_k_arr, props_k['c_mix'], phi_k, bc_l, bc_r)
+            rho_star = harmonic_face_density(rho_k_arr, bc_l, bc_r)
+            e_diag = _momentum_diagonal(rho_k_arr, dx, dt)
+            d_hat = mwi_face_coeff_denner(e_diag, rho_star, dx, dt, bc_l, bc_r)
+            theta_k_face, u_bar_k = _compute_face_velocity(
+                u_k, p_k, d_hat, dx, bc_l, bc_r,
+                theta_old=theta_old, u_bar_old=u_bar_old,
+                rho_star_old=rho_star_old, dt=dt)
+
+            # CICSAM beta (frozen at current phi_k iterate)
+            phi_ext_arr = apply_ghost(phi_k, bc_l, bc_r, 2)
+            beta_k_face = cicsam_face_beta(phi_ext_arr, u_face_vof, dt, dx, n_ghost=2)
+
+            # Compression coefficients (frozen)
+            C_k_face = n_hat_face = None
+            if use_compress:
+                C_k_face, n_hat_face, _ = compute_compression_coefficients(
+                    phi_k, u_face_vof, dx, dt, bc_l, bc_r, n_ghost=2)
+
+            # Assemble 4N system
+            A_mat, b_vec = assemble_newton_4N(
+                N, dx, dt,
+                rho_old, u_n, h_old, p_n, phi_old,
+                rho_k_arr, u_k, h_k, p_k, T_k, phi_k,
+                zeta_k_arr, phi_T_k_arr, alpha_k, d_rho_h_dphi_k,
+                rho_face_acid, d_hat, theta_k_face,
+                beta_k_face, ph1, ph2, bc_l, bc_r,
+                mixing_type=mixing_type,
+                use_compress=use_compress,
+                C_k=C_k_face, n_hat_k=n_hat_face, u_face_vof=u_face_vof)
+
+            # Solve for increment
+            x_k = np.concatenate([p_k, u_k, T_k, phi_k])
+            r_vec = b_vec - A_mat.dot(x_k)
+            p_ref = float(max(np.mean(np.abs(p_k)), 1.0))
+            u_ref = float(max(np.mean(np.abs(u_k)), 1e-6))
+            T_ref = float(max(np.mean(np.abs(T_k)), 1.0))
+            dx_vec = solve_linear_system(A_mat, r_vec,
+                                         p_ref=p_ref, u_ref=u_ref,
+                                         h_ref=T_ref, phi_ref=1.0)
+
+            dp    = dx_vec[0:N]
+            du    = dx_vec[N:2*N]
+            dT    = dx_vec[2*N:3*N]
+            dphi  = dx_vec[3*N:4*N]
+
+            p_k   = np.maximum(p_k + dp, _P_FLOOR)
+            u_k   = u_k + du
+            T_k   = np.maximum(T_k + dT, _T_FLOOR)
+            phi_k = np.clip(phi_k + dphi, 0.0, 1.0)
+
+            # Convergence check
+            res = max(
+                np.max(np.abs(dp)) / p_ref,
+                np.max(np.abs(du)) / max(u_ref, 1e-6),
+                np.max(np.abs(dT)) / max(float(np.mean(np.abs(T_k))), 1.0),
+                np.max(np.abs(dphi)),
+            )
+            info_outer['outer_iters'] = niter + 1
+            if res < newton_tol:
+                info_outer['converged'] = True
+                break
+
+        # Convert phi back to psi for output
+        if use_mass:
+            from .vof_cn import Y_to_psi
+            psi_new = Y_to_psi(phi_k, rho1_s, rho2_s)
+        else:
+            psi_new = phi_k.copy()
+        psi_new = np.clip(psi_new, _EPS_PSI, 1.0 - _EPS_PSI)
+
+        vof_field_out = phi_k
+
+        props_new = _mix_props_with_phi(p_k, u_k, T_k, phi_k)
+        u_face_new, u_bar_k = _compute_face_velocity(u_k, p_k, d_hat, dx, bc_l, bc_r,
+                                                      theta_old=theta_old,
+                                                      u_bar_old=u_bar_old,
+                                                      rho_star_old=rho_star_old,
+                                                      dt=dt)
+
+        new_state = {
+            'p':       p_k,
+            'u':       u_k,
+            'T':       T_k,
+            'psi':     psi_new,
+            'rho':     props_new['rho'],
+            'E_total': props_new['E_total'],
+            'u_face':  u_face_new,
+        }
+        new_aux = {
+            'is_first_step':  False,
+            'bdf_order':      1,
+            'rho_nm1':        rho_old,
+            'rhoU_nm1':       rho_old * u_n,
+            'E_nm1':          props_old['E_total'],
+            'rho_face_acid':  rho_face_acid,
+            'dt_prev':        dt,
+            'theta_old':      u_face_new,
+            'u_bar_old':      u_bar_k,
+            'rho_star_old':   rho_star,
+        }
+        info = {
+            'converged':    info_outer['converged'],
+            'outer_iters':  info_outer['outer_iters'],
+            'inner_iters':  info_outer.get('inner_iters', []),
+            'picard_iters': info_outer['outer_iters'],
+            'residuals':    [],
+        }
+        return new_state, new_aux, info
+
+    # ----------------------------------------------------------------
+    # SEGREGATED PATH (coupled=False): original code below
+    # ----------------------------------------------------------------
 
     # ----------------------------------------------------------------
     # Step 1: VOF / mass-fraction explicit update

@@ -7,7 +7,7 @@ import numpy as np
 
 from .eos.base import compute_mixture_props
 from .boundary import apply_ghost, apply_ghost_velocity
-from .timestepping import compute_dt
+from .timestepping import compute_dt, compute_dt_acoustic
 from .eos.base import compute_specific_total_enthalpy
 from .solver_a import step as mode_a_step
 from .io_utils import make_snapshot, save_snapshots_npz, print_step_info
@@ -155,7 +155,6 @@ def run(case_params):
     # -----------------------------------------------------------------
     p0_ref    = float(np.mean(np.abs(case_params.get('p_init', [1e5]))))
     T0_ref    = float(np.mean(np.abs(case_params.get('T_init', [300.0]))))
-    u0_ref    = float(np.mean(np.abs(case_params.get('u_init', [1.0])))) + 1e-6
     dt_init   = None          # set after first step
     diverged  = False
     diverge_reason = ''
@@ -165,12 +164,21 @@ def run(case_params):
     _rho0_ref  = float(np.mean(state['rho']))
     c0_ref     = float(np.sqrt(_gamma_eff * max(p0_ref, 1.0) / max(_rho0_ref, 1e-10)))
 
+    # Velocity reference: use max(mean|u|, sound_speed) to handle u₀=0 (shock tube)
+    _u0_raw   = float(np.mean(np.abs(case_params.get('u_init', [1.0]))))
+    u0_ref    = max(_u0_raw, c0_ref) + 1e-6
+
     while t < t_end - 1e-14 * t_end and (max_iteration is None or step_num < max_iteration):
         # Compute dt
         if dt_fixed is not None:
             dt = dt_fixed
         else:
-            dt = compute_dt(state['u'], dx, CFL)
+            # Acoustic CFL: dt = CFL * dx / max(|u| + c)
+            # Required for shock tubes and wave propagation problems.
+            c_mix = compute_mixture_props(
+                state['p'], state['u'], state['T'],
+                np.clip(state['psi'], 0.01, 0.99), ph1, ph2)['c_mix']
+            dt = compute_dt_acoustic(state['u'], c_mix, dx, CFL)
 
         # Don't overshoot t_end
         dt = min(dt, t_end - t)

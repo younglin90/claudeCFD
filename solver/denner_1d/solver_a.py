@@ -339,47 +339,68 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
         u_face_vof = np.array([0.5 * (u_ext_vof[2 + f - 1] + u_ext_vof[2 + f])
                                 for f in range(N + 1)])
 
-        # --- Step A: Implicit VOF update (replaces explicit CICSAM) ---
-        phi_ext_arr = apply_ghost(phi_n, bc_l, bc_r, 2)
-        beta_k_face = cicsam_face_beta(phi_ext_arr, u_face_vof, dt, dx, n_ghost=2)
-
-        import scipy.sparse as sp_vof
-        A_vof = sp_vof.lil_matrix((N, N), dtype=float)
-        b_vof = np.zeros(N)
-        is_per = (bc_l == 'periodic')
-
-        for i in range(N):
-            fR = i + 1; fL = i
-            iL_v = (N - 1 if is_per else 0) if (fL - 1) < 0 else (fL - 1)
-            iR_v = (0 if is_per else N - 1) if fR >= N else fR
-            tR_v = u_face_vof[fR]; tL_v = u_face_vof[fL]
-            bR = float(beta_k_face[fR]); bL = float(beta_k_face[fL])
-
-            A_vof[i, i] += 1.0 / dt
-            b_vof[i]    += phi_n[i] / dt
-
-            if tR_v >= 0:
-                A_vof[i, i]    += (1.0 - bR) * tR_v / dx
-                A_vof[i, iR_v] += bR * tR_v / dx
-            else:
-                A_vof[i, iR_v] += (1.0 - bR) * tR_v / dx
-                A_vof[i, i]    += bR * tR_v / dx
-            if tL_v >= 0:
-                A_vof[i, iL_v] -= (1.0 - bL) * tL_v / dx
-                A_vof[i, i]    -= bL * tL_v / dx
-            else:
-                A_vof[i, i]    -= (1.0 - bL) * tL_v / dx
-                A_vof[i, iL_v] -= bL * tL_v / dx
-            # Source: -ψ·∇·θ (volume fraction only; mass fraction has no source)
-            if not use_mass:
-                A_vof[i, i] -= (tR_v - tL_v) / dx
-
-        import scipy.sparse.linalg as spla_vof
-        phi_new = spla_vof.spsolve(A_vof.tocsr(), b_vof)
-        if np.all(np.isfinite(phi_new)):
-            phi_k = np.clip(phi_new, 0.0, 1.0)
+        # --- Step A: VOF update ---
+        # Volume fraction: implicit Newton-CICSAM (no CFL limit, linear mixing → E conserved)
+        # Mass fraction: explicit CICSAM (sub-stepping, sharp → E conserved via ∫Y conservation)
+        # Reason: backward Euler implicit VOF is inherently diffusive. With linear mixing
+        # (volume fraction) this diffusion doesn't affect mean energy. With harmonic mixing
+        # (mass fraction) the diffusion is amplified nonlinearly → energy not conserved.
+        if use_mass:
+            # Explicit CICSAM for mass fraction (same as segregated)
+            from .eos.base import compute_phase_props as _cpp
+            _r1 = float(_cpp(np.mean(p_n), np.mean(T_n), ph1)['rho'])
+            _r2 = float(_cpp(np.mean(p_n), np.mean(T_n), ph2)['rho'])
+            phi_k, _, _ = mass_fraction_step(
+                psi_n, u_n, dx, dt, bc_l, bc_r, _r1, _r2,
+                use_compress=use_compress, return_Y=True)
+            phi_k = np.clip(phi_k, 0.0, 1.0)
         else:
+            # Implicit Newton-CICSAM for volume fraction
+            from .interface.cicsam import cicsam_face_jacobian
+            import scipy.sparse as sp_vof
+            import scipy.sparse.linalg as spla_vof
+
             phi_k = phi_n.copy()
+            max_vof_iter = cfg.get('max_vof_iter', 10)
+
+            for vof_iter in range(max_vof_iter):
+                phi_ext = apply_ghost(phi_k, bc_l, bc_r, 2)
+                Yf, jD, jA, jUU, iD, iA, iUU = cicsam_face_jacobian(
+                    phi_ext, u_face_vof, dt, dx, n_ghost=2)
+
+                A_vof = sp_vof.lil_matrix((N, N), dtype=float)
+                b_vof = np.zeros(N)
+
+                for i in range(N):
+                    fR = i + 1; fL = i
+                    uR = u_face_vof[fR]; uL = u_face_vof[fL]
+
+                    A_vof[i, i] += 1.0 / dt
+                    b_vof[i]    += phi_n[i] / dt
+
+                    # Right face: Newton CICSAM
+                    A_vof[i, iD[fR]]  += jD[fR] * uR / dx
+                    A_vof[i, iA[fR]]  += jA[fR] * uR / dx
+                    A_vof[i, iUU[fR]] += jUU[fR] * uR / dx
+                    b_vof[i] -= (Yf[fR] - jD[fR]*phi_k[iD[fR]] - jA[fR]*phi_k[iA[fR]]
+                                 - jUU[fR]*phi_k[iUU[fR]]) * uR / dx
+                    # Left face
+                    A_vof[i, iD[fL]]  -= jD[fL] * uL / dx
+                    A_vof[i, iA[fL]]  -= jA[fL] * uL / dx
+                    A_vof[i, iUU[fL]] -= jUU[fL] * uL / dx
+                    b_vof[i] += (Yf[fL] - jD[fL]*phi_k[iD[fL]] - jA[fL]*phi_k[iA[fL]]
+                                 - jUU[fL]*phi_k[iUU[fL]]) * uL / dx
+                    # Source: -ψ·∇·u
+                    A_vof[i, i] -= (uR - uL) / dx
+
+                phi_new = spla_vof.spsolve(A_vof.tocsr(), b_vof)
+                if not np.all(np.isfinite(phi_new)):
+                    break
+                phi_new = np.clip(phi_new, 0.0, 1.0)
+                if np.max(np.abs(phi_new - phi_k)) < 1e-10:
+                    phi_k = phi_new
+                    break
+                phi_k = phi_new
 
         if use_compress:
             from .vof_cn import _compression_flux_bounded

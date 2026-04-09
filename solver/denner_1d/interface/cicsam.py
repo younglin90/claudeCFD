@@ -79,3 +79,64 @@ def cicsam_face(psi_ext, u_face, dt, dx, n_ghost=2):
     # Clip to physical range
     psi_face = np.clip(psi_face, 0.0, 1.0)
     return psi_face
+
+
+def cicsam_face_beta(psi_ext, u_face, dt, dx, n_ghost=2):
+    """
+    Compute CICSAM blending factor beta at each face.
+    phi_face = (1 - beta) * phi_Donor + beta * phi_Acceptor
+
+    Caller determines donor/acceptor from sign of u_face:
+      u >= 0: donor=left, acceptor=right
+      u <  0: donor=right, acceptor=left
+
+    Returns beta : ndarray (N+1,)
+    """
+    ng = n_ghost
+    N = len(u_face) - 1
+    beta = np.zeros(N + 1)
+
+    for f in range(N + 1):
+        uf = u_face[f]
+
+        if uf >= 0.0:
+            i_D  = ng + f - 1   # donor (left)
+            i_A  = ng + f       # acceptor (right)
+            i_UU = ng + f - 2   # upupwind
+        else:
+            i_D  = ng + f       # donor (right)
+            i_A  = ng + f - 1   # acceptor (left)
+            i_UU = ng + f + 1   # upupwind
+
+        psi_D  = psi_ext[i_D]
+        psi_A  = psi_ext[i_A]
+        psi_UU = psi_ext[i_UU]
+
+        # If acceptor == donor, purely upwind → beta=0
+        if abs(psi_A - psi_D) < 1e-10:
+            beta[f] = 0.0
+            continue
+
+        # Compute the CICSAM face value using same Hyper-C logic
+        denom = psi_A - psi_UU
+        if abs(denom) < 1e-10:
+            # Uniform region: upwind → phi_face = phi_D → beta=0
+            beta[f] = 0.0
+            continue
+
+        psi_tilde_D = (psi_D - psi_UU) / denom
+        Co_f = abs(uf) * dt / dx
+
+        if 0.0 <= psi_tilde_D <= 1.0:
+            psi_tilde_f = min(psi_tilde_D / max(Co_f, 1e-10), 1.0)
+        else:
+            psi_tilde_f = psi_tilde_D
+
+        psi_face_val = psi_UU + psi_tilde_f * denom
+        psi_face_val = float(np.clip(psi_face_val, 0.0, 1.0))
+
+        # beta = (phi_face - phi_D) / (phi_A - phi_D)
+        raw_beta = (psi_face_val - psi_D) / (psi_A - psi_D)
+        beta[f] = float(np.clip(raw_beta, 0.0, 1.0))
+
+    return beta

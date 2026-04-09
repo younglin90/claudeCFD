@@ -146,6 +146,7 @@ def compute_mixture_props(p, u, T, psi, ph1, ph2):
     h1 = props1['h']
     h2 = props2['h']
     rho_h = psi * rho1 * h1 + (1.0 - psi) * rho2 * h2
+    d_rho_h_dpsi = rho1 * h1 - rho2 * h2  # d(ρh_static)/dψ
 
     # d(ρh)/dp = ψ*(ζ₁*h₁ + ρ₁*b₁) + (1-ψ)*(ζ₂*h₂ + ρ₂*b₂)
     # where ∂h/∂p|_T = b  (NASG: h = γ*κᵥ*T + b*p + η → ∂h/∂p=b)
@@ -184,6 +185,7 @@ def compute_mixture_props(p, u, T, psi, ph1, ph2):
         'rho_h':          rho_h,
         'd_rho_h_dp_v':   d_rho_h_dp_v,
         'd_rho_h_dT_v':   d_rho_h_dT_v,
+        'd_rho_h_dpsi':   d_rho_h_dpsi,
     }
 
 
@@ -244,6 +246,8 @@ def compute_mixture_props_Y(p, u, T, Y, ph1, ph2):
     h2 = props2['h']
     h_mix = Y * h1 + (1.0 - Y) * h2             # mass-weighted static enthalpy
     rho_h = rho * h_mix
+    d_rho_dY = -rho**2 * (1.0 / (rho1 + 1e-300) - 1.0 / (rho2 + 1e-300))
+    d_rho_h_dY = rho * (h1 - h2) + d_rho_dY * h_mix
 
     b1 = float(ph1['b'])
     b2 = float(ph2['b'])
@@ -283,6 +287,8 @@ def compute_mixture_props_Y(p, u, T, Y, ph1, ph2):
         'rho_h':          rho_h,
         'd_rho_h_dp_v':   d_rho_h_dp_v,
         'd_rho_h_dT_v':   d_rho_h_dT_v,
+        'd_rho_dY':       d_rho_dY,
+        'd_rho_h_dY':     d_rho_h_dY,
     }
 
 

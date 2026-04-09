@@ -34,38 +34,95 @@ def _compute_K(psi, ph1, ph2, p, T):
     return (Z_b - Z_a) / np.maximum(denom, eps)
 
 
-def _compression_flux(phi, phi_ext, u_face, dx, n_ghost):
+def _compression_flux_bounded(phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost):
     """
-    Anti-diffusion compression flux: ∇·(u_c · φ(1-φ) · n̂).
+    Conservative, bounded compression flux using Zalesak FCT limiting.
 
-    u_c = |u_face| (compressive velocity magnitude).
-    n̂ = sign(∇φ) (interface normal direction, 1D).
-    φ(1-φ) is nonzero only at the interface → sharpens the profile.
+    Raw flux: F = |u_face| · φ(1-φ) · sign(∇φ).
+    Zalesak limiting ensures φ stays in [0, 1] while conserving ∫φ.
+
+    Without limiting, compression pushes cells already at φ=1 above 1.0,
+    and np.clip then destroys mass (∫φ drops each step).
     """
     N = len(phi)
     ng = n_ghost
-    # Interface normal: sign of gradient
+    is_per = (bc_l == 'periodic')
+    phi_ext = apply_ghost(phi, bc_l, bc_r, ng)
+
+    # --- Raw compression fluxes at faces ---
     grad_phi = np.zeros(N + 1)
     for f in range(N + 1):
         grad_phi[f] = (phi_ext[ng + f] - phi_ext[ng + f - 1]) / dx
     n_hat = np.sign(grad_phi)
-    # Face φ (upwind based on compression direction)
-    phi_face_c = np.empty(N + 1)
+
+    raw_flux = np.zeros(N + 1)
     for f in range(N + 1):
         iL = ng + f - 1
         iR = ng + f
         if n_hat[f] * abs(u_face[f]) >= 0:
-            phi_face_c[f] = phi_ext[iL]
+            phi_f = phi_ext[iL]
         else:
-            phi_face_c[f] = phi_ext[iR]
-    # Compression flux: |u|·φ(1-φ)·n̂
-    comp_flux = np.abs(u_face) * phi_face_c * (1.0 - phi_face_c) * n_hat
-    return (comp_flux[1:] - comp_flux[:-1]) / dx
+            phi_f = phi_ext[iR]
+        raw_flux[f] = abs(u_face[f]) * phi_f * (1.0 - phi_f) * n_hat[f]
+
+    # --- Zalesak FCT limiting ---
+    # Per-cell: total positive / negative contributions from compression
+    P_plus = np.zeros(N)
+    P_minus = np.zeros(N)
+
+    for i in range(N):
+        # Right face: cell i loses/gains by -(F_R/dx)*dt
+        contrib_R = -raw_flux[i + 1] / dx * dt_sub
+        if contrib_R > 0:
+            P_plus[i] += contrib_R
+        else:
+            P_minus[i] -= contrib_R
+        # Left face: cell i loses/gains by +(F_L/dx)*dt
+        contrib_L = raw_flux[i] / dx * dt_sub
+        if contrib_L > 0:
+            P_plus[i] += contrib_L
+        else:
+            P_minus[i] -= contrib_L
+
+    Q_plus = np.maximum(1.0 - phi, 0.0)
+    Q_minus = np.maximum(phi, 0.0)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        R_plus = np.where(P_plus > 1e-300, np.minimum(Q_plus / P_plus, 1.0), 1.0)
+        R_minus = np.where(P_minus > 1e-300, np.minimum(Q_minus / P_minus, 1.0), 1.0)
+
+    # Limit each face flux
+    limited_flux = np.zeros(N + 1)
+    for f in range(N + 1):
+        iL_cell = f - 1
+        iR_cell = f
+        if is_per:
+            if iL_cell < 0:
+                iL_cell = N - 1
+            if iR_cell >= N:
+                iR_cell = 0
+        else:
+            if iL_cell < 0:
+                iL_cell = 0
+            if iR_cell >= N:
+                iR_cell = N - 1
+
+        if raw_flux[f] > 0:
+            # Positive flux: outflow from L (decreases φ_L), inflow to R (increases φ_R)
+            C = min(R_minus[iL_cell], R_plus[iR_cell])
+        elif raw_flux[f] < 0:
+            # Negative flux: inflow to L (increases φ_L), outflow from R (decreases φ_R)
+            C = min(R_plus[iL_cell], R_minus[iR_cell])
+        else:
+            C = 1.0
+        limited_flux[f] = C * raw_flux[f]
+
+    return (limited_flux[1:] - limited_flux[:-1]) / dx
 
 
 def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost,
                  ph1=None, ph2=None, p=None, T=None,
-                 use_compress=False):
+                 use_compress=False, bc_l='periodic', bc_r='periodic'):
     """
     Single explicit VOF sub-step (Co ≤ 1 guaranteed by caller).
     """
@@ -86,9 +143,11 @@ def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost,
 
     psi_new = psi - dt_sub * flux_div + dt_sub * source
 
-    # Anti-diffusion compression: ∇·(|u|·ψ(1-ψ)·n̂)
+    # Anti-diffusion compression with Zalesak FCT limiting (conservative + bounded)
+    # Applied to POST-ADVECTION field so the limiter sees the correct bounds.
     if use_compress:
-        psi_new -= dt_sub * _compression_flux(psi, psi_ext, u_face, dx, n_ghost)
+        psi_new -= dt_sub * _compression_flux_bounded(
+            psi_new, u_face, dx, dt_sub, bc_l, bc_r, n_ghost)
 
     psi_new = np.clip(psi_new, 0.0, 1.0)
     return psi_new, psi_face
@@ -152,7 +211,8 @@ def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2,
         flux_L = Y_face[:-1] * u_face[:-1]
         Y_cur = Y_cur - dt_sub * (flux_R - flux_L) / dx
         if use_compress:
-            Y_cur -= dt_sub * _compression_flux(Y_cur, Y_ext, u_face, dx, ng)
+            Y_cur -= dt_sub * _compression_flux_bounded(
+                Y_cur, u_face, dx, dt_sub, bc_l, bc_r, ng)
         Y_cur = np.clip(Y_cur, 0.0, 1.0)
 
         psi_face_accum += Y_to_psi(Y_face, rho1, rho2)
@@ -228,7 +288,7 @@ def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2,
         psi_cur, psi_face_sub = _vof_substep(
             psi_cur, u_face, psi_ext, dt_sub, dx, ng,
             ph1=ph1, ph2=ph2, p=p, T=T,
-            use_compress=use_compress)
+            use_compress=use_compress, bc_l=bc_l, bc_r=bc_r)
         psi_face_accum += psi_face_sub
 
     # Time-averaged psi_face for mass-flux consistency with the full dt

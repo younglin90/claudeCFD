@@ -1,17 +1,19 @@
 # solver/denner_1d/eos/base.py
 # Ref: DENNER_SCHEME.md § 2, Eq.(5)-(9)
 #
-# NASG EOS: vectorized forward evaluation (p, T) -> thermodynamic properties.
-# Ideal gas is NASG with pinf=0, b=0, eta=0.
+# General EOS: vectorized forward evaluation (p, T) -> thermodynamic properties.
+# Delegates to EOS class objects via create_eos() factory.
+# Backward compatible: ph may be a dict (NASG parameters) or an EOS instance.
 #
-# Phase dict keys: gamma, pinf, b, kv, eta
+# Phase dict keys (NASG): gamma, pinf, b, kv, eta
 
 import numpy as np
+from .eos_class import create_eos
 
 
 def compute_phase_props(p, T, ph):
     """
-    Compute NASG phase thermodynamic properties.
+    Compute phase thermodynamic properties via EOS class.
 
     Parameters
     ----------
@@ -19,8 +21,9 @@ def compute_phase_props(p, T, ph):
         Pressure [Pa], scalar or ndarray.
     T : array_like
         Temperature [K], scalar or ndarray.
-    ph : dict
-        EOS parameters with keys: gamma, pinf, b, kv, eta.
+    ph : dict or EOS
+        EOS parameters (dict with keys: gamma, pinf, b, kv, eta)
+        or an EOS instance directly.
 
     Returns
     -------
@@ -37,39 +40,16 @@ def compute_phase_props(p, T, ph):
     p = np.asarray(p, dtype=float)
     T = np.asarray(T, dtype=float)
 
-    gamma = float(ph['gamma'])
-    pinf  = float(ph['pinf'])
-    b     = float(ph['b'])
-    kv    = float(ph['kv'])
-    eta   = float(ph['eta'])
+    eos = create_eos(ph)
 
-    # Eq. (5): A_k = kv*T*(gamma-1) + b*(p+pinf)
-    A = kv * T * (gamma - 1.0) + b * (p + pinf)
-
-    # rho_k = (p + pinf) / A   [Eq. 5]
-    rho = (p + pinf) / A
-
-    # co-volume factor
-    one_minus_b_rho = 1.0 - b * rho  # = kv*T*(gamma-1)/A
-
-    # speed of sound [Eq. 7]
-    c = np.sqrt(gamma * (p + pinf) / (rho * one_minus_b_rho + 1e-300))
-
-    # specific enthalpy [Eq. 7]
-    h = gamma * kv * T + b * p + eta
-
-    # internal energy density E_k = rho*(kv*T + eta) + pinf*(1 - rho*b)/(gamma-1)  [Eq. 6]
-    E = rho * (kv * T + eta) + pinf * one_minus_b_rho / (gamma - 1.0)
-
-    # TDU derivatives [Eq. 8a, 8b]
-    A2 = A * A + 1e-300
-    zeta = kv * T * (gamma - 1.0) / A2           # ∂ρ/∂p |_T
-    phi  = -(p + pinf) * kv * (gamma - 1.0) / A2  # ∂ρ/∂T |_p
-
-    # Energy derivatives [Eq. 9a, 9b]
-    coef = kv * T + eta - pinf * b / (gamma - 1.0)
-    dEdp = coef * zeta
-    dEdT = rho * kv + coef * phi
+    rho  = eos.rho(p, T)
+    c    = eos.c(p, T)
+    h    = eos.h(p, T)
+    E    = eos.e_vol(p, T)
+    zeta = eos.drho_dp(p, T)
+    phi  = eos.drho_dT(p, T)
+    dEdp = eos.de_vol_dp(p, T)
+    dEdT = eos.de_vol_dT(p, T)
 
     return {
         'rho':  rho,
@@ -90,8 +70,8 @@ def compute_mixture_props(p, u, T, psi, ph1, ph2):
     Parameters
     ----------
     p, u, T : ndarray (N,)
-    psi : ndarray (N,)  -- volume fraction of phase 1
-    ph1, ph2 : dict     -- EOS parameters for each phase
+    psi : ndarray (N,)       -- volume fraction of phase 1
+    ph1, ph2 : dict or EOS   -- EOS parameters for each phase
 
     Returns
     -------
@@ -110,8 +90,10 @@ def compute_mixture_props(p, u, T, psi, ph1, ph2):
         Delta_rho_psi      : rho1 - rho2
         dEdpsi             : ∂E_total/∂psi
     """
-    props1 = compute_phase_props(p, T, ph1)
-    props2 = compute_phase_props(p, T, ph2)
+    eos1 = create_eos(ph1)
+    eos2 = create_eos(ph2)
+    props1 = compute_phase_props(p, T, eos1)
+    props2 = compute_phase_props(p, T, eos2)
 
     rho1 = props1['rho']
     rho2 = props2['rho']
@@ -148,19 +130,17 @@ def compute_mixture_props(p, u, T, psi, ph1, ph2):
     rho_h = psi * rho1 * h1 + (1.0 - psi) * rho2 * h2
     d_rho_h_dpsi = rho1 * h1 - rho2 * h2  # d(ρh_static)/dψ
 
-    # d(ρh)/dp = ψ*(ζ₁*h₁ + ρ₁*b₁) + (1-ψ)*(ζ₂*h₂ + ρ₂*b₂)
-    # where ∂h/∂p|_T = b  (NASG: h = γ*κᵥ*T + b*p + η → ∂h/∂p=b)
-    b1 = float(ph1['b'])
-    b2 = float(ph2['b'])
-    d_rho_h_dp_v = (psi * (props1['zeta'] * h1 + rho1 * b1) +
-                    (1.0 - psi) * (props2['zeta'] * h2 + rho2 * b2))
+    # d(ρh)/dp = ψ*(ζ₁*h₁ + ρ₁*∂h₁/∂p) + (1-ψ)*(ζ₂*h₂ + ρ₂*∂h₂/∂p)
+    dh_dp1 = eos1.dh_dp(p, T)
+    dh_dp2 = eos2.dh_dp(p, T)
+    d_rho_h_dp_v = (psi * (props1['zeta'] * h1 + rho1 * dh_dp1) +
+                    (1.0 - psi) * (props2['zeta'] * h2 + rho2 * dh_dp2))
 
-    # d(ρh)/dT = ψ*(φ₁*h₁ + ρ₁*γ₁*κᵥ₁) + (1-ψ)*(φ₂*h₂ + ρ₂*γ₂*κᵥ₂)
-    # where ∂h/∂T|_p = γ*κᵥ  (NASG: h = γ*κᵥ*T + b*p + η → ∂h/∂T=γ*κᵥ)
-    g1kv1 = float(ph1['gamma']) * float(ph1['kv'])
-    g2kv2 = float(ph2['gamma']) * float(ph2['kv'])
-    d_rho_h_dT_v = (psi * (props1['phi'] * h1 + rho1 * g1kv1) +
-                    (1.0 - psi) * (props2['phi'] * h2 + rho2 * g2kv2))
+    # d(ρh)/dT = ψ*(φ₁*h₁ + ρ₁*∂h₁/∂T) + (1-ψ)*(φ₂*h₂ + ρ₂*∂h₂/∂T)
+    cp1 = eos1.cp(p, T)
+    cp2 = eos2.cp(p, T)
+    d_rho_h_dT_v = (psi * (props1['phi'] * h1 + rho1 * cp1) +
+                    (1.0 - psi) * (props2['phi'] * h2 + rho2 * cp2))
 
     return {
         'rho1': rho1, 'rho2': rho2,
@@ -196,15 +176,17 @@ def compute_mixture_props_Y(p, u, T, Y, ph1, ph2):
     Parameters
     ----------
     p, u, T : ndarray (N,)
-    Y       : ndarray (N,)  -- mass fraction of phase 1
-    ph1, ph2 : dict         -- EOS parameters for each phase
+    Y       : ndarray (N,)       -- mass fraction of phase 1
+    ph1, ph2 : dict or EOS       -- EOS parameters for each phase
 
     Returns
     -------
     dict with same keys as compute_mixture_props, plus 'rho1', 'rho2'.
     """
-    props1 = compute_phase_props(p, T, ph1)
-    props2 = compute_phase_props(p, T, ph2)
+    eos1 = create_eos(ph1)
+    eos2 = create_eos(ph2)
+    props1 = compute_phase_props(p, T, eos1)
+    props2 = compute_phase_props(p, T, eos2)
 
     rho1 = props1['rho']
     rho2 = props2['rho']
@@ -249,20 +231,20 @@ def compute_mixture_props_Y(p, u, T, Y, ph1, ph2):
     d_rho_dY = -rho**2 * (1.0 / (rho1 + 1e-300) - 1.0 / (rho2 + 1e-300))
     d_rho_h_dY = rho * (h1 - h2) + d_rho_dY * h_mix
 
-    b1 = float(ph1['b'])
-    b2 = float(ph2['b'])
-    g1kv1 = float(ph1['gamma']) * float(ph1['kv'])
-    g2kv2 = float(ph2['gamma']) * float(ph2['kv'])
+    dh_dp1 = eos1.dh_dp(p, T)
+    dh_dp2 = eos2.dh_dp(p, T)
+    cp1    = eos1.cp(p, T)
+    cp2    = eos2.cp(p, T)
 
-    # d(ρh)/dp: ρ² · (Y·ζ₁/ρ₁² + (1-Y)·ζ₂/ρ₂²) · h_mix + ρ·(Y·b₁ + (1-Y)·b₂)
+    # d(ρh)/dp: ρ² · (Y·ζ₁/ρ₁² + (1-Y)·ζ₂/ρ₂²) · h_mix + ρ·(Y·∂h₁/∂p + (1-Y)·∂h₂/∂p)
     zeta_Y = rho * rho * (Y * props1['zeta'] / (rho1 * rho1 + 1e-300)
                           + (1.0 - Y) * props2['zeta'] / (rho2 * rho2 + 1e-300))
-    d_rho_h_dp_v = zeta_Y * h_mix + rho * (Y * b1 + (1.0 - Y) * b2)
+    d_rho_h_dp_v = zeta_Y * h_mix + rho * (Y * dh_dp1 + (1.0 - Y) * dh_dp2)
 
-    # d(ρh)/dT: ρ² · (Y·φ₁/ρ₁² + (1-Y)·φ₂/ρ₂²) · h_mix + ρ·(Y·γ₁κᵥ₁ + (1-Y)·γ₂κᵥ₂)
+    # d(ρh)/dT: ρ² · (Y·φ₁/ρ₁² + (1-Y)·φ₂/ρ₂²) · h_mix + ρ·(Y·cp₁ + (1-Y)·cp₂)
     phi_Y = rho * rho * (Y * props1['phi'] / (rho1 * rho1 + 1e-300)
                          + (1.0 - Y) * props2['phi'] / (rho2 * rho2 + 1e-300))
-    d_rho_h_dT_v = phi_Y * h_mix + rho * (Y * g1kv1 + (1.0 - Y) * g2kv2)
+    d_rho_h_dT_v = phi_Y * h_mix + rho * (Y * cp1 + (1.0 - Y) * cp2)
 
     return {
         'rho1': rho1, 'rho2': rho2,
@@ -353,15 +335,16 @@ def recover_T_from_h_Y(h_total, u, p, Y, ph1, ph2, T_guess=None, tol=1e-10, max_
     else:
         T = np.asarray(T_guess, dtype=float).copy()
 
-    g1kv1 = float(ph1['gamma']) * float(ph1['kv'])
-    g2kv2 = float(ph2['gamma']) * float(ph2['kv'])
+    # Create EOS objects once outside the Newton loop
+    eos1 = create_eos(ph1)
+    eos2 = create_eos(ph2)
 
     for _ in range(max_iter):
-        props1 = compute_phase_props(p, T, ph1)
-        props2 = compute_phase_props(p, T, ph2)
+        props1 = compute_phase_props(p, T, eos1)
+        props2 = compute_phase_props(p, T, eos2)
         h_static = Y * props1['h'] + (1.0 - Y) * props2['h']
-        # dh_static/dT = Y*γ₁κᵥ₁ + (1-Y)*γ₂κᵥ₂
-        dh_dT = Y * g1kv1 + (1.0 - Y) * g2kv2
+        # dh_static/dT = Y*cp₁ + (1-Y)*cp₂  (general EOS)
+        dh_dT = Y * eos1.cp(p, T) + (1.0 - Y) * eos2.cp(p, T)
 
         residual = h_static - h_target
         dT = -residual / (dh_dT + 1e-300)

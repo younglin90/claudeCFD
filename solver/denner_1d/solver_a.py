@@ -651,12 +651,23 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
     else:
         phi_k_arr = None
 
-    info_outer = {'converged': False, 'outer_iters': 0, 'inner_iters': []}
+    # Single Newton loop: Full Newton (p, u, T/h) — no inner/outer split
+    # Picard (ρ̃ frozen) removed; ρ̃ is now implicit in assemble_newton_3N
+    max_newton = cfg.get('max_newton', max_outer * max_inner)
+    newton_tol = cfg.get('newton_tol', inner_tol)
+    info_outer = {'converged': False, 'outer_iters': 0, 'inner_iters': [0]}
 
-    for outer in range(max_outer):
+    tv = 'T' if variable_set == 'puT' else 'h'
+
+    for niter in range(max_newton):
         props_k_iter = _mix_props(p_k, u_k, T_k)
         rho_k   = props_k_iter['rho']
         zeta_k  = props_k_iter['zeta_v']
+        if variable_set == 'puT':
+            phi_k_arr = props_k_iter['phi_v']
+
+        # Update h_k for assembly consistency
+        h_k = _mix_h(p_k, u_k, T_k)
 
         # ACID face density and MWI coefficient
         rho_face_acid = acid_face_density(
@@ -670,75 +681,8 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
             theta_old=theta_old, u_bar_old=u_bar_old,
             rho_star_old=rho_star_old, dt=dt)
 
-        # ---- Inner barotropic loop (T fixed, h/T frozen) ----
-        inner_iters = 0
-        third_block = T_k if variable_set == 'puT' else h_k
-        for inner in range(max_inner):
-            A, b_vec = assemble_newton_3N(
-                N, dx, dt,
-                rho_old, u_n, h_old, p_n,
-                rho_k, u_k, h_k, p_k, T_k, vof_field,
-                zeta_k,
-                rho_face_acid, d_hat, theta_k,
-                ph1, ph2, bc_l, bc_r,
-                freeze_h=True,
-                third_var=variable_set[-1] if variable_set == 'puT' else 'h',
-                phi_k=phi_k_arr,
-                mixing_type=mixing_type,
-            )
-
-            x_k = np.concatenate([p_k, u_k, third_block])
-            r   = b_vec - A.dot(x_k)
-
-            p_ref = float(max(np.mean(np.abs(p_k)), 1.0))
-            u_ref = float(max(np.mean(np.abs(u_k)), 1e-6))
-            h_ref = float(max(np.mean(np.abs(third_block)), 1.0))
-            dx_vec = solve_linear_system(A, r, p_ref=p_ref, u_ref=u_ref, h_ref=h_ref)
-
-            dp = dx_vec[0:N]
-            du = dx_vec[N:2*N]
-
-            p_k = np.maximum(p_k + dp, _P_FLOOR)
-            u_k = u_k + du
-
-            # Update face velocity with new p, u (no transient correction in inner loop)
-            theta_k, u_bar_k = _compute_face_velocity(u_k, p_k, d_hat, dx, bc_l, bc_r,
-                                                       theta_old=theta_old,
-                                                       u_bar_old=u_bar_old,
-                                                       rho_star_old=rho_star_old,
-                                                       dt=dt)
-
-            res_p = np.max(np.abs(dp)) / p_ref
-            res_u = np.max(np.abs(du)) / max(u_ref, 1e-6)
-            inner_res = max(res_p, res_u)
-            inner_iters += 1
-
-            if inner_res < inner_tol:
-                break
-
-        info_outer['inner_iters'].append(inner_iters)
-
-        # ---- Outer: full energy solve ----
-        props_k_outer = _mix_props(p_k, u_k, T_k)
-        rho_k         = props_k_outer['rho']
-        zeta_k        = props_k_outer['zeta_v']
-        if variable_set == 'puT':
-            phi_k_arr = props_k_outer['phi_v']
-        rho_face_acid = acid_face_density(
-            rho_k, props_k_outer['c_mix'], vof_field, bc_l, bc_r)
-        rho_star      = harmonic_face_density(rho_k, bc_l, bc_r)
-        e_diag        = _momentum_diagonal(rho_k, dx, dt)
-        d_hat         = mwi_face_coeff_denner(e_diag, rho_star, dx, dt, bc_l, bc_r)
-        theta_k, u_bar_k = _compute_face_velocity(
-            u_k, p_k, d_hat, dx, bc_l, bc_r,
-            theta_old=theta_old, u_bar_old=u_bar_old,
-            rho_star_old=rho_star_old, dt=dt)
-
-        # Update h_k from current (p, u, T) for assembly consistency
-        h_k = _mix_h(p_k, u_k, T_k)
-
-        tv = 'T' if variable_set == 'puT' else 'h'
-        A_full, b_full = assemble_newton_3N(
+        # Full 3N system: (p, u, T/h) solved simultaneously
+        A_mat, b_vec = assemble_newton_3N(
             N, dx, dt,
             rho_old, u_n, h_old, p_n,
             rho_k, u_k, h_k, p_k, T_k, vof_field,
@@ -752,31 +696,36 @@ def step(state, ph1, ph2, dx, dt, bc_l, bc_r, aux, cfg=None):
         )
 
         third_block = T_k if variable_set == 'puT' else h_k
-        x_k_full = np.concatenate([p_k, u_k, third_block])
-        r_full   = b_full - A_full.dot(x_k_full)
+        x_k = np.concatenate([p_k, u_k, third_block])
+        r   = b_vec - A_mat.dot(x_k)
+
         p_ref = float(max(np.mean(np.abs(p_k)), 1.0))
         u_ref = float(max(np.mean(np.abs(u_k)), 1e-6))
         h_ref = float(max(np.mean(np.abs(third_block)), 1.0))
-        dx_full = solve_linear_system(A_full, r_full, p_ref=p_ref, u_ref=u_ref, h_ref=h_ref)
+        dx_vec = solve_linear_system(A_mat, r, p_ref=p_ref, u_ref=u_ref, h_ref=h_ref)
 
-        d3 = dx_full[2*N:3*N]
+        dp = dx_vec[0:N]
+        du = dx_vec[N:2*N]
+        d3 = dx_vec[2*N:3*N]
+
+        p_k = np.maximum(p_k + dp, _P_FLOOR)
+        u_k = u_k + du
+
         if variable_set == 'puT':
-            T_k_new = np.maximum(T_k + d3, _T_FLOOR)
+            T_k = np.maximum(T_k + d3, _T_FLOOR)
         else:
             h_k = h_k + d3
-            T_k_new = _recover_T(h_k, u_k, p_k, T_k)
-            T_k_new = np.maximum(T_k_new, _T_FLOOR)
+            T_k = _recover_T(h_k, u_k, p_k, T_k)
+            T_k = np.maximum(T_k, _T_FLOOR)
 
-        # Outer convergence: relative density change
-        rho_k_new = _mix_props(p_k, u_k, T_k_new)['rho']
-        delta_rho  = np.max(np.abs(rho_k_new - rho_k)) / (np.mean(np.abs(rho_k)) + 1e-300)
+        # Convergence check: relative norms of corrections
+        res_p = np.max(np.abs(dp)) / p_ref
+        res_u = np.max(np.abs(du)) / max(u_ref, 1e-6)
+        res_3 = np.max(np.abs(d3)) / max(h_ref, 1e-6)
+        res   = max(res_p, res_u, res_3)
 
-        T_k = T_k_new
-        rho_k = rho_k_new
-
-        info_outer['outer_iters'] = outer + 1
-
-        if delta_rho < outer_tol:
+        info_outer['outer_iters'] = niter + 1
+        if res < newton_tol:
             info_outer['converged'] = True
             break
 

@@ -150,83 +150,144 @@ def assemble_newton_3N(
         dR  = d_hat[f_R]
         dL  = d_hat[f_L]
 
-        # ACID face density with upwind TVD interpolation (Denner 2018 Eq.40-42)
-        # ρ̃f = ρ★_U + ξ * (ρ★_D - ρ★_U), ξ=0 at interface (Section 5.4)
+        # ACID face density — Full Newton: upwind face primitives + face derivatives
+        # Ref: Denner 2018 Eq. 25, 29, 30; Full Newton linearisation of ρ̃
         if mixing_type == 'mass':
             _ar = _acid_rho_Y
         else:
             _ar = _acid_rho
 
-        # Compute ACID density at cell centres with cell i's ψ
-        rho_star_i  = _ar(float(p_k[i]),  float(T_k[i]),  psi_i)
-        rho_star_iR = _ar(float(p_k[iR]), float(T_k[iR]), psi_i)
-        rho_star_iL = _ar(float(p_k[iL]), float(T_k[iL]), psi_i)
-
-        # Right face: upwind interpolation
-        # Interface detection: force 1st-order upwind at interface (|ψ_P - ψ_Q| > η)
-        at_interface_R = abs(float(psi_k[i]) - float(psi_k[iR])) > 1e-6
-        at_interface_L = abs(float(psi_k[iL]) - float(psi_k[i])) > 1e-6
-
+        # --- Upwind face primitive variables and column indices ---
+        # Right face (f_R): upwind direction determined by theta sign
         if tR >= 0:
-            rfR = rho_star_i   # upwind = cell i
+            p_fR = float(p_k[i]);  T_fR = float(T_k[i])
+            cp_up_R = cp;   ch_up_R = ch    # upwind column = cell i
         else:
-            rfR = rho_star_iR  # upwind = cell iR
+            p_fR = float(p_k[iR]); T_fR = float(T_k[iR])
+            cp_up_R = cp_R; ch_up_R = ch_R  # upwind column = cell iR
 
+        # Left face (f_L): upwind direction determined by theta sign
         if tL >= 0:
-            rfL = rho_star_iL  # upwind = cell iL
+            p_fL = float(p_k[iL]); T_fL = float(T_k[iL])
+            cp_up_L = cp_L; ch_up_L = ch_L  # upwind column = cell iL
         else:
-            rfL = rho_star_i   # upwind = cell i
+            p_fL = float(p_k[i]);  T_fL = float(T_k[i])
+            cp_up_L = cp;   ch_up_L = ch    # upwind column = cell i
+
+        # ACID density at face using upwind (p,T) with cell i's ψ
+        rfR = _ar(p_fR, T_fR, psi_i)
+        rfL = _ar(p_fL, T_fL, psi_i)
+
+        # Face density derivatives ∂ρ̃/∂p and ∂ρ̃/∂T for Full Newton of ρ̃·θ
+        if mixing_type == 'volume':
+            zeta_fR = psi_i * eos1.drho_dp(p_fR, T_fR) + (1.0 - psi_i) * eos2.drho_dp(p_fR, T_fR)
+            phi_fR  = psi_i * eos1.drho_dT(p_fR, T_fR) + (1.0 - psi_i) * eos2.drho_dT(p_fR, T_fR)
+            zeta_fL = psi_i * eos1.drho_dp(p_fL, T_fL) + (1.0 - psi_i) * eos2.drho_dp(p_fL, T_fL)
+            phi_fL  = psi_i * eos1.drho_dT(p_fL, T_fL) + (1.0 - psi_i) * eos2.drho_dT(p_fL, T_fL)
+        else:
+            # Harmonic mixing: 1/ρ = ψ/ρ₁ + (1-ψ)/ρ₂
+            # ∂ρ/∂p = ρ²·(ψ·ζ₁/ρ₁² + (1-ψ)·ζ₂/ρ₂²)
+            # ∂ρ/∂T = ρ²·(ψ·φ₁/ρ₁² + (1-ψ)·φ₂/ρ₂²)
+            r1R = eos1.rho(p_fR, T_fR); r2R = eos2.rho(p_fR, T_fR)
+            z1R = eos1.drho_dp(p_fR, T_fR); z2R = eos2.drho_dp(p_fR, T_fR)
+            g1R = eos1.drho_dT(p_fR, T_fR); g2R = eos2.drho_dT(p_fR, T_fR)
+            zeta_fR = rfR**2 * (psi_i * z1R / (r1R**2 + 1e-300) + (1.0 - psi_i) * z2R / (r2R**2 + 1e-300))
+            phi_fR  = rfR**2 * (psi_i * g1R / (r1R**2 + 1e-300) + (1.0 - psi_i) * g2R / (r2R**2 + 1e-300))
+            r1L = eos1.rho(p_fL, T_fL); r2L = eos2.rho(p_fL, T_fL)
+            z1L = eos1.drho_dp(p_fL, T_fL); z2L = eos2.drho_dp(p_fL, T_fL)
+            g1L = eos1.drho_dT(p_fL, T_fL); g2L = eos2.drho_dT(p_fL, T_fL)
+            zeta_fL = rfL**2 * (psi_i * z1L / (r1L**2 + 1e-300) + (1.0 - psi_i) * z2L / (r2L**2 + 1e-300))
+            phi_fL  = rfL**2 * (psi_i * g1L / (r1L**2 + 1e-300) + (1.0 - psi_i) * g2L / (r2L**2 + 1e-300))
 
         # Deferred mass fluxes at x_k
         mR = rfR * tR
         mL = rfL * tL
 
+        # Determine if T-coupling should be included (third_var=='T' and phi_k provided)
+        use_T_coupling = (third_var == 'T' and phi_k is not None and not freeze_h)
+        phi_i_val = float(phi_k[i]) if (phi_k is not None) else 0.0
+
         # -----------------------------------------------------------
-        # CONTINUITY
+        # CONTINUITY — Full Newton
+        # Ref: Denner 2018 Eq. 25
+        # (ρ^{n+1} - ρ^n)/dt + div(ρ̃^{n+1}·ϑ^{n+1}) = 0
+        # Full Newton: ρ^{n+1} = ρ_k + ζ·δp + φ·δT
+        #              ρ̃^{n+1}·ϑ^{n+1} = ρ̃_k·ϑ^{n+1} + ρ̃^{n+1}·ϑ_k - ρ̃_k·ϑ_k
         # -----------------------------------------------------------
-        # Discrete: ζ*(p^{n+1}-p^n)/dt + div(ρ̃·ϑ^{n+1}) = 0
-        # A*x = b:  ζ/dt·p_i + div_impl(u,p) = ζ/dt·p^n
-        A[rp, cp]   += zeta_i / dt
-        b[rp]       += zeta_i * p_old[i] / dt
-        # MWI right face: ρ̃_fR·ϑ_fR / dx
+        # Temporal: A·ζ/dt·p + (φ/dt·T if T-mode)
+        # b:  ρ_old/dt + (ζ·p_k + φ·T_k - ρ_k)/dt  → residual = (ρ_old - ρ_k)/dt ✓
+        A[rp, cp] += zeta_i / dt
+        b[rp]     += rho_old[i] / dt + (zeta_i * float(p_k[i]) - rho_i) / dt
+        if use_T_coupling:
+            A[rp, ch] += phi_i_val / dt          # ∂ρ/∂T temporal (Full Newton)
+            b[rp]     += phi_i_val * float(T_k[i]) / dt
+
+        # Term 1: ρ̃_k · ϑ^{n+1} — MWI implicit (ū and −d̂·∇p)
+        # Right face:
         A[rp, cu]   += rfR / (2.0 * dx)
         A[rp, cu_R] += rfR / (2.0 * dx)
         A[rp, cp]   += rfR * dR / (dx * dx)
         A[rp, cp_R] -= rfR * dR / (dx * dx)
-        # MWI left face: −ρ̃_fL·ϑ_fL / dx
+        # Left face:
         A[rp, cu_L] -= rfL / (2.0 * dx)
         A[rp, cu]   -= rfL / (2.0 * dx)
         A[rp, cp]   += rfL * dL / (dx * dx)
         A[rp, cp_L] -= rfL * dL / (dx * dx)
 
+        # Term 2: ρ̃^{n+1} · ϑ_k (Newton sensitivity of ρ̃ to p and T)
+        # A adds Jacobian; b adds same evaluated at x_k → residual unchanged
+        A[rp, cp_up_R] += zeta_fR * tR / dx
+        A[rp, cp_up_L] -= zeta_fL * tL / dx
+        b[rp] += zeta_fR * tR * p_fR / dx - zeta_fL * tL * p_fL / dx
+        if use_T_coupling:
+            A[rp, ch_up_R] += phi_fR * tR / dx
+            A[rp, ch_up_L] -= phi_fL * tL / dx
+            b[rp] += phi_fR * tR * T_fR / dx - phi_fL * tL * T_fL / dx
+
         # -----------------------------------------------------------
-        # MOMENTUM
+        # MOMENTUM — Full Newton
+        # Ref: Denner 2018 Eq. 29, 30
+        # (ρ·u)^{n+1} = ρ_k·u^{n+1} + ρ^{n+1}·u_k - ρ_k·u_k
+        # Full advection: ρ̃·ϑ·ũ — linearize ρ̃ as well
         # -----------------------------------------------------------
-        # Discrete: [ρ_k·u^{n+1} + ζ·(p^{n+1}-p_k)·u_k − ρ^n·u^n]/dt
-        #           + div(ρ̃·ϑ·u^{n+1}) + ∇p^{n+1} = 0
-        # A*x = b:  ρ_k/dt·u_i + ζ·u_k/dt·p_i + conv + ∇p = ρ^n·u^n/dt + ζ·u_k/dt·p_k
+        # Temporal: ρ_k/dt·u + ζ·u_k/dt·p + (φ·u_k/dt·T if T-mode)
+        # b: ρ_old·u_old/dt + (ζ·u_k·p_k + φ·u_k·T_k - ρ_k·u_k)/dt
         A[ru, cu] += rho_i / dt
         A[ru, cp] += zeta_i * u_i / dt
-        b[ru]     += rho_old[i] * u_old[i] / dt + zeta_i * u_i * p_k[i] / dt
+        b[ru]     += rho_old[i] * u_old[i] / dt + zeta_i * u_i * float(p_k[i]) / dt
+        if use_T_coupling:
+            A[ru, ch] += phi_i_val * u_i / dt
+            b[ru]     += phi_i_val * u_i * float(T_k[i]) / dt
 
-        # Convective: ρ̃·ϑ_k·u^{n+1} (upwind u) + ρ̃·u_k·ϑ^{n+1,p-part}
-        # Right face (+):
+        # Convective Term 1: ρ̃_k·ϑ_k·ũ^{n+1} (upwind u implicit)
         if mR >= 0.0:
-            A[ru, cu]  += mR / dx
+            A[ru, cu]   += mR / dx
         else:
             A[ru, cu_R] += mR / dx
-        # MWI implicit p part: ρ̃·u_k·(−d̂·(p_R−p_L)/dx) / dx
-        A[ru, cp]   += rfR * u_i * dR / (dx * dx)
-        A[ru, cp_R] -= rfR * u_i * dR / (dx * dx)
-        # Left face (−):
         if mL >= 0.0:
             A[ru, cu_L] -= mL / dx
         else:
             A[ru, cu]   -= mL / dx
+
+        # Convective Term 2: ρ̃_k·ϑ^{n+1}·ũ_k — MWI implicit p-part (θ = ū - d̂·∇p)
+        # u_k deferred, d̂·∇p part is implicit
+        A[ru, cp]   += rfR * u_i * dR / (dx * dx)
+        A[ru, cp_R] -= rfR * u_i * dR / (dx * dx)
         A[ru, cp_L] -= rfL * u_i * dL / (dx * dx)
         A[ru, cp]   += rfL * u_i * dL / (dx * dx)
 
-        # Pressure gradient: −(p_R − p_L)/(2dx)  [note: +1/(2dx) to right, −1/(2dx) to left]
+        # Convective Term 3: ρ̃^{n+1}·ϑ_k·ũ_k (Newton sensitivity of ρ̃)
+        u_up_R = float(u_k[i])  if tR >= 0 else float(u_k[iR])
+        u_up_L = float(u_k[iL]) if tL >= 0 else float(u_k[i])
+        A[ru, cp_up_R] += zeta_fR * tR * u_up_R / dx
+        A[ru, cp_up_L] -= zeta_fL * tL * u_up_L / dx
+        b[ru] += zeta_fR * tR * u_up_R * p_fR / dx - zeta_fL * tL * u_up_L * p_fL / dx
+        if use_T_coupling:
+            A[ru, ch_up_R] += phi_fR * tR * u_up_R / dx
+            A[ru, ch_up_L] -= phi_fL * tL * u_up_L / dx
+            b[ru] += phi_fR * tR * u_up_R * T_fR / dx - phi_fL * tL * u_up_L * T_fL / dx
+
+        # Pressure gradient: −(p_R − p_L)/(2dx)
         A[ru, cp_R] += 1.0 / (2.0 * dx)
         A[ru, cp_L] -= 1.0 / (2.0 * dx)
 
@@ -246,7 +307,7 @@ def assemble_newton_3N(
             b[rh_row]     += (rho_old[i] * h_old[i] / dt
                               - p_old[i] / dt
                               + zeta_i * h_i * p_k[i] / dt)
-            # Convective + ACID
+            # Convective + ACID (cell-centre values for enthalpy consistency)
             if mixing_type == 'mass':
                 H_R_acid = _acid_rh_Y(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
                 H_L_acid = _acid_rh_Y(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
@@ -304,8 +365,8 @@ def assemble_newton_3N(
             # Split H_acid = rfR·(cp_i·T + rest). Implicit: cp_i·T; deferred: rest.
             # At uniform (p,T,u): both faces give same H_acid → net flux = 0 ✓
             if mixing_type == 'mass':
-                H_R_acid = _acid_rh_Y(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
-                H_L_acid = _acid_rh_Y(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+                H_R_acid = _acid_rh_Y(p_fR, T_fR, float(u_k[i]) if tR >= 0 else float(u_k[iR]), psi_i)
+                H_L_acid = _acid_rh_Y(p_fL, T_fL, float(u_k[iL]) if tL >= 0 else float(u_k[i]), psi_i)
                 cp_i_acid = _acid_cp_Y(float(p_k[i]), float(T_k[i]), psi_i)
             else:
                 H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)

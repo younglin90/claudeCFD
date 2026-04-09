@@ -19,6 +19,7 @@
 
 import numpy as np
 import scipy.sparse as sp
+from .eos.eos_class import create_eos
 
 
 def _ci(block, i, N):
@@ -60,78 +61,67 @@ def assemble_newton_3N(
         return iL, iR
 
     # ACID EOS helpers: evaluate partial densities/enthalpies at (p,T) with ψ_ref
-    g1 = float(ph1['gamma']); pi1 = float(ph1['pinf'])
-    b1 = float(ph1['b']);     kv1 = float(ph1['kv']); eta1 = float(ph1['eta'])
-    g2 = float(ph2['gamma']); pi2 = float(ph2['pinf'])
-    b2 = float(ph2['b']);     kv2 = float(ph2['kv']); eta2 = float(ph2['eta'])
+    # Build EOS objects once; works for any EOS (NASG, RKPR, etc.)
+    eos1 = create_eos(ph1)
+    eos2 = create_eos(ph2)
 
     def _acid_rho(p_val, T_val, psi_ref):
         """ACID density at (p_val,T_val) with this-cell ψ_ref (Eq. 37)."""
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
+        r1 = eos1.rho(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
         return psi_ref * r1 + (1.0 - psi_ref) * r2
 
     def _acid_rh(p_val, T_val, u_val, psi_ref):
         """ACID ρH_total at (p,T,u) with this-cell ψ_ref (Denner 2018 Eq. 45-49).
-        H = ρ★·h★ where h★ = c★p·T + ½u² (total specific enthalpy)."""
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        h1 = g1 * kv1 * T_val + b1 * p_val + eta1 + 0.5 * u_val * u_val
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
-        h2 = g2 * kv2 * T_val + b2 * p_val + eta2 + 0.5 * u_val * u_val
+        H = ρ★·h★ where h★ = h_static + ½u² (total specific enthalpy)."""
+        r1 = eos1.rho(p_val, T_val)
+        h1 = eos1.h(p_val, T_val) + 0.5 * u_val * u_val
+        r2 = eos2.rho(p_val, T_val)
+        h2 = eos2.h(p_val, T_val) + 0.5 * u_val * u_val
         return psi_ref * r1 * h1 + (1.0 - psi_ref) * r2 * h2
 
     def _acid_cp(p_val, T_val, psi_ref):
         """ACID mixture cp (Denner 2018 Eq. 46): density-weighted average."""
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
+        r1 = eos1.rho(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
         rho_mix = psi_ref * r1 + (1.0 - psi_ref) * r2 + 1e-300
-        return (psi_ref * r1 * g1 * kv1 + (1.0 - psi_ref) * r2 * g2 * kv2) / rho_mix
+        return (psi_ref * r1 * eos1.cp(p_val, T_val) +
+                (1.0 - psi_ref) * r2 * eos2.cp(p_val, T_val)) / rho_mix
 
     def _acid_bm(p_val, T_val, psi_ref):
         """ACID mixture b_mix = dh_static/dp (density-weighted)."""
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
+        r1 = eos1.rho(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
         rho_mix = psi_ref * r1 + (1.0 - psi_ref) * r2 + 1e-300
-        return (psi_ref * r1 * b1 + (1.0 - psi_ref) * r2 * b2) / rho_mix
+        return (psi_ref * r1 * eos1.dh_dp(p_val, T_val) +
+                (1.0 - psi_ref) * r2 * eos2.dh_dp(p_val, T_val)) / rho_mix
 
     # --- Y-based (mass fraction) ACID helpers ---
     def _acid_rho_Y(p_val, T_val, Y_ref):
         """Harmonic mixture density: 1/(Y/r1 + (1-Y)/r2)."""
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
+        r1 = eos1.rho(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
         inv_rho = Y_ref / (r1 + 1e-300) + (1.0 - Y_ref) / (r2 + 1e-300)
         return 1.0 / (inv_rho + 1e-300)
 
     def _acid_rh_Y(p_val, T_val, u_val, Y_ref):
         """Mass-weighted total enthalpy density: rho_star * (Y*h1 + (1-Y)*h2 + 0.5*u^2)."""
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        h1 = g1 * kv1 * T_val + b1 * p_val + eta1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
-        h2 = g2 * kv2 * T_val + b2 * p_val + eta2
+        r1 = eos1.rho(p_val, T_val)
+        h1 = eos1.h(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
+        h2 = eos2.h(p_val, T_val)
         inv_rho = Y_ref / (r1 + 1e-300) + (1.0 - Y_ref) / (r2 + 1e-300)
         rho_star = 1.0 / (inv_rho + 1e-300)
         h_static = Y_ref * h1 + (1.0 - Y_ref) * h2
         return rho_star * (h_static + 0.5 * u_val * u_val)
 
     def _acid_cp_Y(p_val, T_val, Y_ref):
-        """Mass-weighted mixture cp: Y*γ₁κᵥ₁ + (1-Y)*γ₂κᵥ₂."""
-        return Y_ref * g1 * kv1 + (1.0 - Y_ref) * g2 * kv2
+        """Mass-weighted mixture cp: Y*cp₁ + (1-Y)*cp₂."""
+        return Y_ref * eos1.cp(p_val, T_val) + (1.0 - Y_ref) * eos2.cp(p_val, T_val)
 
     def _acid_bm_Y(p_val, T_val, Y_ref):
-        """Mass-weighted mixture b_mix: Y*b1 + (1-Y)*b2."""
-        return Y_ref * b1 + (1.0 - Y_ref) * b2
+        """Mass-weighted mixture b_mix: Y*∂h₁/∂p + (1-Y)*∂h₂/∂p."""
+        return Y_ref * eos1.dh_dp(p_val, T_val) + (1.0 - Y_ref) * eos2.dh_dp(p_val, T_val)
 
     for i in range(N):
         rp = _ci(0, i, N)
@@ -351,69 +341,58 @@ def assemble_newton_4N(
         iR = (0 if is_per_r else N - 1) if iR >= N else iR
         return iL, iR
 
-    # ACID EOS helpers (same as in assemble_newton_3N T-mode)
-    g1 = float(ph1['gamma']); pi1 = float(ph1['pinf'])
-    b1 = float(ph1['b']);     kv1 = float(ph1['kv']); eta1 = float(ph1['eta'])
-    g2 = float(ph2['gamma']); pi2 = float(ph2['pinf'])
-    b2 = float(ph2['b']);     kv2 = float(ph2['kv']); eta2 = float(ph2['eta'])
+    # ACID EOS helpers (same interface as in assemble_newton_3N)
+    # Build EOS objects once; works for any EOS (NASG, RKPR, etc.)
+    eos1 = create_eos(ph1)
+    eos2 = create_eos(ph2)
 
     def _acid_rho(p_val, T_val, psi_ref):
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
+        r1 = eos1.rho(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
         return psi_ref * r1 + (1.0 - psi_ref) * r2
 
     def _acid_rh(p_val, T_val, u_val, psi_ref):
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        h1_val = g1 * kv1 * T_val + b1 * p_val + eta1 + 0.5 * u_val * u_val
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
-        h2_val = g2 * kv2 * T_val + b2 * p_val + eta2 + 0.5 * u_val * u_val
+        r1 = eos1.rho(p_val, T_val)
+        h1_val = eos1.h(p_val, T_val) + 0.5 * u_val * u_val
+        r2 = eos2.rho(p_val, T_val)
+        h2_val = eos2.h(p_val, T_val) + 0.5 * u_val * u_val
         return psi_ref * r1 * h1_val + (1.0 - psi_ref) * r2 * h2_val
 
     def _acid_cp(p_val, T_val, psi_ref):
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
+        r1 = eos1.rho(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
         rho_mix = psi_ref * r1 + (1.0 - psi_ref) * r2 + 1e-300
-        return (psi_ref * r1 * g1 * kv1 + (1.0 - psi_ref) * r2 * g2 * kv2) / rho_mix
+        return (psi_ref * r1 * eos1.cp(p_val, T_val) +
+                (1.0 - psi_ref) * r2 * eos2.cp(p_val, T_val)) / rho_mix
 
     def _acid_bm(p_val, T_val, psi_ref):
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
+        r1 = eos1.rho(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
         rho_mix = psi_ref * r1 + (1.0 - psi_ref) * r2 + 1e-300
-        return (psi_ref * r1 * b1 + (1.0 - psi_ref) * r2 * b2) / rho_mix
+        return (psi_ref * r1 * eos1.dh_dp(p_val, T_val) +
+                (1.0 - psi_ref) * r2 * eos2.dh_dp(p_val, T_val)) / rho_mix
 
     def _acid_rho_Y(p_val, T_val, Y_ref):
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
+        r1 = eos1.rho(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
         inv_rho = Y_ref / (r1 + 1e-300) + (1.0 - Y_ref) / (r2 + 1e-300)
         return 1.0 / (inv_rho + 1e-300)
 
     def _acid_rh_Y(p_val, T_val, u_val, Y_ref):
-        A1 = kv1 * T_val * (g1 - 1.0) + b1 * (p_val + pi1) + 1e-300
-        r1 = (p_val + pi1) / A1
-        h1_val = g1 * kv1 * T_val + b1 * p_val + eta1
-        A2 = kv2 * T_val * (g2 - 1.0) + b2 * (p_val + pi2) + 1e-300
-        r2 = (p_val + pi2) / A2
-        h2_val = g2 * kv2 * T_val + b2 * p_val + eta2
+        r1 = eos1.rho(p_val, T_val)
+        h1_val = eos1.h(p_val, T_val)
+        r2 = eos2.rho(p_val, T_val)
+        h2_val = eos2.h(p_val, T_val)
         inv_rho = Y_ref / (r1 + 1e-300) + (1.0 - Y_ref) / (r2 + 1e-300)
         rho_star = 1.0 / (inv_rho + 1e-300)
         h_static = Y_ref * h1_val + (1.0 - Y_ref) * h2_val
         return rho_star * (h_static + 0.5 * u_val * u_val)
 
     def _acid_cp_Y(p_val, T_val, Y_ref):
-        return Y_ref * g1 * kv1 + (1.0 - Y_ref) * g2 * kv2
+        return Y_ref * eos1.cp(p_val, T_val) + (1.0 - Y_ref) * eos2.cp(p_val, T_val)
 
     def _acid_bm_Y(p_val, T_val, Y_ref):
-        return Y_ref * b1 + (1.0 - Y_ref) * b2
+        return Y_ref * eos1.dh_dp(p_val, T_val) + (1.0 - Y_ref) * eos2.dh_dp(p_val, T_val)
 
     for i in range(N):
         rp = _ci(0, i, N)

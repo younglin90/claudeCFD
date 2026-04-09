@@ -89,18 +89,64 @@
 - **Denner Eq. 20**: `d̂·(ρ★_old/dt)·(θ_old − ū_old)` — uniform에서 θ=ū → 보정=0
 - **Abgrall test에서는 효과 없음** (균일장이므로). 비균일 유동에서 효과 기대.
 
-### 현재 검증 결과 (8개 설정 ALL PASS)
+### 7차: Fully coupled 4N implicit (p,u,T,ψ) 시도 (실패→부분 해결)
+
+- **목표**: VOF를 (p,u,T)와 동시 implicit solve → CFL 제한 제거
+- **1차 시도**: 4N×4N 단일 Newton loop → **singular matrix** (rank 36/40)
+  - **원인**: 이전 커밋에서 `coupled=True` 옵션이 cfg에 전달 안 돼서 항상 segregated 실행됨 (버그)
+  - 실제 4N 행렬: 조건수 κ ≈ 1.7×10¹⁶ (energy ~10⁸ vs VOF ~10² scale 차이)
+- **2차 시도**: Block-Jacobi + BiCGSTAB (Janodet/Denner JCP 2025) → BiCGSTAB도 κ=10¹⁶에서 실패
+- **3차 시도**: Under-relaxation (ω=0.3~0.01) → dp=3×10⁶ (p₀=10⁵의 30배) → 발산
+- **4차 시도**: Picard VOF (Janodet 2025 Eq.53 — face value deferred, flux implicit) → full rank 확보하나 여전히 발산
+- **5차 시도**: Barotropic inner(p,u,ψ)/outer(T) → inner 수렴하나 outer T update 발산 (4N ill-conditioning)
+- **최종 해결**: **Implicit VOF (독립 N×N) + 3N barotropic (검증된 segregated)**
+  - Step A: Newton-CICSAM implicit VOF (N×N, exact Jacobian)
+  - Step B: 3N barotropic inner/outer loop (기존 검증된 코드 재사용)
+  - Volume fraction: ALL PASS (err_E ~ 10⁻¹⁴)
+
+### 8차: Coupled mass fraction — backward Euler diffusion 문제 (근본 한계)
+
+- **문제**: implicit CICSAM이 explicit보다 diffusive (ΔY≈0.008 at interface)
+  - Explicit: flux(Y_old)=0 (uniform cell) → Y 변화 없음
+  - Implicit: Newton이 Y 변경 → CICSAM face가 nonzero → 자기강화 확산
+  - Volume fraction: linear mixing (ρ=ψρ₁+(1-ψ)ρ₂) → diffusion이 ∫E에 무영향
+  - Mass fraction: harmonic mixing (1/ρ=Y/ρ₁+(1-Y)/ρ₂) → ΔY=0.008이 ΔE=98%로 증폭
+- **시도 1**: Frozen β implicit → err_E=160% (잘못된 Jacobian)
+- **시도 2**: Newton-CICSAM (exact Jacobian ∂Yf/∂Y_{D,A,UU}) → err_E=99% (정확한 implicit solution이지만 backward Euler 자체가 diffusive)
+- **결론**: **backward Euler implicit VOF는 본질적으로 diffusive** — Jacobian 정확성과 무관
+- **해결**: Mixed strategy — vol→implicit Newton-CICSAM, mass→explicit CICSAM (sub-stepping)
+
+### 9차: EOS 일반화 — class 기반 인터페이스 (성공)
+
+- **문제**: NASG 수식이 assembly.py ACID helpers에 하드코딩 (8개 함수)
+- **해결**: `EOS` base class + `NasgEOS` 구현 + `create_eos(ph)` factory
+  - Assembly ACID helpers: `eos.rho()`, `eos.h()`, `eos.cp()`, `eos.dh_dp()` 호출
+  - 새 EOS 추가: `EOS` 상속 + 10개 메서드 구현만으로 가능
+- **하위호환**: ph dict → `create_eos()` 자동 변환
+
+### 10차: N_s 다종 화학종 일반화 (성공)
+
+- `compute_mixture_props_Ns`: N_s종 혼합 물성 (volume/mass mixing)
+- `assemble_newton_Ns`: (2+N_s)N 행렬, N_s종 ACID helpers
+- `vof_step_multi`: N_s-1 종 독립 이송
+- K factor: `K_k = ψ_k·(Z_k/Z_mix - 1)`, `ΣK_k = 0` (Wood's mixture formula)
+- 2종 함수는 Ns 함수의 wrapper (하위호환)
+
+### 현재 검증 결과 (11개 설정 ALL PASS)
 
 | 설정 | err_p | err_u | err_E |
 |------|-------|-------|-------|
-| vol+puh | 2.0e-15 | 7.3e-14 | 6.9e-15 |
-| vol+puT | 3.2e-15 | 6.0e-14 | 2.5e-14 |
-| mass+puh | 1.3e-15 | 2.6e-13 | 9.2e-10 |
-| mass+puT | 1.0e-15 | 5.4e-13 | 1.3e-09 |
-| vol+puh+compress | 4.4e-16 | 9.2e-14 | 4.0e-15 |
-| vol+puT+compress | 2.8e-15 | 1.2e-13 | 1.5e-14 |
-| mass+puh+compress | 4.4e-16 | 2.0e-13 | 1.1e-09 |
-| mass+puT+compress | 4.5e-15 | 3.1e-13 | 1.2e-09 |
+| seg vol+puh | 2.0e-15 | 7.3e-14 | 6.9e-15 |
+| seg vol+puT | 3.2e-15 | 1.3e-13 | 1.3e-14 |
+| seg vol+comp | 4.4e-16 | 9.2e-14 | 4.0e-15 |
+| seg vol+K | 7.3e-16 | 4.8e-14 | 2.7e-15 |
+| seg vol+K+comp | 1.2e-15 | 7.8e-14 | 6.6e-15 |
+| seg mass | 1.6e-15 | 3.2e-13 | 1.2e-09 |
+| seg mass+comp | 2.9e-16 | 2.5e-13 | 1.0e-09 |
+| coupled vol | 3.2e-15 | 6.3e-14 | 3.0e-14 |
+| coupled vol+comp | 8.0e-15 | 3.2e-13 | 8.8e-14 |
+| coupled mass | 2.9e-16 | 3.9e-13 | 1.2e-09 |
+| coupled mass+comp | 2.9e-15 | 2.5e-13 | 9.4e-10 |
 
 ---
 

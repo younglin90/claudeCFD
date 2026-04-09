@@ -529,63 +529,49 @@ def assemble_newton_4N(
 
         # -----------------------------------------------------------
         # VOF / SPECIES TRANSPORT (block 3)
-        # Implicit CICSAM using frozen beta_k
+        # Picard linearization with implicit volume flux
+        # (Janodet, van Wachem & Denner, JCP 2025, Eq. 53)
+        #
+        # ψ^{n+1}/dt + [ψ̃_R·θ_R^{n+1} - ψ̃_L·θ_L^{n+1}]/dx
+        #            - ψ^(n)·[θ_R^{n+1} - θ_L^{n+1}]/dx = ψ^old/dt
+        #
+        # ψ̃ = CICSAM face value (deferred at iterate n)
+        # θ = MWI face velocity (implicit in u, p)
+        # ψ^(n) = iterate (deferred for source term)
         # -----------------------------------------------------------
-        # Temporal
+        # Temporal: ψ^{n+1}/dt
         A[rv, cv] += 1.0 / dt
         b[rv]     += phi_old[i] / dt
 
-        # Advection with implicit CICSAM beta
-        # Right face (f_R = i+1):
-        tR_vof = tR   # same face velocity (or u_face_vof if provided separately)
-        tL_vof = tL
+        # Compute deferred CICSAM face values from beta
         beta_R = float(beta_k[f_R])
         beta_L = float(beta_k[f_L])
-
-        if tR_vof >= 0:
-            # donor=i, acceptor=iR
-            A[rv, cv]    += (1.0 - beta_R) * tR_vof / dx
-            A[rv, cv_R]  += beta_R * tR_vof / dx
+        if tR >= 0:
+            psi_face_R = (1.0 - beta_R) * psi_i + beta_R * float(phi_k[iR])
         else:
-            # donor=iR, acceptor=i
-            A[rv, cv_R]  += (1.0 - beta_R) * tR_vof / dx
-            A[rv, cv]    += beta_R * tR_vof / dx
-
-        # Left face (f_L = i):
-        if tL_vof >= 0:
-            # donor=iL, acceptor=i
-            A[rv, cv_L]  -= (1.0 - beta_L) * tL_vof / dx
-            A[rv, cv]    -= beta_L * tL_vof / dx
+            psi_face_R = (1.0 - beta_R) * float(phi_k[iR]) + beta_R * psi_i
+        if tL >= 0:
+            psi_face_L = (1.0 - beta_L) * float(phi_k[iL]) + beta_L * psi_i
         else:
-            # donor=i, acceptor=iL
-            A[rv, cv]    -= (1.0 - beta_L) * tL_vof / dx
-            A[rv, cv_L]  -= beta_L * tL_vof / dx
+            psi_face_L = (1.0 - beta_L) * psi_i + beta_L * float(phi_k[iL])
 
-        # Source: -φ·∇·θ (divergence-free correction, implicit in φ)
-        div_theta = (tR_vof - tL_vof) / dx
-        A[rv, cv] -= div_theta
+        # Combined coefficient: (ψ̃_f - ψ^(n)_i) for advection+source
+        coeff_R = (psi_face_R - psi_i) / dx
+        coeff_L = -(psi_face_L - psi_i) / dx
 
-        # Compression (linearized φ(1-φ) around φ_k)
-        if use_compress and C_k is not None and n_hat_k is not None and u_face_vof is not None:
-            for face, sign_mult in [(f_R, -1.0), (f_L, 1.0)]:
-                ck = float(C_k[face])
-                nh = float(n_hat_k[face])
-                u_f = float(u_face_vof[face])
-                if abs(ck * nh) < 1e-15:
-                    continue
-                coeff = sign_mult * ck * abs(u_f) * nh / dx
-                # Determine compression donor cell
-                # n_hat * |u| >= 0: donor = left cell of face
-                # face f_R: left cell = i, right cell = iR
-                # face f_L: left cell = iL, right cell = i
-                if face == f_R:
-                    j_donor = i   if nh * abs(u_f) >= 0 else iR
-                else:
-                    j_donor = iL  if nh * abs(u_f) >= 0 else i
-                phi_d   = float(phi_k[j_donor])
-                cv_d    = _ci(3, j_donor, N)
-                A[rv, cv_d] += coeff * (1.0 - 2.0 * phi_d)
-                b[rv]       -= coeff * phi_d * phi_d
+        # θ_f = 0.5*(u_L + u_R) - d̂_f*(p_R - p_L)/dx  (MWI)
+        # ∂θ_R/∂u_i = 0.5, ∂θ_R/∂u_iR = 0.5
+        # ∂θ_R/∂p_i = d̂_R/dx, ∂θ_R/∂p_iR = -d̂_R/dx
+        # Right face:
+        A[rv, cu]   += coeff_R * 0.5
+        A[rv, cu_R] += coeff_R * 0.5
+        A[rv, cp]   += coeff_R * dR / dx
+        A[rv, cp_R] -= coeff_R * dR / dx
+        # Left face:
+        A[rv, cu_L] += coeff_L * 0.5
+        A[rv, cu]   += coeff_L * 0.5
+        A[rv, cp_L] += coeff_L * dL / dx
+        A[rv, cp]   -= coeff_L * dL / dx
 
     return A.tocsr(), b
 
@@ -931,13 +917,21 @@ def solve_linear_system(A, b, p_ref=1.0e5, u_ref=1.0, h_ref=3.0e5, phi_ref=None,
     bs = D_inv.dot(b)
 
     x_hat = None
+
+    # --- Strategy 1: Direct sparse solver (spsolve) ---
     try:
         x_hat = spla.spsolve(As, bs)
         if not np.all(np.isfinite(x_hat)):
             x_hat = None
+        else:
+            # Verify solve quality: check residual
+            r_check = bs - As.dot(x_hat)
+            if np.max(np.abs(r_check)) > 0.1 * np.max(np.abs(bs) + 1e-300):
+                x_hat = None  # poor quality, try dense
     except Exception:
         pass
 
+    # --- Strategy 2: Dense solver (handles ill-conditioned systems) ---
     if x_hat is None:
         try:
             x_hat = np.linalg.solve(As.toarray(), bs)

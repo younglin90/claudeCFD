@@ -14,24 +14,69 @@ from .eos.base import compute_phase_props
 
 def _compute_K(psi, ph1, ph2, p, T):
     """
-    Denner 2018 compressibility factor K for the compressible VOF equation.
+    Denner 2018 compressibility factor K for 2-species VOF.
+    Backward-compatible wrapper for _compute_K_Ns.
+    """
+    psi_arr = np.stack([psi, 1.0 - psi])  # (2, N)
+    K_arr = _compute_K_Ns(psi_arr, [ph1, ph2], p, T)
+    return K_arr[0]
 
-    K = (Z_b - Z_a) / (Z_a/(1-psi+eps) + Z_b/(psi+eps))
 
-    where Z_k = rho_k * c_k^2 (acoustic impedance squared).
+def _compute_K_Ns(psi_arr, phases, p, T):
+    """
+    Compressibility factor K for N_s-species compressible VOF.
 
-    Phase 1 (ph1) is treated as phase 'a' (psi = volume fraction of ph1).
-    Phase 2 (ph2) is treated as phase 'b'.
+    For species k:  ∂ψ_k/∂t + ∇·(u·ψ_k) - (ψ_k + K_k)·∇·u = 0
+
+    Denner 2018 Eq.(11), generalized to N_s species:
+      K_k = (Z_k - Z_mix) / Z_mix_inv
+    where
+      Z_j = ρ_j · c_j²   (acoustic impedance squared per phase)
+      Z_mix_inv = Σ_j Z_j / max(ψ_j, ε)   (inverse mixture impedance)
+      Z_mix = (Σ_j Z_j·ψ_j)              (mixture impedance)
+
+    Actually from Denner 2018, for 2 species:
+      K = (Z_b - Z_a) / (Z_a/(1-ψ) + Z_b/ψ)
+
+    For N_s species, each species k has:
+      K_k such that Σ(ψ_k + K_k) = 1 + ΣK_k
+    and ΣK_k = 0 (conservation: Σψ_k = 1 → Σ∂ψ_k/∂t = 0 → ΣK_k·∇·u = 0).
+
+    Generalization: K_k = ψ_k · (ρ_k·c_k² / ρ_mix·c_mix² - 1)
+    where ρ_mix·c_mix² = Σ ψ_j·ρ_j·c_j² (Wood's mixture sound speed).
+
+    This satisfies: Σ K_k = Σ ψ_k·(Z_k/Z_mix - 1) = Z_mix/Z_mix - 1 = 0. ✓
+
+    Parameters
+    ----------
+    psi_arr : ndarray (N_s, N) — volume fractions (sum to 1)
+    phases  : list of N_s EOS/dict
+    p, T    : ndarray (N,)
+
+    Returns
+    -------
+    K_arr : ndarray (N_s-1, N) — K factor for independent species (k=0..N_s-2)
     """
     eps = 1e-10
-    props_a = compute_phase_props(p, T, ph1)
-    props_b = compute_phase_props(p, T, ph2)
-    rho_a = props_a['rho'];  c_a = props_a['c']
-    rho_b = props_b['rho'];  c_b = props_b['c']
-    Z_a = rho_a * c_a ** 2
-    Z_b = rho_b * c_b ** 2
-    denom = Z_a / np.maximum(1.0 - psi, eps) + Z_b / np.maximum(psi, eps)
-    return (Z_b - Z_a) / np.maximum(denom, eps)
+    N_s = len(phases)
+    N = len(p)
+
+    # Per-phase acoustic impedance squared: Z_k = ρ_k · c_k²
+    Z = np.zeros((N_s, N))
+    for k in range(N_s):
+        props_k = compute_phase_props(p, T, phases[k])
+        Z[k] = props_k['rho'] * props_k['c'] ** 2
+
+    # Mixture impedance: Z_mix = Σ ψ_k · Z_k (Wood's formula)
+    Z_mix = np.sum(psi_arr * Z, axis=0)
+    Z_mix = np.maximum(Z_mix, eps)
+
+    # K_k = ψ_k · (Z_k / Z_mix - 1)
+    K_arr = np.zeros((N_s - 1, N))
+    for k in range(N_s - 1):
+        K_arr[k] = psi_arr[k] * (Z[k] / Z_mix - 1.0)
+
+    return K_arr
 
 
 def compute_compression_coefficients(phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost):
@@ -133,9 +178,16 @@ def _compression_flux_bounded(phi, u_face, dx, dt_sub, bc_l, bc_r, n_ghost):
 
 def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost,
                  ph1=None, ph2=None, p=None, T=None,
-                 use_compress=False, bc_l='periodic', bc_r='periodic'):
+                 use_compress=False, bc_l='periodic', bc_r='periodic',
+                 K_val=None):
     """
     Single explicit VOF sub-step (Co ≤ 1 guaranteed by caller).
+
+    Parameters
+    ----------
+    K_val : ndarray (N,) or None
+        Pre-computed K factor for this species. If None and ph1/ph2 given,
+        computes K from 2-species formula (backward compatible).
     """
     psi_face = cicsam_face(psi_ext, u_face, dt_sub, dx, n_ghost)
 
@@ -146,7 +198,9 @@ def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost,
     du_dx = (u_face[1:] - u_face[:-1]) / dx
 
     # Compressible VOF: ∂ψ/∂t + ∇·(uψ) - (ψ + K)*∇·u = 0
-    if ph1 is not None and ph2 is not None and p is not None and T is not None:
+    if K_val is not None:
+        source = (psi + K_val) * du_dx
+    elif ph1 is not None and ph2 is not None and p is not None and T is not None:
         K = _compute_K(psi, ph1, ph2, p, T)
         source = (psi + K) * du_dx
     else:
@@ -155,7 +209,6 @@ def _vof_substep(psi, u_face, psi_ext, dt_sub, dx, n_ghost,
     psi_new = psi - dt_sub * flux_div + dt_sub * source
 
     # Anti-diffusion compression with Zalesak FCT limiting (conservative + bounded)
-    # Applied to POST-ADVECTION field so the limiter sees the correct bounds.
     if use_compress:
         psi_new -= dt_sub * _compression_flux_bounded(
             psi_new, u_face, dx, dt_sub, bc_l, bc_r, n_ghost)
@@ -242,14 +295,18 @@ def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2,
     return psi_new, psi_face_avg, u_face
 
 
-def vof_step_multi(phi_arr, u, dx, dt, bc_l, bc_r, n_ghost=2, use_compress=False):
+def vof_step_multi(phi_arr, u, dx, dt, bc_l, bc_r, n_ghost=2,
+                   use_compress=False, phases=None, p=None, T=None, use_K=False):
     """
-    Multi-species VOF explicit step. Advects each species independently.
+    Multi-species VOF explicit step with optional K factor.
 
     Parameters
     ----------
     phi_arr : ndarray (N_s-1, N) — independent species fractions
     u       : ndarray (N,)       — cell velocities
+    phases  : list of N_s EOS/dict or None — needed for K factor
+    p, T    : ndarray (N,) or None — needed for K factor
+    use_K   : bool — enable compressibility K factor
 
     Returns
     -------
@@ -259,12 +316,27 @@ def vof_step_multi(phi_arr, u, dx, dt, bc_l, bc_r, n_ghost=2, use_compress=False
     """
     N_s_m1 = phi_arr.shape[0]
     N      = phi_arr.shape[1]
+    N_s    = N_s_m1 + 1
+
+    # Compute K factors for all species (if enabled)
+    K_all = None
+    if use_K and phases is not None and p is not None and T is not None:
+        # Build full fractions (N_s, N)
+        psi_full = np.zeros((N_s, N))
+        for k in range(N_s_m1):
+            psi_full[k] = phi_arr[k]
+        psi_full[N_s - 1] = 1.0 - np.sum(phi_arr, axis=0)
+        psi_full = np.clip(psi_full, 0.0, 1.0)
+        K_all = _compute_K_Ns(psi_full, phases, p, T)  # (N_s-1, N)
+
     phi_new      = np.empty_like(phi_arr)
     phi_face_arr = np.empty((N_s_m1, N + 1))
     u_face_out   = None
     for k in range(N_s_m1):
+        K_k = K_all[k] if K_all is not None else None
         pn, pf, uf = vof_step(phi_arr[k], u, dx, dt, bc_l, bc_r,
-                               n_ghost=n_ghost, use_compress=use_compress)
+                               n_ghost=n_ghost, use_compress=use_compress,
+                               K_val=K_k)
         phi_new[k]      = pn
         phi_face_arr[k] = pf
         u_face_out      = uf
@@ -273,7 +345,7 @@ def vof_step_multi(phi_arr, u, dx, dt, bc_l, bc_r, n_ghost=2, use_compress=False
 
 def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2,
              ph1=None, ph2=None, p=None, T=None,
-             use_compress=False):
+             use_compress=False, K_val=None):
     """
     VOF update using CICSAM face values, with automatic sub-stepping.
 
@@ -328,7 +400,8 @@ def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2,
         psi_cur, psi_face_sub = _vof_substep(
             psi_cur, u_face, psi_ext, dt_sub, dx, ng,
             ph1=ph1, ph2=ph2, p=p, T=T,
-            use_compress=use_compress, bc_l=bc_l, bc_r=bc_r)
+            use_compress=use_compress, bc_l=bc_l, bc_r=bc_r,
+            K_val=K_val)
         psi_face_accum += psi_face_sub
 
     # Time-averaged psi_face for mass-flux consistency with the full dt

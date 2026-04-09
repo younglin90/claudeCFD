@@ -590,14 +590,323 @@ def assemble_newton_4N(
     return A.tocsr(), b
 
 
-def solve_linear_system(A, b, p_ref=1.0e5, u_ref=1.0, h_ref=3.0e5, phi_ref=None):
+def assemble_newton_Ns(
+    N, dx, dt, N_s,
+    rho_old, u_old, h_old, p_old, phi_old_arr,  # phi_old_arr: (N_s-1, N)
+    rho_k, u_k, h_k, p_k, T_k, phi_k_arr,      # phi_k_arr: (N_s-1, N)
+    zeta_k, phi_T_k,       # dρ/dp, dρ/dT (N,)
+    alpha_k_arr,            # list of N_s-1: ∂ρ/∂φₖ (N,)
+    d_rho_h_dphi_k_arr,     # list of N_s-1: ∂(ρh)/∂φₖ (N,)
+    rho_face_acid, d_hat, theta_k,
+    beta_k_arr,             # list of N_s-1: CICSAM beta per species (N+1,)
+    phases,                 # list of N_s EOS objects
+    bc_l, bc_r,
+    mixing_type='volume',
+    use_compress=False,
+    C_k_arr=None,           # list of N_s-1: Zalesak limiter (N+1,)
+    n_hat_k_arr=None,       # list of N_s-1: interface normal (N+1,)
+    u_face_vof=None,
+):
+    """
+    Fully coupled Newton-linearised (p, u, T, φ₀, ..., φ_{N_s-2}) system.
+    Block ordering: [p_0..p_{N-1}, u_0..u_{N-1}, T_0..T_{N-1},
+                     phi0_0..phi0_{N-1}, ..., phi{N_s-2}_0..phi{N_s-2}_{N-1}]
+    Matrix size: (2+N_s)*N x (2+N_s)*N
+    Returns A (csr), b (ndarray).
+    """
+    size = (2 + N_s) * N
+    A = sp.lil_matrix((size, size), dtype=float)
+    b = np.zeros(size)
+
+    is_per_l = (bc_l == 'periodic')
+    is_per_r = (bc_r == 'periodic')
+
+    def face_lr(f):
+        iL = f - 1
+        iR = f
+        iL = (N - 1 if is_per_l else 0) if iL < 0 else iL
+        iR = (0 if is_per_r else N - 1) if iR >= N else iR
+        return iL, iR
+
+    # Build EOS objects
+    eos_list = [create_eos(ph) for ph in phases]
+
+    # ACID helpers for volume fraction mixing
+    def _acid_rho_Ns(p_val, T_val, phi_ref):
+        """phi_ref: length N_s, cell i's fractions (sum=1)."""
+        return sum(phi_ref[k] * eos_list[k].rho(p_val, T_val) for k in range(N_s))
+
+    def _acid_rh_Ns(p_val, T_val, u_val, phi_ref):
+        """ACID rhoH_total."""
+        total = 0.0
+        ke = 0.5 * u_val * u_val
+        for k in range(N_s):
+            r = eos_list[k].rho(p_val, T_val)
+            h = eos_list[k].h(p_val, T_val)
+            total += phi_ref[k] * r * (h + ke)
+        return total
+
+    def _acid_cp_Ns(p_val, T_val, phi_ref):
+        """Density-weighted mixture cp."""
+        num = sum(phi_ref[k] * eos_list[k].rho(p_val, T_val) * eos_list[k].cp(p_val, T_val)
+                  for k in range(N_s))
+        den = sum(phi_ref[k] * eos_list[k].rho(p_val, T_val) for k in range(N_s)) + 1e-300
+        return num / den
+
+    def _acid_bm_Ns(p_val, T_val, phi_ref):
+        """Density-weighted mixture dh/dp."""
+        num = sum(phi_ref[k] * eos_list[k].rho(p_val, T_val) * eos_list[k].dh_dp(p_val, T_val)
+                  for k in range(N_s))
+        den = sum(phi_ref[k] * eos_list[k].rho(p_val, T_val) for k in range(N_s)) + 1e-300
+        return num / den
+
+    # ACID helpers for mass fraction mixing
+    def _acid_rho_Ns_mass(p_val, T_val, Y_ref):
+        inv_rho = sum(Y_ref[k] / (eos_list[k].rho(p_val, T_val) + 1e-300) for k in range(N_s))
+        return 1.0 / (inv_rho + 1e-300)
+
+    def _acid_rh_Ns_mass(p_val, T_val, u_val, Y_ref):
+        rho_star = _acid_rho_Ns_mass(p_val, T_val, Y_ref)
+        h_static = sum(Y_ref[k] * eos_list[k].h(p_val, T_val) for k in range(N_s))
+        return rho_star * (h_static + 0.5 * u_val * u_val)
+
+    def _acid_cp_Ns_mass(p_val, T_val, Y_ref):
+        return sum(Y_ref[k] * eos_list[k].cp(p_val, T_val) for k in range(N_s))
+
+    def _acid_bm_Ns_mass(p_val, T_val, Y_ref):
+        return sum(Y_ref[k] * eos_list[k].dh_dp(p_val, T_val) for k in range(N_s))
+
+    # Select helpers based on mixing_type
+    if mixing_type == 'mass':
+        _acid_rho_f = _acid_rho_Ns_mass
+        _acid_rh_f  = _acid_rh_Ns_mass
+        _acid_cp_f  = _acid_cp_Ns_mass
+        _acid_bm_f  = _acid_bm_Ns_mass
+    else:
+        _acid_rho_f = _acid_rho_Ns
+        _acid_rh_f  = _acid_rh_Ns
+        _acid_cp_f  = _acid_cp_Ns
+        _acid_bm_f  = _acid_bm_Ns
+
+    for i in range(N):
+        rp     = _ci(0, i, N)
+        ru     = _ci(1, i, N)
+        rT_row = _ci(2, i, N)
+
+        cp = _ci(0, i, N)
+        cu = _ci(1, i, N)
+        cT = _ci(2, i, N)
+
+        f_R = i + 1
+        f_L = i
+        iL, _ = face_lr(f_L)
+        _, iR  = face_lr(f_R)
+
+        cp_L = _ci(0, iL, N);  cu_L = _ci(1, iL, N);  cT_L = _ci(2, iL, N)
+        cp_R = _ci(0, iR, N);  cu_R = _ci(1, iR, N);  cT_R = _ci(2, iR, N)
+
+        rho_i   = rho_k[i]
+        zeta_i  = zeta_k[i]
+        phi_T_i = float(phi_T_k[i]) if phi_T_k is not None else 0.0
+        u_i     = u_k[i]
+        h_i     = h_k[i]
+        T_i     = T_k[i]
+
+        tR = theta_k[f_R]
+        tL = theta_k[f_L]
+        dR  = d_hat[f_R]
+        dL  = d_hat[f_L]
+
+        # Build full phi vector for cell i
+        phi_i_full = np.zeros(N_s)
+        for k in range(N_s - 1):
+            phi_i_full[k] = float(phi_k_arr[k][i])
+        phi_i_full[N_s - 1] = 1.0 - sum(phi_i_full[:N_s - 1])
+        phi_i_full = np.clip(phi_i_full, 0.0, 1.0)
+
+        # ACID face densities
+        phi_iR_full = np.zeros(N_s)
+        for k in range(N_s - 1):
+            phi_iR_full[k] = float(phi_k_arr[k][iR])
+        phi_iR_full[N_s - 1] = 1.0 - sum(phi_iR_full[:N_s - 1])
+        phi_iR_full = np.clip(phi_iR_full, 0.0, 1.0)
+
+        phi_iL_full = np.zeros(N_s)
+        for k in range(N_s - 1):
+            phi_iL_full[k] = float(phi_k_arr[k][iL])
+        phi_iL_full[N_s - 1] = 1.0 - sum(phi_iL_full[:N_s - 1])
+        phi_iL_full = np.clip(phi_iL_full, 0.0, 1.0)
+
+        rfR = _acid_rho_f(float(p_k[iR]), float(T_k[iR]), phi_i_full)
+        rfL = _acid_rho_f(float(p_k[iL]), float(T_k[iL]), phi_i_full)
+
+        mR = rfR * tR
+        mL = rfL * tL
+
+        # -----------------------------------------------------------
+        # CONTINUITY (block 0)
+        # -----------------------------------------------------------
+        A[rp, cp] += zeta_i / dt
+        b[rp]     += zeta_i * p_old[i] / dt
+        # phi column coupling
+        for k in range(N_s - 1):
+            cv_k = _ci(3 + k, i, N)
+            alpha_i_k = float(alpha_k_arr[k][i])
+            A[rp, cv_k] += alpha_i_k / dt
+            b[rp]       += alpha_i_k * float(phi_old_arr[k][i]) / dt
+        # MWI right face
+        A[rp, cu]   += rfR / (2.0 * dx)
+        A[rp, cu_R] += rfR / (2.0 * dx)
+        A[rp, cp]   += rfR * dR / (dx * dx)
+        A[rp, cp_R] -= rfR * dR / (dx * dx)
+        # MWI left face
+        A[rp, cu_L] -= rfL / (2.0 * dx)
+        A[rp, cu]   -= rfL / (2.0 * dx)
+        A[rp, cp]   += rfL * dL / (dx * dx)
+        A[rp, cp_L] -= rfL * dL / (dx * dx)
+
+        # -----------------------------------------------------------
+        # MOMENTUM (block 1)
+        # -----------------------------------------------------------
+        A[ru, cu] += rho_i / dt
+        A[ru, cp] += zeta_i * u_i / dt
+        b[ru]     += rho_old[i] * u_old[i] / dt + zeta_i * u_i * p_k[i] / dt
+        # phi column coupling
+        for k in range(N_s - 1):
+            cv_k = _ci(3 + k, i, N)
+            alpha_i_k = float(alpha_k_arr[k][i])
+            A[ru, cv_k] += alpha_i_k * u_i / dt
+            b[ru]       += alpha_i_k * u_i * float(phi_k_arr[k][i]) / dt
+        # Convective right face
+        if mR >= 0.0:
+            A[ru, cu]   += mR / dx
+        else:
+            A[ru, cu_R] += mR / dx
+        A[ru, cp]   += rfR * u_i * dR / (dx * dx)
+        A[ru, cp_R] -= rfR * u_i * dR / (dx * dx)
+        # Convective left face
+        if mL >= 0.0:
+            A[ru, cu_L] -= mL / dx
+        else:
+            A[ru, cu]   -= mL / dx
+        A[ru, cp_L] -= rfL * u_i * dL / (dx * dx)
+        A[ru, cp]   += rfL * u_i * dL / (dx * dx)
+        # Pressure gradient
+        A[ru, cp_R] += 1.0 / (2.0 * dx)
+        A[ru, cp_L] -= 1.0 / (2.0 * dx)
+
+        # -----------------------------------------------------------
+        # ENERGY (block 2) — T-mode with phi coupling
+        # -----------------------------------------------------------
+        cp_i = _acid_cp_f(float(p_k[i]), float(T_k[i]), phi_i_full)
+        bm_i = _acid_bm_f(float(p_k[i]), float(T_k[i]), phi_i_full)
+
+        drhdt = rho_i * cp_i + h_i * phi_T_i
+        drhdp = rho_i * bm_i + h_i * zeta_i
+        drhdu = rho_i * u_i
+
+        A[rT_row, cT] += drhdt / dt
+        A[rT_row, cu] += drhdu / dt
+        A[rT_row, cp] += (drhdp - 1.0) / dt
+        # phi column coupling
+        b[rT_row] += (rho_old[i] * h_old[i] / dt
+                      - p_old[i] / dt
+                      + (drhdt * T_i + drhdp * p_k[i] + drhdu * u_i
+                         - rho_i * h_i) / dt)
+        for k in range(N_s - 1):
+            cv_k = _ci(3 + k, i, N)
+            drh_dphi_i_k = float(d_rho_h_dphi_k_arr[k][i])
+            A[rT_row, cv_k] += drh_dphi_i_k / dt
+            b[rT_row]       += drh_dphi_i_k * float(phi_k_arr[k][i]) / dt
+
+        # Convective: ACID face enthalpy
+        H_R_acid  = _acid_rh_f(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), phi_i_full)
+        H_L_acid  = _acid_rh_f(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), phi_i_full)
+        b[rT_row] -= (H_R_acid * tR - H_L_acid * tL) / dx
+        if mR >= 0.0: A[rT_row, cT]   += mR * cp_i / dx
+        else:         A[rT_row, cT_R] += mR * cp_i / dx
+        if mL >= 0.0: A[rT_row, cT_L] -= mL * cp_i / dx
+        else:         A[rT_row, cT]   -= mL * cp_i / dx
+        T_up_R = T_k[i]  if mR >= 0.0 else T_k[iR]
+        T_up_L = T_k[iL] if mL >= 0.0 else T_k[i]
+        b[rT_row] += (mR * cp_i * T_up_R - mL * cp_i * T_up_L) / dx
+
+        # -----------------------------------------------------------
+        # SPECIES TRANSPORT (blocks 3..2+N_s)
+        # -----------------------------------------------------------
+        for k in range(N_s - 1):
+            rv  = _ci(3 + k, i, N)
+            cv  = _ci(3 + k, i, N)
+            cv_L = _ci(3 + k, iL, N)
+            cv_R = _ci(3 + k, iR, N)
+
+            beta_R = float(beta_k_arr[k][f_R])
+            beta_L = float(beta_k_arr[k][f_L])
+
+            # Temporal
+            A[rv, cv] += 1.0 / dt
+            b[rv]     += float(phi_old_arr[k][i]) / dt
+
+            # Implicit CICSAM advection
+            # Right face
+            if tR >= 0:
+                A[rv, cv]   += (1.0 - beta_R) * tR / dx
+                A[rv, cv_R] += beta_R * tR / dx
+            else:
+                A[rv, cv_R] += (1.0 - beta_R) * tR / dx
+                A[rv, cv]   += beta_R * tR / dx
+            # Left face
+            if tL >= 0:
+                A[rv, cv_L] -= (1.0 - beta_L) * tL / dx
+                A[rv, cv]   -= beta_L * tL / dx
+            else:
+                A[rv, cv]   -= (1.0 - beta_L) * tL / dx
+                A[rv, cv_L] -= beta_L * tL / dx
+            # Source: -phi * div(theta)
+            div_theta = (tR - tL) / dx
+            A[rv, cv] -= div_theta
+
+            # Compression (linearized phi(1-phi) around phi_k)
+            if (use_compress and C_k_arr is not None and n_hat_k_arr is not None
+                    and u_face_vof is not None):
+                C_k    = C_k_arr[k]
+                n_hat  = n_hat_k_arr[k]
+                for face, sign_mult in [(f_R, -1.0), (f_L, 1.0)]:
+                    ck  = float(C_k[face])
+                    nh  = float(n_hat[face])
+                    u_f = float(u_face_vof[face])
+                    if abs(ck * nh) < 1e-15:
+                        continue
+                    coeff = sign_mult * ck * abs(u_f) * nh / dx
+                    if face == f_R:
+                        j_donor = i   if nh * abs(u_f) >= 0 else iR
+                    else:
+                        j_donor = iL  if nh * abs(u_f) >= 0 else i
+                    phi_d = float(phi_k_arr[k][j_donor])
+                    cv_d  = _ci(3 + k, j_donor, N)
+                    A[rv, cv_d] += coeff * (1.0 - 2.0 * phi_d)
+                    b[rv]       -= coeff * phi_d * phi_d
+
+    return A.tocsr(), b
+
+
+def solve_linear_system(A, b, p_ref=1.0e5, u_ref=1.0, h_ref=3.0e5, phi_ref=None,
+                        n_blocks=None):
     """Solve A @ x = b with column + row equilibration."""
     import scipy.sparse.linalg as spla
 
     size = len(b)
 
     col_scale = np.ones(size)
-    if phi_ref is not None:
+    if n_blocks is not None:
+        # N_s-species general case: n_blocks = 2 + N_s
+        NB = size // n_blocks
+        col_scale[:NB]       = max(abs(p_ref), 1.0)
+        col_scale[NB:2*NB]   = max(abs(u_ref), 1e-6)
+        col_scale[2*NB:3*NB] = max(abs(h_ref), 1.0)
+        for kb in range(3, n_blocks):
+            col_scale[kb*NB:(kb+1)*NB] = max(abs(phi_ref) if phi_ref is not None else 1.0, 1e-6)
+    elif phi_ref is not None:
         N4 = size // 4
         col_scale[:N4]        = max(abs(p_ref), 1.0)
         col_scale[N4:2*N4]    = max(abs(u_ref), 1e-6)

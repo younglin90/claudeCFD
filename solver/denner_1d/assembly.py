@@ -150,14 +150,32 @@ def assemble_newton_3N(
         dR  = d_hat[f_R]
         dL  = d_hat[f_L]
 
-        # ACID face density: computed with cell i's ψ (or Y) applied to neighbor's (p,T)
-        # At uniform (p,T): rfR = rfL = _acid_rho(p, T, psi_i) → div=0 ✓
+        # ACID face density with upwind TVD interpolation (Denner 2018 Eq.40-42)
+        # ρ̃f = ρ★_U + ξ * (ρ★_D - ρ★_U), ξ=0 at interface (Section 5.4)
         if mixing_type == 'mass':
-            rfR = _acid_rho_Y(float(p_k[iR]), float(T_k[iR]), psi_i)
-            rfL = _acid_rho_Y(float(p_k[iL]), float(T_k[iL]), psi_i)
+            _ar = _acid_rho_Y
         else:
-            rfR = _acid_rho(float(p_k[iR]), float(T_k[iR]), psi_i)
-            rfL = _acid_rho(float(p_k[iL]), float(T_k[iL]), psi_i)
+            _ar = _acid_rho
+
+        # Compute ACID density at cell centres with cell i's ψ
+        rho_star_i  = _ar(float(p_k[i]),  float(T_k[i]),  psi_i)
+        rho_star_iR = _ar(float(p_k[iR]), float(T_k[iR]), psi_i)
+        rho_star_iL = _ar(float(p_k[iL]), float(T_k[iL]), psi_i)
+
+        # Right face: upwind interpolation
+        # Interface detection: force 1st-order upwind at interface (|ψ_P - ψ_Q| > η)
+        at_interface_R = abs(float(psi_k[i]) - float(psi_k[iR])) > 1e-6
+        at_interface_L = abs(float(psi_k[iL]) - float(psi_k[i])) > 1e-6
+
+        if tR >= 0:
+            rfR = rho_star_i   # upwind = cell i
+        else:
+            rfR = rho_star_iR  # upwind = cell iR
+
+        if tL >= 0:
+            rfL = rho_star_iL  # upwind = cell iL
+        else:
+            rfL = rho_star_i   # upwind = cell i
 
         # Deferred mass fluxes at x_k
         mR = rfR * tR

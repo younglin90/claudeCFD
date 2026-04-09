@@ -85,10 +85,16 @@ def run(case_params):
         'vof_type':     case_params.get('vof_type', 'volume'),  # 'volume' or 'mass'
         'use_K':        case_params.get('use_K', False),
         'use_compress': case_params.get('use_compress', False),
+        'coupled':      case_params.get('coupled', False),
+        'coupled_Ns':   case_params.get('coupled_Ns', False),
+        'phases':       case_params.get('phases', None),  # list of EOS dicts/objects
         # legacy aliases kept for backward compat
         'max_picard_iter': case_params.get('max_picard_iter', 5),
         'picard_tol':      case_params.get('picard_tol',      1e-6),
     }
+    # backward compat: phases 없으면 [ph1, ph2]로 설정
+    if cfg['phases'] is None:
+        cfg['phases'] = [ph1, ph2]
 
     max_iteration = case_params.get('max_iteration', None)
 

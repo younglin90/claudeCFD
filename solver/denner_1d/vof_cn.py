@@ -242,6 +242,35 @@ def mass_fraction_step(psi, u, dx, dt, bc_l, bc_r, rho1, rho2, n_ghost=2,
     return psi_new, psi_face_avg, u_face
 
 
+def vof_step_multi(phi_arr, u, dx, dt, bc_l, bc_r, n_ghost=2, use_compress=False):
+    """
+    Multi-species VOF explicit step. Advects each species independently.
+
+    Parameters
+    ----------
+    phi_arr : ndarray (N_s-1, N) — independent species fractions
+    u       : ndarray (N,)       — cell velocities
+
+    Returns
+    -------
+    phi_new      : ndarray (N_s-1, N)
+    phi_face_arr : ndarray (N_s-1, N+1)
+    u_face       : ndarray (N+1,)
+    """
+    N_s_m1 = phi_arr.shape[0]
+    N      = phi_arr.shape[1]
+    phi_new      = np.empty_like(phi_arr)
+    phi_face_arr = np.empty((N_s_m1, N + 1))
+    u_face_out   = None
+    for k in range(N_s_m1):
+        pn, pf, uf = vof_step(phi_arr[k], u, dx, dt, bc_l, bc_r,
+                               n_ghost=n_ghost, use_compress=use_compress)
+        phi_new[k]      = pn
+        phi_face_arr[k] = pf
+        u_face_out      = uf
+    return phi_new, phi_face_arr, u_face_out
+
+
 def vof_step(psi, u, dx, dt, bc_l, bc_r, n_ghost=2,
              ph1=None, ph2=None, p=None, T=None,
              use_compress=False):

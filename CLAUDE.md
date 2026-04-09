@@ -150,9 +150,22 @@
 
 ---
 
-## Phase 2 — 미정
+## Phase 2 — 1D Gas-Liquid Shock Tube (진행 중)
 
-Phase 1 통과 후 별도 결정.
+| 항목 | 값 |
+|------|-----|
+| 도메인 | [0, 2] m, transmissive BC |
+| N | 50 cells |
+| Air | x < 0.5 m, p = 1 GPa (ψ=1) |
+| Water | x ≥ 0.5 m, p = 10 kPa (ψ=0) |
+| u₀ | 0 m/s |
+| T₀ | 300 K |
+| CFL | 0.5 (acoustic) |
+| t_end | 8×10⁻⁴ s |
+
+**PASS 기준**: t_end 완주 + 수치 진동 없음 + 경계 진동 없음 + 3파 구조 식별
+
+**현재 상태**: t_end 완주 (104 steps, 6.2s). 온도에 수치 진동 존재 → 개선 필요.
 
 ---
 

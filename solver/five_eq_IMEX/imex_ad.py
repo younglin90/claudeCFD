@@ -632,10 +632,7 @@ def _single_phase_euler_rusanov_step(W_n, dt, eos, dx, bc_l, bc_r, *,
     F_rusanov = 0.5 * (F_L + F_R) - 0.5 * s_rusanov * (U_R - U_L)
     s_L = np.minimum(u_L_h - c_L, u_R_h - c_R)
     s_R = np.maximum(u_L_h + c_L, u_R_h + c_R)
-    F_face = _single_phase_hllc_flux(
-        U_L, F_L, rho_L_h, u_L_h, p_L_h,
-        U_R, F_R, rho_R_h, u_R_h, p_R_h,
-        s_L, s_R)
+    F_face = F_rusanov.copy()
     bad_face = ~np.all(np.isfinite(F_face), axis=0)
     if np.any(bad_face):
         F_face[:, bad_face] = F_rusanov[:, bad_face]
@@ -1640,15 +1637,6 @@ def imex_ad_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
                 "'path', 'cell', 'hybrid', 'trapezoid', or "
                 "'immiscible_trapezoid'.")
         kapila_source_mode = source_key
-    elif pressure_closure == 'implicit_energy':
-        alpha_now = np.asarray(W_n[0], dtype=float)
-        pure_tol_auto = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
-        has_immiscible_interface = (
-            float(np.min(alpha_now)) <= pure_tol_auto
-            and float(np.max(alpha_now)) >= 1.0 - pure_tol_auto
-        )
-        if not has_immiscible_interface:
-            kapila_source_mode = 'trapezoid'
     material_energy_form = 'apec' if pressure_closure == 'apec_pe' else 'allaire'
     need_aux = pressure_closure in (
         'implicit_energy',

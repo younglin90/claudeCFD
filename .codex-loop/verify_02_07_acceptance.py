@@ -267,9 +267,9 @@ def verify_02_A() -> dict:
     )
 
     t0 = time.time()
-    pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "compressive_recovery")
+    pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "regime_auto")
     alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs")
-    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu")
+    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "weno3")
     out = solve(
         eos1,
         eos2,
@@ -545,9 +545,9 @@ def verify_07_B() -> dict:
         T1 = T1 + theta_L * (p - P0) * mask_L
         W0 = (a1, T1, T2, u, p)
         try:
-            pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "compressive_recovery")
+            pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "regime_auto")
             alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs")
-            primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu")
+            primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "weno3")
             out = solve(
                 eos1,
                 eos2,

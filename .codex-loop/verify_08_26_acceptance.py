@@ -424,7 +424,7 @@ def _case13_scheme_consistency_guard():
 
 def _case13_mechanism_metrics():
     alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs").lower()
-    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu").lower()
+    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "weno3").lower()
     alpha_ok = alpha_scheme in {
         "cicsam", "mstacs",
     }
@@ -573,7 +573,7 @@ def _solve_same_scheme(eos1, eos2, W0, dx, t_end, *, bc_l, bc_r,
                        cfl=0.27, alpha_pure_tol=1.0e-6, max_steps=100000):
     pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "regime_auto")
     alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs")
-    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu")
+    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "weno3")
     return solve(
         eos1,
         eos2,

@@ -174,9 +174,9 @@ def _save_plot(case_name: str, x: np.ndarray, W, rho: np.ndarray,
 def _solve_imex(eos1, eos2, W0, dx, t_end, *, bc_l, bc_r, cfl=0.4,
                 dt_fixed=None, u_inlet=None, p_inlet=None, max_steps=100000,
                 alpha_pure_tol=1.0e-8, kapila_closure=False):
-    pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "compressive_recovery")
+    pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "regime_auto")
     alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs")
-    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu")
+    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "weno3")
     return solve(
         eos1,
         eos2,

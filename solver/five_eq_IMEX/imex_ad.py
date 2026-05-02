@@ -309,7 +309,7 @@ def _acoustic_faces_muscl_np(u, p, Z, alpha, bc_l, bc_r, alpha_pure_tol, *,
         u, p, Z, bc_l, bc_r, u_inlet=u_inlet, p_inlet=p_inlet)
     primitive_scheme = normalise_primitive_scheme(primitive_scheme)
     if (primitive_scheme == 'upwind'
-            or os.environ.get("FIVE_EQ_IMEX_ACOUSTIC_MUSCL", "0") == "0"):
+            or os.environ.get("FIVE_EQ_IMEX_ACOUSTIC_MUSCL", "1") == "0"):
         return p_star, u_star, np.zeros(len(u) + 1, dtype=bool)
     high_face = _pure_bulk_muscl_face_mask(alpha, bc_l, bc_r, alpha_pure_tol)
     if not np.any(high_face):

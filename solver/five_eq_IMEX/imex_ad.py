@@ -1086,11 +1086,7 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     B = np.asarray(W_n[0], dtype=float).copy()
     if kapila_closure:
         B_ext = np.asarray(W_ext[0], dtype=float) + D_K_kapila(W_ext, eos1, eos2)
-        W_mid = tuple(0.5 * (np.asarray(arr[:-1], dtype=float)
-                             + np.asarray(arr[1:], dtype=float))
-                      for arr in W_ext)
-        B_mid = np.asarray(W_mid[0], dtype=float) + D_K_kapila(W_mid, eos1, eos2)
-        B_f = (B_ext[:-1] + 4.0 * B_mid + B_ext[1:]) / 6.0
+        B_f = 0.5 * (B_ext[:-1] + B_ext[1:])
         u_cell = np.asarray(W_n[3], dtype=float)
         source_face = (
             B_f[1:] * (u_star[1:] - u_cell)

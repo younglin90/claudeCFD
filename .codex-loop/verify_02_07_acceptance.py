@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strict-but-diffusion-aware 02/07 acceptance verifier.
+"""Strict 02/07 acceptance verifier.
 
 Final stdout line is an integer failure count for codex-autoresearch.
 The criteria intentionally separate material-contact preservation from
@@ -7,9 +7,9 @@ acoustic-profile similarity:
 
 * 02-A: pressure is checked by relative Linf, velocity by absolute Linf.
   Alpha/rho diffusion is allowed, but profile collapse is not.
-* 07-B: moderate acoustic diffusion is allowed, but pressure/velocity profiles
-  must remain correlated with the linear acoustic reference and must not show a
-  strong alternating checkerboard residual around the material interface.
+* 07-B: pressure/velocity profiles must match the linear acoustic reference
+  with strict error, phase, and oscillation bounds.  Amplitude loss by numerical
+  diffusion is not accepted as a separate PASS path.
 """
 from __future__ import annotations
 
@@ -399,17 +399,13 @@ def _oscillation_ok(x, W, p_exact, u_exact, case, dp_wave, dx) -> tuple[bool, di
 
 
 def _profile_pass_07(m: dict) -> bool:
-    """Diffusion-aware 07 gate aligned with the validation spec.
-
-    The strict metric is intentionally not used here: 07 allows moderate
-    amplitude diffusion, but rejects wrong phase/shape and visible oscillation.
-    """
+    """Strict 07 gate aligned with the validation spec."""
     return (
-        m["L2p"] < 0.50 and m["L2u"] < 0.20
-        and m["Lip"] < 2.0 and m["Liu"] < 1.0
+        m["L2p"] < 0.30 and m["L2u"] < 0.30
+        and m["Lip"] < 0.50 and m["Liu"] < 0.50
         and m["frac_p"] >= 0.70 and m["frac_u"] >= 0.70
-        and m["corr_p"] > 0.50 and m["corr_u"] > 0.50
-        and m["L1p"] < 2.0 and m["L1u"] < 8.0
+        and m["L1p"] < 1.0 and m["L1u"] < 1.0
+        and m["corr_p"] > 0.85 and m["corr_u"] > 0.85
     )
 
 

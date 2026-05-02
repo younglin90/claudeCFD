@@ -506,6 +506,46 @@ def _tvd_pair(a, b, kind):
     return np.where(same, np.sign(a) * np.minimum(np.abs(a), np.abs(b)), 0.0)
 
 
+def _characteristic_primitive_slopes(rho, u, p, c, kind):
+    """TVD slopes for pure Euler primitive variables in characteristic space."""
+    rho = np.asarray(rho, dtype=float)
+    u = np.asarray(u, dtype=float)
+    p = np.asarray(p, dtype=float)
+    c = np.asarray(c, dtype=float)
+    drho = np.zeros_like(rho)
+    du = np.zeros_like(u)
+    dp = np.zeros_like(p)
+    if rho.size < 3:
+        return drho, du, dp
+
+    rho_c = np.maximum(rho[1:-1], _EPS)
+    c_c = np.maximum(c[1:-1], _EPS)
+    inv_c2 = 1.0 / np.maximum(c_c * c_c, _EPS)
+
+    dL_rho = rho[1:-1] - rho[:-2]
+    dL_u = u[1:-1] - u[:-2]
+    dL_p = p[1:-1] - p[:-2]
+    dR_rho = rho[2:] - rho[1:-1]
+    dR_u = u[2:] - u[1:-1]
+    dR_p = p[2:] - p[1:-1]
+
+    aL_minus = 0.5 * (dL_p * inv_c2 - rho_c * dL_u / c_c)
+    aL_plus = 0.5 * (dL_p * inv_c2 + rho_c * dL_u / c_c)
+    aL_zero = dL_rho - dL_p * inv_c2
+    aR_minus = 0.5 * (dR_p * inv_c2 - rho_c * dR_u / c_c)
+    aR_plus = 0.5 * (dR_p * inv_c2 + rho_c * dR_u / c_c)
+    aR_zero = dR_rho - dR_p * inv_c2
+
+    a_minus = _tvd_pair(aL_minus, aR_minus, kind)
+    a_plus = _tvd_pair(aL_plus, aR_plus, kind)
+    a_zero = _tvd_pair(aL_zero, aR_zero, kind)
+
+    drho[1:-1] = a_zero + a_minus + a_plus
+    du[1:-1] = c_c / rho_c * (a_plus - a_minus)
+    dp[1:-1] = c_c * c_c * (a_minus + a_plus)
+    return drho, du, dp
+
+
 def _single_phase_euler_rusanov_step(W_n, dt, eos, dx, bc_l, bc_r, *,
                                      u_inlet=None, p_inlet=None,
                                      primitive_scheme='upwind'):
@@ -543,14 +583,19 @@ def _single_phase_euler_rusanov_step(W_n, dt, eos, dx, bc_l, bc_r, *,
         drho = np.zeros_like(rho_e)
         du = np.zeros_like(u_e)
         dp = np.zeros_like(p_e)
-        drho[1:-1] = _minmod_pair(rho_e[1:-1] - rho_e[:-2], rho_e[2:] - rho_e[1:-1])
-        du[1:-1] = _minmod_pair(u_e[1:-1] - u_e[:-2], u_e[2:] - u_e[1:-1])
-        dp[1:-1] = _minmod_pair(p_e[1:-1] - p_e[:-2], p_e[2:] - p_e[1:-1])
+        e_e = eos.energy(rho_e, p_e)
+        c_sq_e = np.maximum(eos.sound_speed_sq(rho_e, e_e, p_e), _EPS)
+        if primitive_scheme == 'tmlpu':
+            drho, du, dp = _characteristic_primitive_slopes(
+                rho_e, u_e, p_e, np.sqrt(c_sq_e),
+                os.environ.get("FIVE_EQ_IMEX_TMLPU_TVD", "minmod"))
+        else:
+            drho[1:-1] = _minmod_pair(rho_e[1:-1] - rho_e[:-2], rho_e[2:] - rho_e[1:-1])
+            du[1:-1] = _minmod_pair(u_e[1:-1] - u_e[:-2], u_e[2:] - u_e[1:-1])
+            dp[1:-1] = _minmod_pair(p_e[1:-1] - p_e[:-2], p_e[2:] - p_e[1:-1])
         rho_x = drho / dx
         u_x = du / dx
         p_x = dp / dx
-        e_e = eos.energy(rho_e, p_e)
-        c_sq_e = np.maximum(eos.sound_speed_sq(rho_e, e_e, p_e), _EPS)
 
         # MUSCL-Hancock primitive predictor for smooth pure-phase acoustics.
         # The 1/2 factor is fixed by the second-order Taylor half-step.

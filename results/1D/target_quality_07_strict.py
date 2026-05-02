@@ -85,7 +85,10 @@ def _subcase_score(sub: dict[str, Any]) -> tuple[float, dict[str, float]]:
     peak_penalty = 0.0
     for key, value in peak.items():
         if key.endswith("_delta_cells"):
-            peak_penalty += max(0.0, _num(value) - 3.0)
+            stem = key[: -len("_delta_cells")]
+            if bool(peak.get(f"{stem}_required", True)):
+                tol = _num(peak.get(f"{stem}_tol_cells"), 3.0)
+                peak_penalty += max(0.0, _num(value) - tol)
     checker = (
         _num(osc.get("p_alt_amp"), 0.0)
         + _num(osc.get("u_alt_amp"), 0.0)

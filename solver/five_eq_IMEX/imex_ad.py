@@ -1163,7 +1163,7 @@ def _solve_acoustic_ad(W_n, q1_new, q2_new, m_adv, alpha_new, dt,
     n = len(u0)
     z0_u = np.asarray(u0, dtype=float)
     z0_p = np.asarray(p0, dtype=float)
-    acoustic_theta_wave = float(os.environ.get("FIVE_EQ_IMEX_ACOUSTIC_THETA", "1.0"))
+    acoustic_theta_wave = float(os.environ.get("FIVE_EQ_IMEX_ACOUSTIC_THETA", "0.5"))
     acoustic_theta_wave = min(1.0, max(0.5, acoustic_theta_wave))
     if n >= 32:
         p_f_old, u_f_old, high_face = _acoustic_faces_muscl_np(

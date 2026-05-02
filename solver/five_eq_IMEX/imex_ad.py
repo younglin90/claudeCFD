@@ -632,7 +632,10 @@ def _single_phase_euler_rusanov_step(W_n, dt, eos, dx, bc_l, bc_r, *,
     F_rusanov = 0.5 * (F_L + F_R) - 0.5 * s_rusanov * (U_R - U_L)
     s_L = np.minimum(u_L_h - c_L, u_R_h - c_R)
     s_R = np.maximum(u_L_h + c_L, u_R_h + c_R)
-    F_face = F_rusanov.copy()
+    F_face = _single_phase_hllc_flux(
+        U_L, F_L, rho_L_h, u_L_h, p_L_h,
+        U_R, F_R, rho_R_h, u_R_h, p_R_h,
+        s_L, s_R)
     bad_face = ~np.all(np.isfinite(F_face), axis=0)
     if np.any(bad_face):
         F_face[:, bad_face] = F_rusanov[:, bad_face]

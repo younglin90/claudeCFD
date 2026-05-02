@@ -119,7 +119,7 @@ def main() -> int:
             os.environ.pop(key, None)
     os.environ["FIVE_EQ_IMEX_ALPHA_SCHEME"] = "mstacs"
     os.environ["FIVE_EQ_IMEX_PRIMITIVE_SCHEME"] = "tmlpu"
-    os.environ["FIVE_EQ_IMEX_TMLPU_TVD"] = "minmod"
+    os.environ["FIVE_EQ_IMEX_TMLPU_TVD"] = "superbee"
     os.environ["FIVE_EQ_IMEX_PRESSURE_CLOSURE"] = "regime_auto"
 
     start = time.time()

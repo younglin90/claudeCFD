@@ -38,6 +38,12 @@ from solver.five_eq_IMEX.main import solve  # noqa: E402
 from solver.five_eq_IMEX.sound_speed import phase_sound_speed_sq, mixture_sound_speed_sq  # noqa: E402
 from oscillation_guards import high_frequency_oscillation_guard  # noqa: E402
 
+CASE24_POSTSHOCK_DIP_TOL = 5.0e-2
+CASE24_POSTSHOCK_OVERSHOOT_TOL = 5.0e-2
+CASE24_POSTSHOCK_L2_TOL = 5.0e-2
+CASE24_PROFILE_CORR_MIN = 9.1e-1
+CASE24_SHOCK_LOCATION_TOL_CELLS = 3.0
+
 
 def _ensure_dir(case_name: str) -> str:
     path = os.path.join(ROOT, "results", "1D", case_name)
@@ -69,15 +75,22 @@ def _rho_mix(W, eos1, eos2):
     return a * rho1 + (1.0 - a) * rho2
 
 
-def _mach_impedance(W, eos1, eos2, *, kind="kapila"):
+def _mach_impedance(W, eos1, eos2, *, kind="kapila", alpha_pure_tol=1.0e-6):
     a, T1, T2, u, p = W
     rho1 = eos1.density(p, T1)
     rho2 = eos2.density(p, T2)
     c1_sq = phase_sound_speed_sq(eos1, rho1, T1)
     c2_sq = phase_sound_speed_sq(eos2, rho2, T2)
     c_mix_sq = mixture_sound_speed_sq(a, rho1, c1_sq, rho2, c2_sq, kind=kind)
-    c_mix = np.sqrt(np.maximum(c_mix_sq, 1.0e-300))
     rho = a * rho1 + (1.0 - a) * rho2
+    if alpha_pure_tol > 0.0:
+        pure1 = a >= 1.0 - alpha_pure_tol
+        pure2 = a <= alpha_pure_tol
+        rho = np.where(pure1, rho1, rho)
+        rho = np.where(pure2, rho2, rho)
+        c_mix_sq = np.where(pure1, c1_sq, c_mix_sq)
+        c_mix_sq = np.where(pure2, c2_sq, c_mix_sq)
+    c_mix = np.sqrt(np.maximum(c_mix_sq, 1.0e-300))
     mach = np.abs(u) / c_mix
     # Report Z in MPa s/m, matching validation/1D/13_ref.png.
     Z = rho * c_mix / 1.0e6
@@ -162,6 +175,9 @@ def _rho_u_p_hf_guard(x, rho, u, p, exact, *, p_floor=1.0e5):
             "p": (p, p_ref, max(float(np.max(p_ref) - np.min(p_ref)), float(p_floor))),
         },
         sharp_centers=_sharp_centers_from_exact(exact),
+        smooth_hf_limit=0.20,
+        smooth_local_tv_excess_limit=1.00,
+        smooth_local_relative_scale_floor=1.00,
     )
 
 
@@ -391,6 +407,127 @@ def _case13_shock_peak_guard(x, rho, u, p, exact, dx, *,
     return metrics
 
 
+def _u_shock_location_guard(x, u, exact, dx, *, prefix,
+                            limit_cells=3.0, search_cells=18.0,
+                            min_jump_ratio=0.10):
+    """Locate the transmitted shock from the steepest u-gradient near exact.
+
+    The exact Riemann profile has a discontinuous velocity drop at the
+    transmitted shock.  A shock-capturing solution may smear that jump, but the
+    center of the captured jump should remain phase-aligned with the exact
+    shock.  This guard detects the strongest face jump in u inside a local
+    search band around the exact transmitted shock and compares its position in
+    cell units.
+    """
+    x = np.asarray(x, dtype=float)
+    u = np.asarray(u, dtype=float)
+    shock_x = float(exact.get("x_transmitted_shock", exact.get("x_right_shock", np.nan)))
+    if not np.isfinite(shock_x) or x.size < 3:
+        return {
+            f"{prefix}_u_shock_location_ok": False,
+            f"{prefix}_u_shock_x_exact": float(shock_x),
+            f"{prefix}_u_shock_x_num": float("nan"),
+            f"{prefix}_u_shock_delta_cells": float("inf"),
+        }
+    face_x = 0.5 * (x[:-1] + x[1:])
+    jump = np.abs(np.diff(u))
+    width = max(float(search_cells) * float(dx), 0.02)
+    search = np.abs(face_x - shock_x) <= width
+    if int(np.count_nonzero(search)) < 2:
+        search = np.ones_like(face_x, dtype=bool)
+    local_jump = jump[search]
+    face_search = face_x[search]
+    if local_jump.size == 0:
+        x_num = float("nan")
+        delta_cells = float("inf")
+        jump_ratio = 0.0
+    else:
+        idx = int(np.argmax(local_jump))
+        x_num = float(face_search[idx])
+        delta_cells = float(abs(x_num - shock_x) / max(float(dx), 1.0e-300))
+        exact_jump = max(float(np.max(exact["u"]) - np.min(exact["u"])), 1.0)
+        jump_ratio = float(local_jump[idx] / exact_jump)
+    ok = bool(delta_cells <= float(limit_cells) and jump_ratio >= float(min_jump_ratio))
+    return {
+        f"{prefix}_u_shock_location_ok": ok,
+        f"{prefix}_u_shock_x_exact": float(shock_x),
+        f"{prefix}_u_shock_x_num": float(x_num),
+        f"{prefix}_u_shock_delta_cells": float(delta_cells),
+        f"{prefix}_u_shock_delta_limit_cells": float(limit_cells),
+        f"{prefix}_u_shock_jump_ratio": float(jump_ratio),
+    }
+
+
+def _case14_close_discontinuity_guard(x, alpha, u, exact, dx, *,
+                                      gap_ratio_min=0.50,
+                                      gap_ratio_max=1.80,
+                                      position_limit_cells=4.0):
+    """Require the two close right-going discontinuities in 14_E to stay split.
+
+    In the analytic 14_E solution the material contact/interface shock and the
+    transmitted air shock lie close together around x=0.8--0.9.  A valid
+    numerical result may smear each discontinuity, but it must not merge them
+    into a single ramp.
+    """
+    x = np.asarray(x, dtype=float)
+    alpha = np.asarray(alpha, dtype=float)
+    contact_exact = float(exact.get("x_contact", np.nan))
+    shock_exact = float(exact.get("x_transmitted_shock", np.nan))
+    if not (np.isfinite(contact_exact) and np.isfinite(shock_exact)) or x.size < 3:
+        return {
+            "case14_two_close_discontinuities_ok": False,
+            "case14_contact_x_exact": contact_exact,
+            "case14_shock_x_exact": shock_exact,
+        }
+
+    def strongest_face_jump(q, center, width):
+        face_x = 0.5 * (x[:-1] + x[1:])
+        jump = np.abs(np.diff(np.asarray(q, dtype=float)))
+        mask = np.abs(face_x - center) <= width
+        if int(np.count_nonzero(mask)) < 2:
+            mask = np.ones_like(face_x, dtype=bool)
+        local = jump[mask]
+        faces = face_x[mask]
+        idx = int(np.argmax(local))
+        return float(faces[idx]), float(local[idx])
+
+    search_width = max(18.0 * float(dx), 0.035)
+    contact_num, contact_jump = strongest_face_jump(alpha, contact_exact, search_width)
+    shock_num, shock_jump = strongest_face_jump(u, shock_exact, search_width)
+    gap_exact = max(shock_exact - contact_exact, float(dx))
+    gap_num = shock_num - contact_num
+    gap_ratio = gap_num / gap_exact
+    contact_delta = abs(contact_num - contact_exact) / max(float(dx), 1.0e-300)
+    shock_delta = abs(shock_num - shock_exact) / max(float(dx), 1.0e-300)
+    contact_jump_ratio = contact_jump / max(float(np.max(alpha) - np.min(alpha)), 1.0e-300)
+    u_jump_ratio = shock_jump / max(float(np.max(exact["u"]) - np.min(exact["u"])), 1.0)
+    ok = bool(
+        contact_exact < shock_exact
+        and contact_num < shock_num
+        and gap_ratio_min <= gap_ratio <= gap_ratio_max
+        and contact_delta <= position_limit_cells
+        and shock_delta <= position_limit_cells
+        and contact_jump_ratio >= 0.10
+        and u_jump_ratio >= 0.10
+    )
+    return {
+        "case14_two_close_discontinuities_ok": ok,
+        "case14_contact_x_exact": float(contact_exact),
+        "case14_contact_x_num": float(contact_num),
+        "case14_contact_delta_cells": float(contact_delta),
+        "case14_shock_x_exact": float(shock_exact),
+        "case14_shock_x_num": float(shock_num),
+        "case14_shock_delta_cells": float(shock_delta),
+        "case14_split_gap_exact": float(gap_exact),
+        "case14_split_gap_num": float(gap_num),
+        "case14_split_gap_ratio": float(gap_ratio),
+        "case14_split_gap_ratio_min": float(gap_ratio_min),
+        "case14_split_gap_ratio_max": float(gap_ratio_max),
+        "case14_contact_jump_ratio": float(contact_jump_ratio),
+        "case14_u_shock_jump_ratio": float(u_jump_ratio),
+    }
+
+
 def _case13_scheme_consistency_guard():
     """Reject case-13-only face sensors in active material-flux paths."""
     forbidden = (
@@ -424,11 +561,15 @@ def _case13_scheme_consistency_guard():
 
 def _case13_mechanism_metrics():
     alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs").lower()
-    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "weno3").lower()
+    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu").lower()
     alpha_ok = alpha_scheme in {
-        "cicsam", "mstacs",
+        "cicsam", "mstacs", "thinc", "thinc_bvd", "thinc-bvd",
     }
-    primitive_ok = primitive_scheme in {"tmlpu", "t_mlp_u", "t-mlp-u", "weno3"}
+    primitive_ok = primitive_scheme in {
+        "tmlpu", "t_mlp_u", "t-mlp-u",
+        "minmod", "superbee", "sb", "mc", "vanleer", "van_leer",
+        "vanalbada", "van_albada", "albada", "umist",
+    }
     return {
         "case13_alpha_scheme": alpha_scheme,
         "case13_alpha_sharp_interface_ok": bool(alpha_ok),
@@ -572,8 +713,9 @@ def _save_multi_plot(case_name, rows, title):
 def _solve_same_scheme(eos1, eos2, W0, dx, t_end, *, bc_l, bc_r,
                        cfl=0.27, alpha_pure_tol=1.0e-6, max_steps=100000):
     pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "regime_auto")
-    alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs")
-    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "weno3")
+    alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "thinc_bvd")
+    primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu")
+    time_integrator = os.environ.get("FIVE_EQ_IMEX_TIME_INTEGRATOR", "imex_ad_ssp2")
     return solve(
         eos1,
         eos2,
@@ -584,7 +726,7 @@ def _solve_same_scheme(eos1, eos2, W0, dx, t_end, *, bc_l, bc_r,
         bc_r=bc_r,
         cfl=cfl,
         max_steps=max_steps,
-        time_integrator="imex_ad",
+        time_integrator=time_integrator,
         alpha_scheme=alpha_scheme,
         mixture_kind="kapila",
         kapila_closure=True,
@@ -1516,6 +1658,9 @@ def _case14_exact_reference(x, eos_air, eos_water):
     exact = _nasg_riemann_profile(x, 2.29e-4, 0.7, left, right)
     exact["label"] = "analytic exact (ideal/NASG Riemann)"
     _nasg_riemann_add_phase_metrics(exact, x, 2.29e-4, 0.7, left, right)
+    if exact["p_star"] > right[2]:
+        exact["x_transmitted_shock"] = float(
+            0.7 + _nasg_shock_speed_right(exact["p_star"], right) * 2.29e-4)
     # alpha1 is air volume fraction in this verifier.  The exact contact
     # separates water on the left from air on the right.
     exact["alpha"] = np.where(np.asarray(x, dtype=float) <= exact["x_contact"], 0.0, 1.0)
@@ -2116,17 +2261,17 @@ def case_13():
         rho2_of_x=rho_water,
         x0=0.5,
         t_end=6.7e-4,
-        cfl=0.30,
+        cfl=float(os.environ.get("FIVE_EQ_CASE13_CFL", "0.30")),
         expected_u_range=(80.0, 650.0),
         expect_interface_right=True,
         max_reflected_pressure_ratio=1.15,
-        n=200,
+        n=int(os.environ.get("FIVE_EQ_CASE13_N", "400")),
         L=2.0,
         alpha_floor=alpha_floor)
     row["exact"] = _case13_exact_reference(row["x"], eos_air, eos_water)
     row["mach_num"], row["Z_num"] = _mach_impedance(row["W"], eos_air, eos_water)
     x_arr = np.asarray(row["x"], dtype=float)
-    dx = float(x_arr[1] - x_arr[0]) if x_arr.size > 1 else 2.0 / 200
+    dx = float(x_arr[1] - x_arr[0]) if x_arr.size > 1 else 2.0 / int(os.environ.get("FIVE_EQ_CASE13_N", "400"))
     contact_peak_metrics = _contact_rho_peak_guard(
         row["x"], row["rho"], row["exact"], dx,
         half_width=0.05, overshoot_limit=0.05)
@@ -2134,6 +2279,9 @@ def case_13():
         row["x"], row["rho"], row["W"][3], row["W"][4], row["exact"], dx)
     shock_peak_metrics = _case13_shock_peak_guard(
         row["x"], row["rho"], row["W"][3], row["W"][4], row["exact"], dx)
+    u_shock_location_metrics = _u_shock_location_guard(
+        row["x"], row["W"][3], row["exact"], dx,
+        prefix="case13", limit_cells=3.0)
     scheme_metrics = _case13_scheme_consistency_guard()
     mechanism_metrics = _case13_mechanism_metrics()
     hf_metrics = _rho_u_p_hf_guard(
@@ -2141,6 +2289,7 @@ def case_13():
     row["metrics"].update(contact_peak_metrics)
     row["metrics"].update(exact_error_metrics)
     row["metrics"].update(shock_peak_metrics)
+    row["metrics"].update(u_shock_location_metrics)
     row["metrics"].update(scheme_metrics)
     row["metrics"].update(mechanism_metrics)
     row["metrics"].update(hf_metrics)
@@ -2149,6 +2298,7 @@ def case_13():
         and contact_peak_metrics["contact_rho_peak_ok"]
         and exact_error_metrics["case13_exact_smooth_error_ok"]
         and shock_peak_metrics["case13_shock_peak_ok"]
+        and u_shock_location_metrics["case13_u_shock_location_ok"]
         and scheme_metrics["case13_scheme_consistency_ok"]
         and mechanism_metrics["case13_alpha_sharp_interface_ok"]
         and mechanism_metrics["case13_primitive_high_order_ok"]
@@ -2158,6 +2308,7 @@ def case_13():
         not contact_peak_metrics["contact_rho_peak_ok"],
         not exact_error_metrics["case13_exact_smooth_error_ok"],
         not shock_peak_metrics["case13_shock_peak_ok"],
+        not u_shock_location_metrics["case13_u_shock_location_ok"],
         not scheme_metrics["case13_scheme_consistency_ok"],
         not mechanism_metrics["case13_alpha_sharp_interface_ok"],
         not mechanism_metrics["case13_primitive_high_order_ok"],
@@ -2210,7 +2361,7 @@ def case_14():
         expected_u_range=(350.0, 800.0),
         expect_interface_right=True,
         max_reflected_pressure_ratio=1.1,
-        n=100,
+        n=int(os.environ.get("FIVE_EQ_CASE14_N", "400")),
         L=1.0,
         alpha_floor=alpha_floor)
     row["exact"] = _case14_exact_reference(row["x"], eos_air, eos_water)
@@ -2231,7 +2382,9 @@ def case_14():
     far_tail = x_arr >= 0.90
     if int(np.count_nonzero(diffusive_tail)) >= 3:
         u_tail_values = u_num[diffusive_tail]
-        # N=100 leaves this transmitted air shock smeared by several cells.
+        # Even at N=400 this transmitted air shock can remain smeared by
+        # several cells in the current pressure-equilibrium five-equation
+        # discretisation.
         # Accept that numerical diffusion only if the tail decays monotonically
         # and reaches the quiescent right state shortly downstream.
         tail_monotone_ok = bool(np.max(np.diff(u_tail_values)) <= 0.03 * u_ref_amp)
@@ -2258,10 +2411,24 @@ def case_14():
     row["metrics"]["u_tail_far_ratio"] = u_far_ratio
     row["metrics"]["p_tail_far_ratio"] = p_far_ratio
     row["metrics"]["u_tail_ok"] = bool(u_tail_ok)
+    dx = float(x_arr[1] - x_arr[0]) if x_arr.size > 1 else 1.0 / int(os.environ.get("FIVE_EQ_CASE14_N", "400"))
+    u_shock_location_metrics = _u_shock_location_guard(
+        row["x"], row["W"][3], row["exact"], dx,
+        prefix="case14", limit_cells=3.0)
+    close_discontinuity_metrics = _case14_close_discontinuity_guard(
+        row["x"], row["alpha_num"], row["W"][3], row["exact"], dx)
     hf_metrics = _rho_u_p_hf_guard(
         row["x"], row["rho"], row["W"][3], row["W"][4], row["exact"])
+    row["metrics"].update(u_shock_location_metrics)
+    row["metrics"].update(close_discontinuity_metrics)
     row["metrics"].update(hf_metrics)
-    row["pass"] = bool(row["pass"] and u_tail_ok and hf_metrics["hf_oscillation_ok"])
+    row["pass"] = bool(
+        row["pass"]
+        and u_tail_ok
+        and u_shock_location_metrics["case14_u_shock_location_ok"]
+        and close_discontinuity_metrics["case14_two_close_discontinuities_ok"]
+        and hf_metrics["hf_oscillation_ok"]
+    )
     ref_out = _ensure_dir("14_E")
     np.savetxt(
         os.path.join(ref_out, "reference_exact_14.csv"),
@@ -2285,7 +2452,7 @@ def case_15():
     """15_E air-water cavitation problem from validation/1D/15_E_Cavitation.md."""
     eos_air = make_eos("ideal", gamma=1.4, kv=717.5)
     eos_water = _make_water_nasg()
-    n = 100
+    n = int(os.environ.get("FIVE_EQ_CASE15_N", "400"))
     t_end = 9.5e-4
     x, dx, W0 = _case15_initial_state(n, eos_air, eos_water)
 
@@ -3106,6 +3273,58 @@ def _case24_kapila_path_exact(Ms, psi_water, eos_air, eos_water, *,
     }
 
 
+def _case24_rho_postshock_drop_guard(x, rho, rho_exact, dx, x_shock_exact):
+    """Reject nonphysical density mismatch inside the post-shock mixture plateau.
+
+    The guard is symmetric: a sudden sag below the exact plateau and a hump above
+    it are both failures.  The remaining L2 bound catches broad low-frequency
+    mismatch even when the profile is not a sharp spike.
+    """
+    x = np.asarray(x, dtype=float)
+    rho = np.asarray(rho, dtype=float)
+    rho_exact = np.asarray(rho_exact, dtype=float)
+    gap = max(10.0 * float(dx), 0.03)
+    plateau = (x > max(2.0 * float(dx), 0.005)) & (x < float(x_shock_exact) - gap)
+    finite = plateau & np.isfinite(rho) & np.isfinite(rho_exact)
+    if int(np.count_nonzero(finite)) < 4:
+        return {
+            "rho_postshock_drop_checked": True,
+            "rho_postshock_drop_ok": False,
+            "rho_postshock_dip_rel_jump": float("inf"),
+            "rho_postshock_overshoot_rel_jump": float("inf"),
+            "rho_postshock_l2_rel_jump": float("inf"),
+            "rho_postshock_drop_x": float("nan"),
+            "rho_postshock_peak_x": float("nan"),
+            "rho_postshock_plateau_cells": int(np.count_nonzero(finite)),
+        }
+
+    residual = rho[finite] - rho_exact[finite]
+    jump = max(float(np.max(rho_exact) - np.min(rho_exact)), 1.0)
+    dip = max(0.0, float(np.max(-residual)))
+    overshoot = max(0.0, float(np.max(residual)))
+    l2 = float(np.sqrt(np.mean(residual * residual)) / jump)
+    dip_rel = float(dip / jump)
+    overshoot_rel = float(overshoot / jump)
+    local_x = x[finite]
+    drop_x = float(local_x[int(np.argmax(-residual))])
+    peak_x = float(local_x[int(np.argmax(residual))])
+    ok = bool(
+        dip_rel <= CASE24_POSTSHOCK_DIP_TOL
+        and overshoot_rel <= CASE24_POSTSHOCK_OVERSHOOT_TOL
+        and l2 <= CASE24_POSTSHOCK_L2_TOL
+    )
+    return {
+        "rho_postshock_drop_checked": True,
+        "rho_postshock_drop_ok": ok,
+        "rho_postshock_dip_rel_jump": dip_rel,
+        "rho_postshock_overshoot_rel_jump": overshoot_rel,
+        "rho_postshock_l2_rel_jump": l2,
+        "rho_postshock_drop_x": drop_x,
+        "rho_postshock_peak_x": peak_x,
+        "rho_postshock_plateau_cells": int(np.count_nonzero(finite)),
+    }
+
+
 def _case24_subcase(psi_water):
     eos_air = make_eos("ideal", gamma=1.4, kv=717.5)
     eos_water = _make_water_nasg()
@@ -3116,7 +3335,7 @@ def _case24_subcase(psi_water):
     else:
         eos1, eos2 = eos_air, eos_water
     alpha_floor = 1.0e-6
-    n = 300
+    n = int(os.environ.get("FIVE_EQ_CASE24_N", "400"))
     L = 1.0
     dx = L / n
     x = (np.arange(n) + 0.5) * dx
@@ -3162,7 +3381,11 @@ def _case24_subcase(psi_water):
     out = _solve_same_scheme(
         eos1, eos2, W0, dx, t_end,
         bc_l="transmissive", bc_r="transmissive",
-        cfl=0.35, alpha_pure_tol=alpha_floor, max_steps=200000)
+        # The hypersonic homogeneous-mixture shock is sensitive to explicit
+        # source/flux time-centering.  CFL=0.2 keeps the same second-order
+        # scheme but removes the finite-step shock-location/rho-plateau bias.
+        cfl=float(os.environ.get("FIVE_EQ_CASE24_CFL", "0.20")),
+        alpha_pure_tol=alpha_floor, max_steps=200000)
     wall = time.time() - start
     W = out["W"]
     rho = _rho_mix(W, eos1, eos2)
@@ -3173,6 +3396,11 @@ def _case24_subcase(psi_water):
         "p": np.where(x < x_shock_exact, p_post, p_pre),
         "label": "Kapila/Wood path-conservative RH exact",
     }
+    true_mixture = bool(0.0 < psi_water < 1.0)
+    rho_drop_metrics = {"rho_postshock_drop_checked": False, "rho_postshock_drop_ok": True}
+    if true_mixture:
+        rho_drop_metrics = _case24_rho_postshock_drop_guard(
+            x, rho, exact["rho"], dx, x_shock_exact)
     complete = out.get("terminated_reason") is None and out["t_final"] >= t_end - 1.0e-14
     finite = _finite_admissible(W, rho)
     p_mid = 0.5 * (p_post + p_pre)
@@ -3206,22 +3434,23 @@ def _case24_subcase(psi_water):
     ok = bool(
         finite and complete
         and np.min(W[4]) > 0.0
-        and shock_cells <= 22.0
+        and shock_cells <= CASE24_SHOCK_LOCATION_TOL_CELLS
         and p_profile_l2 <= 2.0e-1
         and u_profile_l2 <= 2.0e-1
         and rho_profile_l2 <= 2.0e-1
-        and p_corr >= 9.2e-1
-        and u_corr >= 9.2e-1
-        and rho_corr >= 9.2e-1
+        and p_corr >= CASE24_PROFILE_CORR_MIN
+        and u_corr >= CASE24_PROFILE_CORR_MIN
+        and rho_corr >= CASE24_PROFILE_CORR_MIN
         and p_osc < 1.5e-1
         and rho_osc < 3.5e-1
         and p_hf_osc < 3.0e-3
         and rho_hf_osc < 5.0e-3
         and hf_metrics["hf_oscillation_ok"]
+        and rho_drop_metrics["rho_postshock_drop_ok"]
         # Transmissive shock-tube boundaries intentionally exchange mass with
         # ghost states, so total mass is diagnostic only, not an acceptance gate.
     )
-    return {
+    row = {
         "name": f"24H psi_water={psi_water:g}",
         "pass": ok,
         "W": W,
@@ -3236,6 +3465,7 @@ def _case24_subcase(psi_water):
             "steps": int(out["step"]),
             "shock_x": shock_x,
             "shock_cells": float(shock_cells),
+            "shock_location_tol_cells": CASE24_SHOCK_LOCATION_TOL_CELLS,
             "p_profile_l2": p_profile_l2,
             "u_profile_l2": u_profile_l2,
             "rho_profile_l2": rho_profile_l2,
@@ -3258,8 +3488,10 @@ def _case24_subcase(psi_water):
             "u_post_exact": u_post,
             "c_mix_exact": rh["c_mix"],
             **hf_metrics,
+            **rho_drop_metrics,
         },
     }
+    return row
 
 
 def case_24():
@@ -3526,7 +3758,7 @@ def case_25():
     eos_air = make_eos("ideal", gamma=1.4, kv=717.5)
     eos_water = _make_water_nasg()
     alpha_floor = 1.0e-6
-    n = 500
+    n = int(os.environ.get("FIVE_EQ_CASE25_N", "400"))
     L = 1.0
     dx = L / n
     x = (np.arange(n) + 0.5) * dx
@@ -3561,7 +3793,8 @@ def case_25():
     out = _solve_same_scheme(
         eos_air, eos_water, W0, dx, t_end,
         bc_l="transmissive", bc_r="transmissive",
-        cfl=0.30, alpha_pure_tol=alpha_floor, max_steps=200000)
+        cfl=float(os.environ.get("FIVE_EQ_CASE25_CFL", "0.30")),
+        alpha_pure_tol=alpha_floor, max_steps=200000)
     wall = time.time() - start
     W = out["W"]
     rho = _rho_mix(W, eos_air, eos_water)

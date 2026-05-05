@@ -28,7 +28,9 @@ from .energy_flux import total_energy_flux
 from .explicit import _alpha_face, _phase_acoustic
 from .primitive import prim_to_cons_W
 from .reconstruction import (
+    is_tvd_primitive_scheme,
     normalise_primitive_scheme,
+    primitive_tvd_kind,
     reconstruct_lr_faces,
     reconstruct_upwind_faces,
     reconstruct_primitive_upwind_faces,
@@ -36,6 +38,12 @@ from .reconstruction import (
 from .source_d1 import D_K_kapila
 
 _EPS = 1.0e-30
+
+
+def _env_enabled(name, default="1"):
+    return str(os.environ.get(name, default)).strip().lower() not in {
+        "0", "false", "off", "no", "none"
+    }
 
 
 def _same_eos(eos1, eos2):
@@ -132,6 +140,101 @@ def _pure_material_cell_mask(alpha, pure_tol):
     return cells
 
 
+def _collocated_pressure_material_jump(W, pure_tol):
+    """Detect a material jump that is also a pressure discontinuity.
+
+    Pressure-equilibrium interface advection benefits from the conservative
+    alpha-FCT limiter.  In a shock-interface Riemann problem, however, the
+    pressure discontinuity is collocated with the material contact and that
+    extra FCT limiter can over-limit the sharp-interface flux, merging the
+    contact with the transmitted shock.  This detector uses only local
+    Rankine-Hugoniot-relevant data: alpha jump plus pressure jump on the same
+    face.
+    """
+    alpha = np.asarray(W[0], dtype=float)
+    p = np.asarray(W[4], dtype=float)
+    if alpha.size < 2 or p.size < 2:
+        return False
+    jump_tol = np.finfo(float).eps ** 0.25
+    pure_tol = max(float(pure_tol), jump_tol)
+    a_l = alpha[:-1]
+    a_r = alpha[1:]
+    alpha_jump = np.abs(a_r - a_l) > jump_tol
+    pure_face = (
+        (a_l <= pure_tol) | (a_l >= 1.0 - pure_tol)
+        | (a_r <= pure_tol) | (a_r >= 1.0 - pure_tol)
+    )
+    p_l = p[:-1]
+    p_r = p[1:]
+    rel_p_jump = np.abs(p_r - p_l) / np.maximum(
+        np.maximum(np.abs(p_l), np.abs(p_r)), 1.0)
+    return bool(np.any(alpha_jump & pure_face & (rel_p_jump > jump_tol)))
+
+
+def _pressure_jump_stiff_to_soft_material(W, eos1, eos2, *,
+                                          mixture_kind, alpha_pure_tol):
+    """Return True when the strongest pressure/material jump is stiff -> soft.
+
+    Strong liquid-to-gas shocks need the energy and momentum acoustic updates
+    to use the same final pressure path.  Gas-to-liquid shocks are more stable
+    with the pressure-work-consistent contact treatment.  The switch uses the
+    EOS stiffness of the high-pressure material, with acoustic impedance only
+    as a fallback when the two pure materials have equal stiffness parameters.
+    """
+    alpha = np.asarray(W[0], dtype=float)
+    p = np.asarray(W[4], dtype=float)
+    if alpha.size < 2:
+        return False
+    jump_tol = np.finfo(float).eps ** 0.25
+    pure_tol = max(float(alpha_pure_tol), jump_tol)
+    a_l = alpha[:-1]
+    a_r = alpha[1:]
+    alpha_jump = np.abs(a_r - a_l) > jump_tol
+    pure_face = (
+        (a_l <= pure_tol) | (a_l >= 1.0 - pure_tol)
+        | (a_r <= pure_tol) | (a_r >= 1.0 - pure_tol)
+    )
+    p_l = p[:-1]
+    p_r = p[1:]
+    p_scale = np.maximum(np.maximum(np.abs(p_l), np.abs(p_r)), 1.0)
+    rel_p_jump = np.abs(p_r - p_l) / p_scale
+    candidates = np.flatnonzero(alpha_jump & pure_face & (rel_p_jump > jump_tol))
+    if candidates.size == 0:
+        return False
+    _, _, Z = _phase_acoustic(
+        W, eos1, eos2, mixture_kind=mixture_kind,
+        alpha_pure_tol=alpha_pure_tol)
+    idx = int(candidates[int(np.argmax(rel_p_jump[candidates]))])
+    def side_stiffness(alpha_value):
+        eos = eos1 if alpha_value >= 0.5 else eos2
+        return (
+            abs(float(getattr(eos, "pinf", 0.0)))
+            + abs(float(getattr(eos, "q", 0.0)))
+        )
+
+    if p_l[idx] >= p_r[idx]:
+        z_hi = float(Z[idx])
+        z_lo = float(Z[idx + 1])
+        s_hi = side_stiffness(a_l[idx])
+        s_lo = side_stiffness(a_r[idx])
+    else:
+        z_hi = float(Z[idx + 1])
+        z_lo = float(Z[idx])
+        s_hi = side_stiffness(a_r[idx])
+        s_lo = side_stiffness(a_l[idx])
+    if abs(s_hi - s_lo) > 0.0:
+        return bool(s_hi > s_lo)
+    return bool(np.isfinite(z_hi) and np.isfinite(z_lo) and z_hi > z_lo)
+
+
+def _pressure_jump_high_to_low_impedance(W, eos1, eos2, *,
+                                         mixture_kind, alpha_pure_tol):
+    """Backward-compatible name for older diagnostics."""
+    return _pressure_jump_stiff_to_soft_material(
+        W, eos1, eos2, mixture_kind=mixture_kind,
+        alpha_pure_tol=alpha_pure_tol)
+
+
 def _regularize_near_vacuum_velocity(W_n, q1_new, q2_new, u_new, p_new,
                                       eos1, eos2, *,
                                       mixture_kind, alpha_pure_tol,
@@ -180,6 +283,95 @@ def _regularize_near_vacuum_velocity(W_n, q1_new, q2_new, u_new, p_new,
     return u_reg, mask
 
 
+def _primitive_lmp_clip(W_n, u_new, p_new, bc_l, bc_r):
+    """Local maximum-principle clip for the acoustic primitive update.
+
+    The conservative/FCT material update already prevents new extrema in the
+    advected quantities.  The pressure-based acoustic block can still create a
+    one-cell pressure or velocity overshoot at strong shocks because pressure
+    is an implicit primitive unknown.  Bound the new acoustic primitive state
+    by the previous nearest-neighbour stencil; this is the same monotonicity
+    contract used by TVD/FCT schemes and introduces no case-dependent sensor or
+    tunable coefficient.
+    """
+    u_old = np.asarray(W_n[3], dtype=float)
+    p_old = np.asarray(W_n[4], dtype=float)
+    u_ext = _extend_np(u_old, bc_l, bc_r, odd=True)
+    p_ext = _extend_np(p_old, bc_l, bc_r, odd=False)
+    u_lo = np.minimum(np.minimum(u_ext[:-2], u_ext[1:-1]), u_ext[2:])
+    u_hi = np.maximum(np.maximum(u_ext[:-2], u_ext[1:-1]), u_ext[2:])
+    p_lo = np.minimum(np.minimum(p_ext[:-2], p_ext[1:-1]), p_ext[2:])
+    p_hi = np.maximum(np.maximum(p_ext[:-2], p_ext[1:-1]), p_ext[2:])
+    u_lmp = np.minimum(u_hi, np.maximum(u_lo, np.asarray(u_new, dtype=float)))
+    p_lmp = np.minimum(p_hi, np.maximum(p_lo, np.asarray(p_new, dtype=float)))
+    return u_lmp, np.maximum(p_lmp, 1.0e-12)
+
+
+def _primitive_global_bounds_clip(W_n, u_new, p_new):
+    """Global maximum-principle clip for conservative pure-phase shortcuts."""
+    u_old = np.asarray(W_n[3], dtype=float)
+    p_old = np.asarray(W_n[4], dtype=float)
+    u_lmp = np.minimum(float(np.max(u_old)),
+                       np.maximum(float(np.min(u_old)), np.asarray(u_new, dtype=float)))
+    p_lmp = np.minimum(float(np.max(p_old)),
+                       np.maximum(float(np.min(p_old)), np.asarray(p_new, dtype=float)))
+    return u_lmp, np.maximum(p_lmp, 1.0e-12)
+
+
+def _primitive_lmp_mode():
+    return os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_LMP", "led").strip().lower().replace("-", "_")
+
+
+def _primitive_lmp_enabled():
+    return _primitive_lmp_mode() not in {"0", "false", "no", "off", "none"}
+
+
+def _local_extremum_diminishing_filter(phi_new, bc_l, bc_r, *,
+                                       odd=False, floor=None):
+    """Remove only one-cell extrema created by the candidate primitive update.
+
+    A previous-time local maximum-principle clip is overly diffusive for moving
+    shocks because it prevents a front cell from entering the post-shock state
+    until that value is already present in its old nearest-neighbour stencil.
+    This a posteriori LED filter instead operates on the candidate profile:
+    monotone shock transitions are kept, while isolated local maxima/minima
+    and checkerboard extrema are clipped to the candidate neighbour envelope.
+    """
+    phi = np.asarray(phi_new, dtype=float)
+    ext = _extend_np(phi, bc_l, bc_r, odd=odd)
+    left = ext[:-2]
+    centre = ext[1:-1]
+    right = ext[2:]
+    lo = np.minimum(left, right)
+    hi = np.maximum(left, right)
+    filtered = np.where(centre > hi, hi, np.where(centre < lo, lo, centre))
+    if floor is not None:
+        filtered = np.maximum(filtered, float(floor))
+    return filtered
+
+
+def _primitive_led_filter(u_new, p_new, bc_l, bc_r, *, mode=None):
+    key = _primitive_lmp_mode() if mode is None else str(mode).strip().lower().replace("-", "_")
+    if key in {"led_p", "pressure_led", "p_led", "pressure"}:
+        u_led = np.asarray(u_new, dtype=float)
+    else:
+        u_led = _local_extremum_diminishing_filter(u_new, bc_l, bc_r, odd=True)
+    if key in {"led_u", "velocity_led", "u_led", "velocity"}:
+        p_led = np.maximum(np.asarray(p_new, dtype=float), 1.0e-12)
+    else:
+        p_led = _local_extremum_diminishing_filter(
+            p_new, bc_l, bc_r, odd=False, floor=1.0e-12)
+    return u_led, p_led
+
+
+def _primitive_global_pressure_clip(W_n, u_new, p_new):
+    p_ref = np.asarray(W_n[4], dtype=float)
+    p_min = float(np.min(p_ref))
+    p_max = float(np.max(p_ref))
+    p_clip = np.minimum(p_max, np.maximum(p_min, np.asarray(p_new, dtype=float)))
+    return np.asarray(u_new, dtype=float), np.maximum(p_clip, 1.0e-12)
+
+
 def _normalise_pressure_closure(pressure_closure):
     key = str(pressure_closure or "regime_auto").strip().lower()
     aliases = {
@@ -197,12 +389,15 @@ def _normalise_pressure_closure(pressure_closure):
         "pe": "apec_pe",
         "auto": "regime_auto",
         "auto_regime": "regime_auto",
+        "energy_momentum": "implicit_energy_momentum",
+        "energy_momentum_consistent": "implicit_energy_momentum",
     }
     key = aliases.get(key, key)
     allowed = {
         "compressive_recovery",
         "no_recovery",
         "implicit_energy",
+        "implicit_energy_momentum",
         "pressure_work_consistent",
         "path_kapila",
         "dual_entropy",
@@ -261,6 +456,143 @@ def _acoustic_faces_np(u, p, Z, bc_l, bc_r, *, u_inlet=None, p_inlet=None):
     return p_star, u_star
 
 
+def _acoustic_waf_sigma_np(nu, shock):
+    """Select the acoustic WAF time-average coefficient.
+
+    The default is the retained pressure-amplitude sensor: low-amplitude
+    acoustic waves use the low-diffusion 1-CFL coefficient, while strong
+    pressure jumps return toward CFL to avoid shock ringing.  The explicit
+    modes are kept for reproducible ablation of earlier 07-B runs.
+    """
+    mode = os.environ.get(
+        "FIVE_EQ_IMEX_ACOUSTIC_WAF_SIGMA", "pressure_sensor"
+    ).strip().lower().replace("-", "_")
+    if mode in {"one_minus_nu", "1_minus_nu", "one_minus_cfl", "1_minus_cfl"}:
+        return 1.0 - nu
+    if mode in {"nu", "cfl"}:
+        return nu
+    if mode in {"pressure_sensor", "sensor", "blend", "retained"}:
+        return (1.0 - shock) * (1.0 - nu) + shock * nu
+    raise ValueError(
+        "FIVE_EQ_IMEX_ACOUSTIC_WAF_SIGMA must be 'pressure_sensor', "
+        "'one_minus_nu', or 'nu'.")
+
+
+def _hllc_contact_faces_np(W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme,
+                           bc_l, bc_r):
+    """Return HLLC contact pressure/speed for the material transport faces.
+
+    The IMEX formulation keeps the pressure-gradient solve in the acoustic
+    block.  This helper therefore only supplies a HLLC-family contact state
+    (S_M, p_M) to the material/advection fluxes instead of inserting the full
+    Euler momentum-pressure flux, which would double-count pressure.
+    """
+    alpha_ext, T1_ext, T2_ext, u_ext, p_ext = W_ext
+    if _mixture_primitive_recon_enabled(primitive_scheme, W_ext):
+        rho_L, rho_R, u_L, u_R, p_L, p_R, _, _ = _mixture_primitive_lr_states(
+            W_ext, eos1, eos2, primitive_scheme)
+    else:
+        T1_L, T1_R = reconstruct_lr_faces(T1_ext, scheme=primitive_scheme, floor=1.0)
+        T2_L, T2_R = reconstruct_lr_faces(T2_ext, scheme=primitive_scheme, floor=1.0)
+        u_L, u_R = reconstruct_lr_faces(u_ext, scheme=primitive_scheme)
+        p_L, p_R = reconstruct_lr_faces(p_ext, scheme=primitive_scheme, floor=1.0e-12)
+
+        alpha_L = np.clip(np.asarray(alpha_ext[:-1], dtype=float), 0.0, 1.0)
+        alpha_R = np.clip(np.asarray(alpha_ext[1:], dtype=float), 0.0, 1.0)
+        rho1_L = np.maximum(eos1.density(p_L, T1_L), _EPS)
+        rho1_R = np.maximum(eos1.density(p_R, T1_R), _EPS)
+        rho2_L = np.maximum(eos2.density(p_L, T2_L), _EPS)
+        rho2_R = np.maximum(eos2.density(p_R, T2_R), _EPS)
+        rho_L = np.maximum(alpha_L * rho1_L + (1.0 - alpha_L) * rho2_L, _EPS)
+        rho_R = np.maximum(alpha_R * rho1_R + (1.0 - alpha_R) * rho2_R, _EPS)
+    c_L = np.sqrt(np.maximum(np.asarray(c_mix_sq_ext[:-1], dtype=float), _EPS))
+    c_R = np.sqrt(np.maximum(np.asarray(c_mix_sq_ext[1:], dtype=float), _EPS))
+
+    # Davis wave-speed estimates with the standard HLLC contact speed.
+    s_L = np.minimum(u_L - c_L, u_R - c_R)
+    s_R = np.maximum(u_L + c_L, u_R + c_R)
+    den = rho_L * (s_L - u_L) - rho_R * (s_R - u_R)
+    den_safe = np.where(np.abs(den) > _EPS, den,
+                        np.sign(den + 1.0e-300) * _EPS)
+    s_M = (
+        p_R - p_L
+        + rho_L * u_L * (s_L - u_L)
+        - rho_R * u_R * (s_R - u_R)
+    ) / den_safe
+    p_M_L = p_L + rho_L * (s_L - u_L) * (s_M - u_L)
+    p_M_R = p_R + rho_R * (s_R - u_R) * (s_M - u_R)
+    p_M = 0.5 * (p_M_L + p_M_R)
+
+    valid = (
+        np.isfinite(s_M) & np.isfinite(p_M)
+        & np.isfinite(rho_L) & np.isfinite(rho_R)
+        & (rho_L > _EPS) & (rho_R > _EPS)
+        & (p_M > 0.0) & (s_R > s_L)
+    )
+    if bc_l == 'reflective':
+        p_M[0] = p_ext[1]
+        s_M[0] = 0.0
+        valid[0] = True
+    if bc_r == 'reflective':
+        p_M[-1] = p_ext[-2]
+        s_M[-1] = 0.0
+        valid[-1] = True
+    return p_M, s_M, valid
+
+
+def _slau2_faces_np(W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme,
+                    bc_l, bc_r, dt=None, dx=None):
+    """SLAU2 pressure-free material face velocity for the IMEX split."""
+    alpha_ext, T1_ext, T2_ext, u_ext, p_ext = W_ext
+    if _characteristic_recon_enabled() and primitive_scheme != 'upwind':
+        rho_L, rho_R, u_L, u_R, p_L, p_R, _, _ = (
+            _characteristic_mixture_lr_states(
+                W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme)
+        )
+    elif _mixture_primitive_recon_enabled(primitive_scheme, W_ext):
+        rho_L, rho_R, u_L, u_R, p_L, p_R, _, _ = _mixture_primitive_lr_states(
+            W_ext, eos1, eos2, primitive_scheme,
+            c_mix_sq_ext=c_mix_sq_ext, dt=dt, dx=dx)
+    else:
+        T1_L, T1_R = reconstruct_lr_faces(T1_ext, scheme=primitive_scheme, floor=1.0)
+        T2_L, T2_R = reconstruct_lr_faces(T2_ext, scheme=primitive_scheme, floor=1.0)
+        u_L, u_R = reconstruct_lr_faces(u_ext, scheme=primitive_scheme)
+        p_L, p_R = reconstruct_lr_faces(p_ext, scheme=primitive_scheme, floor=1.0e-12)
+        alpha_L = np.clip(np.asarray(alpha_ext[:-1], dtype=float), 0.0, 1.0)
+        alpha_R = np.clip(np.asarray(alpha_ext[1:], dtype=float), 0.0, 1.0)
+        rho1_L = np.maximum(eos1.density(p_L, T1_L), _EPS)
+        rho1_R = np.maximum(eos1.density(p_R, T1_R), _EPS)
+        rho2_L = np.maximum(eos2.density(p_L, T2_L), _EPS)
+        rho2_R = np.maximum(eos2.density(p_R, T2_R), _EPS)
+        rho_L = np.maximum(alpha_L * rho1_L + (1.0 - alpha_L) * rho2_L, _EPS)
+        rho_R = np.maximum(alpha_R * rho1_R + (1.0 - alpha_R) * rho2_R, _EPS)
+
+    c_L = np.sqrt(np.maximum(np.asarray(c_mix_sq_ext[:-1], dtype=float), _EPS))
+    c_R = np.sqrt(np.maximum(np.asarray(c_mix_sq_ext[1:], dtype=float), _EPS))
+    c_avg = np.maximum(0.5 * (c_L + c_R), _EPS)
+    u_rms = np.sqrt(0.5 * (u_L * u_L + u_R * u_R))
+    mach_hat = np.minimum(1.0, u_rms / c_avg)
+    chi = (1.0 - mach_hat) ** 2
+    rho_avg = np.maximum(0.5 * (rho_L + rho_R), _EPS)
+    sqrt_rho_L = np.sqrt(np.maximum(rho_L, _EPS))
+    sqrt_rho_R = np.sqrt(np.maximum(rho_R, _EPS))
+    v_avg = (
+        sqrt_rho_L * u_L + sqrt_rho_R * u_R
+    ) / np.maximum(sqrt_rho_L + sqrt_rho_R, _EPS)
+    u_face = v_avg - chi * (p_R - p_L) / np.maximum(rho_avg * c_avg, _EPS)
+    p_face = 0.5 * (p_L + p_R)
+    valid = np.isfinite(u_face) & np.isfinite(p_face) & (rho_L > _EPS) & (rho_R > _EPS)
+    if bc_l == 'reflective':
+        p_face[0] = p_ext[1]
+        u_face[0] = 0.0
+        valid[0] = True
+    if bc_r == 'reflective':
+        p_face[-1] = p_ext[-2]
+        u_face[-1] = 0.0
+        valid[-1] = True
+    return p_face, u_face, valid
+
+
 def _pure_bulk_muscl_face_mask(alpha, bc_l, bc_r, alpha_pure_tol):
     n = len(alpha)
     high = np.zeros(n + 1, dtype=bool)
@@ -302,9 +634,19 @@ def _same_pure_material_face_mask(alpha, bc_l, bc_r, alpha_pure_tol):
     return high
 
 
+def _same_pure_pair_np(a, b, alpha_pure_tol):
+    pure_tol = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    return ((a >= 1.0 - pure_tol) & (b >= 1.0 - pure_tol)) | (
+        (a <= pure_tol) & (b <= pure_tol)
+    )
+
+
 def _acoustic_faces_muscl_np(u, p, Z, alpha, bc_l, bc_r, alpha_pure_tol, *,
                              u_inlet=None, p_inlet=None,
-                             primitive_scheme='upwind'):
+                             primitive_scheme='upwind', c=None, dt=None,
+                             dx=None):
     p_star, u_star = _acoustic_faces_np(
         u, p, Z, bc_l, bc_r, u_inlet=u_inlet, p_inlet=p_inlet)
     primitive_scheme = normalise_primitive_scheme(primitive_scheme)
@@ -314,14 +656,30 @@ def _acoustic_faces_muscl_np(u, p, Z, alpha, bc_l, bc_r, alpha_pure_tol, *,
     high_face = _pure_bulk_muscl_face_mask(alpha, bc_l, bc_r, alpha_pure_tol)
     if not np.any(high_face):
         return p_star, u_star, high_face
-    tvd_kind = os.environ.get("FIVE_EQ_IMEX_TMLPU_TVD", "minmod")
+    same_face = _same_pure_material_face_mask(alpha, bc_l, bc_r, alpha_pure_tol)
+    tvd_kind = os.environ.get(
+        "FIVE_EQ_IMEX_ACOUSTIC_TVD",
+        os.environ.get("FIVE_EQ_IMEX_TMLPU_TVD", "superbee"),
+    )
     u = np.asarray(u, dtype=float)
     p = np.asarray(p, dtype=float)
     Z = np.asarray(Z, dtype=float)
+    c = None if c is None else np.asarray(c, dtype=float)
+    waf_enabled = (
+        os.environ.get("FIVE_EQ_IMEX_ACOUSTIC_WAF", "0")
+        .strip().lower() in {"1", "true", "on", "yes"}
+        and c is not None and dt is not None and dx is not None
+    )
+    centered_interface = (
+        os.environ.get("FIVE_EQ_IMEX_ACOUSTIC_INTERFACE_CENTERED", "1")
+        .strip().lower() in {"1", "true", "on", "yes"}
+    )
     if bc_l == 'periodic' and bc_r == 'periodic':
         u_ext = np.concatenate(([u[-1]], u, [u[0]]))
         p_ext = np.concatenate(([p[-1]], p, [p[0]]))
         Z_ext = np.concatenate(([Z[-1]], Z, [Z[0]]))
+        alpha_ext = np.concatenate(([alpha[-1]], alpha, [alpha[0]]))
+        c_ext = None if c is None else np.concatenate(([c[-1]], c, [c[0]]))
     else:
         if bc_l == 'reflective':
             u_left = -u[0]
@@ -341,23 +699,48 @@ def _acoustic_faces_muscl_np(u, p, Z, alpha, bc_l, bc_r, alpha_pure_tol, *,
         u_ext = np.concatenate(([u_left], u, [u_right]))
         p_ext = np.concatenate(([p_left], p, [p_right]))
         Z_ext = np.concatenate(([Z[0]], Z, [Z[-1]]))
-
+        alpha_ext = _extend_np(np.asarray(alpha, dtype=float), bc_l, bc_r, odd=False)
+        c_ext = None if c is None else np.concatenate(([c[0]], c, [c[-1]]))
     for f in np.flatnonzero(high_face):
         if f <= 0 or f + 2 >= len(p_ext):
             continue
-        sp_L = _tvd_pair(p_ext[f] - p_ext[f - 1], p_ext[f + 1] - p_ext[f], tvd_kind)
-        sp_R = _tvd_pair(p_ext[f + 1] - p_ext[f], p_ext[f + 2] - p_ext[f + 1], tvd_kind)
-        su_L = _tvd_pair(u_ext[f] - u_ext[f - 1], u_ext[f + 1] - u_ext[f], tvd_kind)
-        su_R = _tvd_pair(u_ext[f + 1] - u_ext[f], u_ext[f + 2] - u_ext[f + 1], tvd_kind)
-        p_L = p_ext[f] + 0.5 * float(sp_L)
-        p_R = p_ext[f + 1] - 0.5 * float(sp_R)
-        u_L = u_ext[f] + 0.5 * float(su_L)
-        u_R = u_ext[f + 1] - 0.5 * float(su_R)
+        if same_face[f] or centered_interface:
+            sp_L = _tvd_pair(p_ext[f] - p_ext[f - 1], p_ext[f + 1] - p_ext[f], tvd_kind)
+            sp_R = _tvd_pair(p_ext[f + 1] - p_ext[f], p_ext[f + 2] - p_ext[f + 1], tvd_kind)
+            su_L = _tvd_pair(u_ext[f] - u_ext[f - 1], u_ext[f + 1] - u_ext[f], tvd_kind)
+            su_R = _tvd_pair(u_ext[f + 1] - u_ext[f], u_ext[f + 2] - u_ext[f + 1], tvd_kind)
+            p_L = p_ext[f] + 0.5 * float(sp_L)
+            p_R = p_ext[f + 1] - 0.5 * float(sp_R)
+            u_L = u_ext[f] + 0.5 * float(su_L)
+            u_R = u_ext[f + 1] - 0.5 * float(su_R)
+        else:
+            same_LL_L = bool(_same_pure_pair_np(alpha_ext[f - 1], alpha_ext[f], alpha_pure_tol))
+            same_R_RR = bool(_same_pure_pair_np(alpha_ext[f + 1], alpha_ext[f + 2], alpha_pure_tol))
+            dp_L = p_ext[f] - p_ext[f - 1] if same_LL_L else 0.0
+            dp_R = p_ext[f + 2] - p_ext[f + 1] if same_R_RR else 0.0
+            du_L = u_ext[f] - u_ext[f - 1] if same_LL_L else 0.0
+            du_R = u_ext[f + 2] - u_ext[f + 1] if same_R_RR else 0.0
+            sp_L = _tvd_pair(dp_L, dp_L, tvd_kind)
+            sp_R = _tvd_pair(dp_R, dp_R, tvd_kind)
+            su_L = _tvd_pair(du_L, du_L, tvd_kind)
+            su_R = _tvd_pair(du_R, du_R, tvd_kind)
+            p_L = p_ext[f] + 0.5 * float(sp_L)
+            p_R = p_ext[f + 1] - 0.5 * float(sp_R)
+            u_L = u_ext[f] + 0.5 * float(su_L)
+            u_R = u_ext[f + 1] - 0.5 * float(su_R)
         Z_L = Z_ext[f]
         Z_R = Z_ext[f + 1]
         den = max(float(Z_L + Z_R), _EPS)
         p_star[f] = (Z_R * p_L + Z_L * p_R + Z_L * Z_R * (u_L - u_R)) / den
         u_star[f] = (p_L - p_R + Z_L * u_L + Z_R * u_R) / den
+        if waf_enabled and same_face[f]:
+            Z_face = max(0.5 * float(Z_L + Z_R), _EPS)
+            c_face = max(0.5 * float(c_ext[f] + c_ext[f + 1]), _EPS)
+            nu = min(1.0, max(0.0, c_face * float(dt) / max(float(dx), _EPS)))
+            shock = min(1.0, max(0.0, abs(p_R - p_L) / max(Z_face * c_face, _EPS)))
+            sigma = _acoustic_waf_sigma_np(nu, shock)
+            p_star[f] += 0.5 * sigma * Z_face * (u_R - u_L)
+            u_star[f] += 0.5 * sigma * (p_R - p_L) / Z_face
     return p_star, u_star, high_face
 
 
@@ -456,6 +839,101 @@ def _single_phase_hllc_flux(U_L, F_L, rho_L, u_L, p_L,
     return flux
 
 
+def _single_phase_hlle_flux(U_L, F_L, U_R, F_R, s_L, s_R):
+    """HLLE flux for positivity-biased pure Euler fallback experiments."""
+    den = np.maximum(s_R - s_L, _EPS)
+    flux_hlle = (
+        s_R * F_L - s_L * F_R + s_L * s_R * (U_R - U_L)
+    ) / den
+    flux = flux_hlle.copy()
+    left = s_L >= 0.0
+    right = s_R <= 0.0
+    flux[:, left] = F_L[:, left]
+    flux[:, right] = F_R[:, right]
+    return flux
+
+
+def _hllc_split_material_fluxes_np(W_ext, c_mix_sq_ext, eos1, eos2,
+                                   primitive_scheme, bc_l, bc_r):
+    """Mixture HLLC flux split into material/advection and pressure-work parts."""
+    alpha_ext, T1_ext, T2_ext, u_ext, p_ext = W_ext
+    if _characteristic_recon_enabled() and primitive_scheme != 'upwind':
+        rho_L, rho_R, u_L, u_R, p_L, p_R, rhoe_L, rhoe_R = (
+            _characteristic_mixture_lr_states(
+                W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme)
+        )
+    elif _mixture_primitive_recon_enabled(primitive_scheme, W_ext):
+        rho_L, rho_R, u_L, u_R, p_L, p_R, rhoe_L, rhoe_R = (
+            _mixture_primitive_lr_states(W_ext, eos1, eos2, primitive_scheme)
+        )
+    else:
+        T1_L, T1_R = reconstruct_lr_faces(T1_ext, scheme=primitive_scheme, floor=1.0)
+        T2_L, T2_R = reconstruct_lr_faces(T2_ext, scheme=primitive_scheme, floor=1.0)
+        u_L, u_R = reconstruct_lr_faces(u_ext, scheme=primitive_scheme)
+        p_L, p_R = reconstruct_lr_faces(p_ext, scheme=primitive_scheme, floor=1.0e-12)
+        alpha_L = np.clip(np.asarray(alpha_ext[:-1], dtype=float), 0.0, 1.0)
+        alpha_R = np.clip(np.asarray(alpha_ext[1:], dtype=float), 0.0, 1.0)
+
+        rho1_L = np.maximum(eos1.density(p_L, T1_L), _EPS)
+        rho1_R = np.maximum(eos1.density(p_R, T1_R), _EPS)
+        rho2_L = np.maximum(eos2.density(p_L, T2_L), _EPS)
+        rho2_R = np.maximum(eos2.density(p_R, T2_R), _EPS)
+        e1_L = eos1.energy(rho1_L, p_L)
+        e1_R = eos1.energy(rho1_R, p_R)
+        e2_L = eos2.energy(rho2_L, p_L)
+        e2_R = eos2.energy(rho2_R, p_R)
+
+        rho_L = np.maximum(alpha_L * rho1_L + (1.0 - alpha_L) * rho2_L, _EPS)
+        rho_R = np.maximum(alpha_R * rho1_R + (1.0 - alpha_R) * rho2_R, _EPS)
+        rhoe_L = alpha_L * rho1_L * e1_L + (1.0 - alpha_L) * rho2_L * e2_L
+        rhoe_R = alpha_R * rho1_R * e1_R + (1.0 - alpha_R) * rho2_R * e2_R
+    rhoE_L = rhoe_L + 0.5 * rho_L * u_L * u_L
+    rhoE_R = rhoe_R + 0.5 * rho_R * u_R * u_R
+    U_L = np.array([rho_L, rho_L * u_L, rhoE_L])
+    U_R = np.array([rho_R, rho_R * u_R, rhoE_R])
+    F_L = np.array([
+        rho_L * u_L,
+        rho_L * u_L * u_L + p_L,
+        (rhoE_L + p_L) * u_L,
+    ])
+    F_R = np.array([
+        rho_R * u_R,
+        rho_R * u_R * u_R + p_R,
+        (rhoE_R + p_R) * u_R,
+    ])
+    c_L = np.sqrt(np.maximum(np.asarray(c_mix_sq_ext[:-1], dtype=float), _EPS))
+    c_R = np.sqrt(np.maximum(np.asarray(c_mix_sq_ext[1:], dtype=float), _EPS))
+    s_L = np.minimum(u_L - c_L, u_R - c_R)
+    s_R = np.maximum(u_L + c_L, u_R + c_R)
+    F_rusanov = 0.5 * (F_L + F_R) - 0.5 * np.maximum(np.abs(s_L), np.abs(s_R)) * (
+        U_R - U_L)
+    F_hllc = _single_phase_hllc_flux(
+        U_L, F_L, rho_L, u_L, p_L, U_R, F_R, rho_R, u_R, p_R, s_L, s_R)
+    p_M, u_M, valid = _hllc_contact_faces_np(
+        W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme, bc_l, bc_r)
+    bad = (~np.all(np.isfinite(F_hllc), axis=0)) | (~valid)
+    if np.any(bad) and _env_enabled("FIVE_EQ_IMEX_RUSANOV_FALLBACK", "1"):
+        F_hllc[:, bad] = F_rusanov[:, bad]
+        # Rusanov has no contact state.  Use the central acoustic split there.
+        u_M[bad] = 0.5 * (u_L[bad] + u_R[bad])
+        p_M[bad] = 0.5 * (p_L[bad] + p_R[bad])
+        valid[bad] = np.all(np.isfinite(F_rusanov[:, bad]), axis=0)
+    if bc_l == 'reflective':
+        F_hllc[:, 0] = np.array([0.0, p_ext[1], 0.0])
+        p_M[0] = p_ext[1]
+        u_M[0] = 0.0
+        valid[0] = True
+    if bc_r == 'reflective':
+        F_hllc[:, -1] = np.array([0.0, p_ext[-2], 0.0])
+        p_M[-1] = p_ext[-2]
+        u_M[-1] = 0.0
+        valid[-1] = True
+    F_rho = F_hllc[0]
+    F_m_adv = F_hllc[1] - p_M
+    F_rE_adv = F_hllc[2] - p_M * u_M
+    return p_M, u_M, valid, F_rho, F_m_adv, F_rE_adv
+
+
 def _minmod_pair(a, b):
     a = np.asarray(a, dtype=float)
     b = np.asarray(b, dtype=float)
@@ -492,6 +970,32 @@ def _superbee_pair(a, b):
     return np.where(same, s * np.maximum(cand1, cand2), 0.0)
 
 
+def _vanalbada_pair(a, b):
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    same = (a * b) > 0.0
+    den = a * a + b * b
+    slope = a * b * (a + b) / np.where(den > _EPS, den, 1.0)
+    return np.where(same, slope, 0.0)
+
+
+def _umist_pair(a, b):
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    same = (a * b) > 0.0
+    r = b / np.where(np.abs(a) > _EPS, a, 1.0)
+    psi = np.maximum(
+        0.0,
+        np.minimum.reduce((
+            2.0 * r,
+            0.25 + 0.75 * r,
+            0.75 + 0.25 * r,
+            np.full_like(r, 2.0),
+        )),
+    )
+    return np.where(same, psi * a, 0.0)
+
+
 def _tvd_pair(a, b, kind):
     key = str(kind or "minmod").strip().lower().replace("-", "_")
     if key in ("superbee", "sb"):
@@ -500,10 +1004,19 @@ def _tvd_pair(a, b, kind):
         return _mc_pair(a, b)
     if key in ("vanleer", "van_leer"):
         return _vanleer_pair(a, b)
+    if key in ("vanalbada", "van_albada", "albada"):
+        return _vanalbada_pair(a, b)
+    if key in ("umist",):
+        return _umist_pair(a, b)
     a = np.asarray(a, dtype=float)
     b = np.asarray(b, dtype=float)
     same = (a * b) > 0.0
     return np.where(same, np.sign(a) * np.minimum(np.abs(a), np.abs(b)), 0.0)
+
+
+def _characteristic_recon_enabled():
+    key = os.environ.get("FIVE_EQ_IMEX_CHARACTERISTIC_RECON", "0")
+    return str(key).strip().lower() in {"1", "true", "yes", "on", "char", "characteristic"}
 
 
 def _characteristic_primitive_slopes(rho, u, p, c, kind):
@@ -546,6 +1059,320 @@ def _characteristic_primitive_slopes(rho, u, p, c, kind):
     return drho, du, dp
 
 
+def _clip_faces_to_local_stencil(face, cell, idx):
+    face = np.asarray(face, dtype=float).copy()
+    cell = np.asarray(cell, dtype=float)
+    idx = np.asarray(idx, dtype=int)
+    n = cell.size
+    for j, i in enumerate(idx):
+        lo_i = max(0, int(i) - 1)
+        hi_i = min(n, int(i) + 2)
+        lo = float(np.min(cell[lo_i:hi_i]))
+        hi = float(np.max(cell[lo_i:hi_i]))
+        face[j] = min(hi, max(lo, float(face[j])))
+    return face
+
+
+def _mixture_char_base(W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme):
+    alpha_ext, T1_ext, T2_ext, u_ext, p_ext = W_ext
+    rho1_ext = np.maximum(eos1.density(p_ext, T1_ext), _EPS)
+    rho2_ext = np.maximum(eos2.density(p_ext, T2_ext), _EPS)
+    rho_ext = np.maximum(alpha_ext * rho1_ext + (1.0 - alpha_ext) * rho2_ext, _EPS)
+    q1_ext = np.maximum(alpha_ext * rho1_ext, 0.0)
+    y1_ext = np.clip(q1_ext / rho_ext, 0.0, 1.0)
+    c_ext = np.sqrt(np.maximum(np.asarray(c_mix_sq_ext, dtype=float), _EPS))
+    tvd_kind = primitive_tvd_kind(primitive_scheme)
+    drho, du, dp = _characteristic_primitive_slopes(
+        rho_ext, u_ext, p_ext, c_ext, tvd_kind)
+    return rho_ext, y1_ext, u_ext, p_ext, drho, du, dp
+
+
+def _characteristic_mixture_upwind_faces(W_ext, c_mix_sq_ext, eos1, eos2,
+                                         u_face, primitive_scheme):
+    """Upwind face states with TVD limiting in mixture characteristic variables."""
+    alpha_ext = np.asarray(W_ext[0], dtype=float)
+    rho_ext, y1_ext, u_ext, p_ext, drho, du, dp = _mixture_char_base(
+        W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme)
+    u_face = np.asarray(u_face, dtype=float)
+    face_ids = np.arange(u_face.size)
+    left = u_face >= 0.0
+    idx = np.where(left, face_ids, face_ids + 1)
+    sgn = np.where(left, 0.5, -0.5)
+    rho_f = rho_ext[idx] + sgn * drho[idx]
+    u_f = u_ext[idx] + sgn * du[idx]
+    p_f = p_ext[idx] + sgn * dp[idx]
+    rho_f = np.maximum(_clip_faces_to_local_stencil(rho_f, rho_ext, idx), _EPS)
+    u_f = _clip_faces_to_local_stencil(u_f, u_ext, idx)
+    p_f = np.maximum(_clip_faces_to_local_stencil(p_f, p_ext, idx), 1.0e-12)
+    y1_f = reconstruct_upwind_faces(
+        y1_ext, u_face, scheme=primitive_scheme, floor=0.0)
+    y1_f = np.clip(y1_f, 0.0, 1.0)
+    alpha_f = np.where(left, alpha_ext[:-1], alpha_ext[1:])
+    q1_f = y1_f * rho_f
+    q2_f = (1.0 - y1_f) * rho_f
+    rho1_f = q1_f / np.maximum(alpha_f, 1.0e-12)
+    rho2_f = q2_f / np.maximum(1.0 - alpha_f, 1.0e-12)
+    return np.maximum(rho1_f, _EPS), np.maximum(rho2_f, _EPS), u_f, p_f
+
+
+def _characteristic_mixture_lr_states(W_ext, c_mix_sq_ext, eos1, eos2,
+                                      primitive_scheme):
+    """Left/right HLLC states with rho/u/p limited in characteristic variables."""
+    alpha_ext = np.asarray(W_ext[0], dtype=float)
+    rho_ext, y1_ext, u_ext, p_ext, drho, du, dp = _mixture_char_base(
+        W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme)
+    n_face = rho_ext.size - 1
+    left_idx = np.arange(n_face)
+    right_idx = np.arange(1, n_face + 1)
+    rho_L = rho_ext[:-1] + 0.5 * drho[:-1]
+    rho_R = rho_ext[1:] - 0.5 * drho[1:]
+    u_L = u_ext[:-1] + 0.5 * du[:-1]
+    u_R = u_ext[1:] - 0.5 * du[1:]
+    p_L = p_ext[:-1] + 0.5 * dp[:-1]
+    p_R = p_ext[1:] - 0.5 * dp[1:]
+    rho_L = np.maximum(_clip_faces_to_local_stencil(rho_L, rho_ext, left_idx), _EPS)
+    rho_R = np.maximum(_clip_faces_to_local_stencil(rho_R, rho_ext, right_idx), _EPS)
+    u_L = _clip_faces_to_local_stencil(u_L, u_ext, left_idx)
+    u_R = _clip_faces_to_local_stencil(u_R, u_ext, right_idx)
+    p_L = np.maximum(_clip_faces_to_local_stencil(p_L, p_ext, left_idx), 1.0e-12)
+    p_R = np.maximum(_clip_faces_to_local_stencil(p_R, p_ext, right_idx), 1.0e-12)
+    y1_L, y1_R = reconstruct_lr_faces(y1_ext, scheme=primitive_scheme)
+    a_L, a_R = reconstruct_lr_faces(alpha_ext, scheme=primitive_scheme)
+    y1_L = np.clip(y1_L, 0.0, 1.0)
+    y1_R = np.clip(y1_R, 0.0, 1.0)
+    a_L = np.clip(a_L, 1.0e-12, 1.0 - 1.0e-12)
+    a_R = np.clip(a_R, 1.0e-12, 1.0 - 1.0e-12)
+    q1_L = y1_L * rho_L
+    q1_R = y1_R * rho_R
+    q2_L = (1.0 - y1_L) * rho_L
+    q2_R = (1.0 - y1_R) * rho_R
+    rho1_L = np.maximum(q1_L / a_L, _EPS)
+    rho1_R = np.maximum(q1_R / a_R, _EPS)
+    rho2_L = np.maximum(q2_L / (1.0 - a_L), _EPS)
+    rho2_R = np.maximum(q2_R / (1.0 - a_R), _EPS)
+    rhoe_L = q1_L * eos1.energy(rho1_L, p_L) + q2_L * eos2.energy(rho2_L, p_L)
+    rhoe_R = q1_R * eos1.energy(rho1_R, p_R) + q2_R * eos2.energy(rho2_R, p_R)
+    return rho_L, rho_R, u_L, u_R, p_L, p_R, rhoe_L, rhoe_R
+
+
+def _mixture_primitive_base(W_ext, eos1, eos2):
+    alpha_ext, T1_ext, T2_ext, u_ext, p_ext = W_ext
+    rho1_ext = np.maximum(eos1.density(p_ext, T1_ext), _EPS)
+    rho2_ext = np.maximum(eos2.density(p_ext, T2_ext), _EPS)
+    q1_ext = np.maximum(alpha_ext * rho1_ext, 0.0)
+    q2_ext = np.maximum((1.0 - alpha_ext) * rho2_ext, 0.0)
+    rho_ext = np.maximum(q1_ext + q2_ext, _EPS)
+    y1_ext = np.clip(q1_ext / rho_ext, 0.0, 1.0)
+    return alpha_ext, rho_ext, y1_ext, u_ext, p_ext
+
+
+def _mixture_primitive_recon_enabled(primitive_scheme, W_ext=None):
+    """Whether to reconstruct mixture rho/Y instead of phase temperatures.
+
+    Conservative mixture-rho/mass-fraction reconstruction is the robust face
+    thermodynamic path for near-pure material interfaces and resolved shocks:
+    it keeps phase mass, total mixture density, and alpha corrections mutually
+    bounded.  In a fully mixed thermal wave at pressure equilibrium, however,
+    rho/Y reconstruction over-limits the phase temperature content because the
+    wave is carried by phase thermodynamics rather than by a material contact.
+    The default ``auto`` therefore uses the conservative mixture path when the
+    current stencil contains a near-pure material or a pressure discontinuity.
+    The pressure-discontinuity criterion is scale-free and tied to roundoff,
+    not to a validation case or tunable numerical coefficient.
+    """
+    if primitive_scheme == "upwind":
+        return False
+    key = os.environ.get("FIVE_EQ_IMEX_MIXTURE_RHO_RECON", "auto")
+    key = str(key).strip().lower()
+    if key in {"0", "false", "off", "no"}:
+        return False
+    if key in {"1", "true", "on", "yes"}:
+        return True
+    if key not in {"auto", "default", ""}:
+        raise ValueError(
+            "FIVE_EQ_IMEX_MIXTURE_RHO_RECON must be 'auto', 'on', or 'off'.")
+    if W_ext is None:
+        return True
+    alpha = np.asarray(W_ext[0], dtype=float)
+    if alpha.size == 0:
+        return False
+    pure_tol = np.finfo(float).eps ** 0.25
+    has_pure_material = (
+        float(np.min(alpha)) <= pure_tol
+        or float(np.max(alpha)) >= 1.0 - pure_tol
+    )
+    if has_pure_material:
+        p = np.asarray(W_ext[4], dtype=float)
+        u = np.asarray(W_ext[3], dtype=float)
+        p_span = float(np.max(p) - np.min(p)) if p.size else 0.0
+        u_span = float(np.max(u) - np.min(u)) if u.size else 0.0
+        p_scale = max(float(np.max(np.abs(p))) if p.size else 0.0, 1.0)
+        u_scale = max(float(np.max(np.abs(u))) if u.size else 0.0, 1.0)
+        if p_span <= pure_tol * p_scale and u_span <= pure_tol * u_scale:
+            # Passive pressure-equilibrium material/thermal advection should
+            # reconstruct phase thermodynamic variables directly.  Conservative
+            # mixture rho/Y reconstruction is retained below for pressure jumps
+            # and shocks, where it prevents new total-density extrema.
+            return False
+        return True
+    p = np.asarray(W_ext[4], dtype=float)
+    if p.size < 2:
+        return False
+    rel_p_jump = np.abs(p[1:] - p[:-1]) / np.maximum(
+        np.maximum(np.abs(p[1:]), np.abs(p[:-1])), 1.0)
+    return bool(np.any(rel_p_jump > pure_tol))
+
+
+def _mixture_hancock_enabled():
+    key = os.environ.get("FIVE_EQ_IMEX_MIXTURE_HANCOCK", "1")
+    return str(key).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _mixture_primitive_hancock_lr_states(
+        W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme, dt, dx):
+    """Non-characteristic MUSCL-Hancock predictor for mixture rho/Y/u/p."""
+    alpha_ext, rho_ext, y1_ext, u_ext, p_ext = _mixture_primitive_base(
+        W_ext, eos1, eos2)
+    tvd_kind = primitive_tvd_kind(primitive_scheme)
+
+    def slopes(phi):
+        phi = np.asarray(phi, dtype=float)
+        out = np.zeros_like(phi)
+        if phi.size >= 3:
+            out[1:-1] = _tvd_pair(phi[1:-1] - phi[:-2],
+                                  phi[2:] - phi[1:-1], tvd_kind)
+        return out
+
+    drho = slopes(rho_ext)
+    dy1 = slopes(y1_ext)
+    du = slopes(u_ext)
+    dp = slopes(p_ext)
+    da = slopes(alpha_ext)
+    inv_dx = 1.0 / dx
+    rho_x = drho * inv_dx
+    y_x = dy1 * inv_dx
+    u_x = du * inv_dx
+    p_x = dp * inv_dx
+    c2 = np.maximum(np.asarray(c_mix_sq_ext, dtype=float), _EPS)
+    rho_safe = np.maximum(rho_ext, _EPS)
+    rho_t = -u_ext * rho_x - rho_safe * u_x
+    y_t = -u_ext * y_x
+    u_t = -u_ext * u_x - p_x / rho_safe
+    p_t = -u_ext * p_x - rho_safe * c2 * u_x
+    # Alpha has a separate non-conservative equation; this predictor is only
+    # used to keep thermodynamic face states time-centered.
+    a_t = -u_ext * da * inv_dx
+
+    rho_L = rho_ext[:-1] + 0.5 * drho[:-1] + 0.5 * dt * rho_t[:-1]
+    rho_R = rho_ext[1:] - 0.5 * drho[1:] + 0.5 * dt * rho_t[1:]
+    y_L = y1_ext[:-1] + 0.5 * dy1[:-1] + 0.5 * dt * y_t[:-1]
+    y_R = y1_ext[1:] - 0.5 * dy1[1:] + 0.5 * dt * y_t[1:]
+    u_L = u_ext[:-1] + 0.5 * du[:-1] + 0.5 * dt * u_t[:-1]
+    u_R = u_ext[1:] - 0.5 * du[1:] + 0.5 * dt * u_t[1:]
+    p_L = p_ext[:-1] + 0.5 * dp[:-1] + 0.5 * dt * p_t[:-1]
+    p_R = p_ext[1:] - 0.5 * dp[1:] + 0.5 * dt * p_t[1:]
+    a_L = alpha_ext[:-1] + 0.5 * da[:-1] + 0.5 * dt * a_t[:-1]
+    a_R = alpha_ext[1:] - 0.5 * da[1:] + 0.5 * dt * a_t[1:]
+
+    rho_L = np.maximum(rho_L, _EPS)
+    rho_R = np.maximum(rho_R, _EPS)
+    y_L = np.clip(y_L, 0.0, 1.0)
+    y_R = np.clip(y_R, 0.0, 1.0)
+    p_L = np.maximum(p_L, 1.0e-12)
+    p_R = np.maximum(p_R, 1.0e-12)
+    a_L = np.clip(a_L, 1.0e-12, 1.0 - 1.0e-12)
+    a_R = np.clip(a_R, 1.0e-12, 1.0 - 1.0e-12)
+    q1_L = y_L * rho_L
+    q1_R = y_R * rho_R
+    q2_L = (1.0 - y_L) * rho_L
+    q2_R = (1.0 - y_R) * rho_R
+    rho1_L = np.maximum(q1_L / a_L, _EPS)
+    rho1_R = np.maximum(q1_R / a_R, _EPS)
+    rho2_L = np.maximum(q2_L / (1.0 - a_L), _EPS)
+    rho2_R = np.maximum(q2_R / (1.0 - a_R), _EPS)
+    rhoe_L = q1_L * eos1.energy(rho1_L, p_L) + q2_L * eos2.energy(rho2_L, p_L)
+    rhoe_R = q1_R * eos1.energy(rho1_R, p_R) + q2_R * eos2.energy(rho2_R, p_R)
+    return rho_L, rho_R, u_L, u_R, p_L, p_R, rhoe_L, rhoe_R, y_L, y_R, a_L, a_R
+
+
+def _mixture_primitive_upwind_components(W_ext, eos1, eos2, u_face,
+                                         primitive_scheme, c_mix_sq_ext=None,
+                                         dt=None, dx=None):
+    """Scalar-TVD reconstruction of conservative mixture primitive components."""
+    if (_mixture_hancock_enabled() and c_mix_sq_ext is not None
+            and dt is not None and dx is not None):
+        states = _mixture_primitive_hancock_lr_states(
+            W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme, dt, dx)
+        rho_L, rho_R, u_L, u_R, p_L, p_R, _, _, y_L, y_R, a_L, a_R = states
+        left = np.asarray(u_face, dtype=float) >= 0.0
+        return (
+            np.where(left, a_L, a_R),
+            np.where(left, rho_L, rho_R),
+            np.where(left, y_L, y_R),
+            np.where(left, u_L, u_R),
+            np.where(left, p_L, p_R),
+        )
+    alpha_ext, rho_ext, y1_ext, u_ext, p_ext = _mixture_primitive_base(
+        W_ext, eos1, eos2)
+    u_face = np.asarray(u_face, dtype=float)
+    left = u_face >= 0.0
+    alpha_f = np.where(left, alpha_ext[:-1], alpha_ext[1:])
+    rho_f = reconstruct_upwind_faces(
+        rho_ext, u_face, scheme=primitive_scheme, floor=_EPS)
+    y1_f = reconstruct_upwind_faces(
+        y1_ext, u_face, scheme=primitive_scheme, floor=0.0)
+    u_f = reconstruct_upwind_faces(
+        u_ext, u_face, scheme=primitive_scheme)
+    p_f = reconstruct_upwind_faces(
+        p_ext, u_face, scheme=primitive_scheme, floor=1.0e-12)
+    y1_f = np.clip(y1_f, 0.0, 1.0)
+    alpha_f = np.clip(alpha_f, 1.0e-12, 1.0 - 1.0e-12)
+    return alpha_f, rho_f, y1_f, u_f, p_f
+
+
+def _mixture_primitive_upwind_faces(W_ext, eos1, eos2, u_face,
+                                    primitive_scheme):
+    """EOS-consistent scalar-TVD reconstruction of rho/Y/u/p to upwind faces."""
+    alpha_f, rho_f, y1_f, u_f, p_f = _mixture_primitive_upwind_components(
+        W_ext, eos1, eos2, u_face, primitive_scheme)
+    q1_f = y1_f * rho_f
+    q2_f = (1.0 - y1_f) * rho_f
+    rho1_f = np.maximum(q1_f / alpha_f, _EPS)
+    rho2_f = np.maximum(q2_f / (1.0 - alpha_f), _EPS)
+    return rho1_f, rho2_f, u_f, p_f
+
+
+def _mixture_primitive_lr_states(W_ext, eos1, eos2, primitive_scheme,
+                                 c_mix_sq_ext=None, dt=None, dx=None):
+    """Left/right states from scalar TVD reconstruction of rho/Y/u/p."""
+    if (_mixture_hancock_enabled() and c_mix_sq_ext is not None
+            and dt is not None and dx is not None):
+        return _mixture_primitive_hancock_lr_states(
+            W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme, dt, dx)[:8]
+    alpha_ext, rho_ext, y1_ext, u_ext, p_ext = _mixture_primitive_base(
+        W_ext, eos1, eos2)
+    rho_L, rho_R = reconstruct_lr_faces(rho_ext, scheme=primitive_scheme, floor=_EPS)
+    y1_L, y1_R = reconstruct_lr_faces(y1_ext, scheme=primitive_scheme)
+    u_L, u_R = reconstruct_lr_faces(u_ext, scheme=primitive_scheme)
+    p_L, p_R = reconstruct_lr_faces(p_ext, scheme=primitive_scheme, floor=1.0e-12)
+    a_L, a_R = reconstruct_lr_faces(alpha_ext, scheme=primitive_scheme)
+    y1_L = np.clip(y1_L, 0.0, 1.0)
+    y1_R = np.clip(y1_R, 0.0, 1.0)
+    a_L = np.clip(a_L, 1.0e-12, 1.0 - 1.0e-12)
+    a_R = np.clip(a_R, 1.0e-12, 1.0 - 1.0e-12)
+    q1_L = y1_L * rho_L
+    q1_R = y1_R * rho_R
+    q2_L = (1.0 - y1_L) * rho_L
+    q2_R = (1.0 - y1_R) * rho_R
+    rho1_L = np.maximum(q1_L / a_L, _EPS)
+    rho1_R = np.maximum(q1_R / a_R, _EPS)
+    rho2_L = np.maximum(q2_L / (1.0 - a_L), _EPS)
+    rho2_R = np.maximum(q2_R / (1.0 - a_R), _EPS)
+    rhoe_L = q1_L * eos1.energy(rho1_L, p_L) + q2_L * eos2.energy(rho2_L, p_L)
+    rhoe_R = q1_R * eos1.energy(rho1_R, p_R) + q2_R * eos2.energy(rho2_R, p_R)
+    return rho_L, rho_R, u_L, u_R, p_L, p_R, rhoe_L, rhoe_R
+
+
 def _single_phase_euler_rusanov_step(W_n, dt, eos, dx, bc_l, bc_r, *,
                                      u_inlet=None, p_inlet=None,
                                      primitive_scheme='upwind'):
@@ -573,7 +1400,7 @@ def _single_phase_euler_rusanov_step(W_n, dt, eos, dx, bc_l, bc_r, *,
     T_e = ext(T1)
     u_e = ext(u, odd=True, dirichlet_l=u_inlet)
     p_e = ext(p, dirichlet_l=p_inlet)
-    if primitive_scheme in ('upwind', 'tmlpu', 'weno3'):
+    if primitive_scheme in ('upwind', 'tmlpu', 'weno3') or is_tvd_primitive_scheme(primitive_scheme):
         # Pure-phase acoustics use the conservative Euler shortcut.  In this
         # reduced system, the stable high-order primitive reconstruction is the
         # MUSCL-Hancock TVD predictor below; using the multidimensional T-MLP-u
@@ -585,29 +1412,40 @@ def _single_phase_euler_rusanov_step(W_n, dt, eos, dx, bc_l, bc_r, *,
         dp = np.zeros_like(p_e)
         e_e = eos.energy(rho_e, p_e)
         c_sq_e = np.maximum(eos.sound_speed_sq(rho_e, e_e, p_e), _EPS)
-        if primitive_scheme == 'tmlpu':
+        pure_char = os.environ.get(
+            "FIVE_EQ_IMEX_PURE_CHARACTERISTIC_RECON", "0"
+        ).strip().lower() in {"1", "true", "yes", "on", "char", "characteristic"}
+        tvd_kind = primitive_tvd_kind(primitive_scheme)
+        if primitive_scheme == 'tmlpu' and pure_char:
             drho, du, dp = _characteristic_primitive_slopes(
-                rho_e, u_e, p_e, np.sqrt(c_sq_e),
-                os.environ.get("FIVE_EQ_IMEX_TMLPU_TVD", "minmod"))
+                rho_e, u_e, p_e, np.sqrt(c_sq_e), tvd_kind)
         else:
-            drho[1:-1] = _minmod_pair(rho_e[1:-1] - rho_e[:-2], rho_e[2:] - rho_e[1:-1])
-            du[1:-1] = _minmod_pair(u_e[1:-1] - u_e[:-2], u_e[2:] - u_e[1:-1])
-            dp[1:-1] = _minmod_pair(p_e[1:-1] - p_e[:-2], p_e[2:] - p_e[1:-1])
+            drho[1:-1] = _tvd_pair(
+                rho_e[1:-1] - rho_e[:-2], rho_e[2:] - rho_e[1:-1], tvd_kind)
+            du[1:-1] = _tvd_pair(
+                u_e[1:-1] - u_e[:-2], u_e[2:] - u_e[1:-1], tvd_kind)
+            dp[1:-1] = _tvd_pair(
+                p_e[1:-1] - p_e[:-2], p_e[2:] - p_e[1:-1], tvd_kind)
         rho_x = drho / dx
         u_x = du / dx
         p_x = dp / dx
 
-        # MUSCL-Hancock primitive predictor for smooth pure-phase acoustics.
-        # The 1/2 factor is fixed by the second-order Taylor half-step.
+        # MUSCL-Hancock primitive predictor for the pure Euler limit.  The
+        # half-step is required for the single-phase shortcut to remain a
+        # genuinely second-order Godunov update for smooth acoustic waves.
+        pure_hancock = os.environ.get(
+            "FIVE_EQ_IMEX_PURE_HANCOCK", "1"
+        ).strip().lower() not in {"0", "false", "off", "no"}
+        hcoef = 0.5 if pure_hancock else 0.0
         rho_t = -u_e * rho_x - rho_e * u_x
         u_t = -u_e * u_x - p_x / rho_e
         p_t = -u_e * p_x - rho_e * c_sq_e * u_x
-        rho_L = rho_e[:-1] + 0.5 * drho[:-1] + 0.5 * dt * rho_t[:-1]
-        rho_R = rho_e[1:] - 0.5 * drho[1:] + 0.5 * dt * rho_t[1:]
-        u_L_h = u_e[:-1] + 0.5 * du[:-1] + 0.5 * dt * u_t[:-1]
-        u_R_h = u_e[1:] - 0.5 * du[1:] + 0.5 * dt * u_t[1:]
-        p_L_h = p_e[:-1] + 0.5 * dp[:-1] + 0.5 * dt * p_t[:-1]
-        p_R_h = p_e[1:] - 0.5 * dp[1:] + 0.5 * dt * p_t[1:]
+        rho_L = rho_e[:-1] + 0.5 * drho[:-1] + hcoef * dt * rho_t[:-1]
+        rho_R = rho_e[1:] - 0.5 * drho[1:] + hcoef * dt * rho_t[1:]
+        u_L_h = u_e[:-1] + 0.5 * du[:-1] + hcoef * dt * u_t[:-1]
+        u_R_h = u_e[1:] - 0.5 * du[1:] + hcoef * dt * u_t[1:]
+        p_L_h = p_e[:-1] + 0.5 * dp[:-1] + hcoef * dt * p_t[:-1]
+        p_R_h = p_e[1:] - 0.5 * dp[1:] + hcoef * dt * p_t[1:]
 
         # Boundary states are imposed directly; reconstruct only from owned cells.
         if not (bc_l == 'periodic' and bc_r == 'periodic'):
@@ -677,12 +1515,18 @@ def _single_phase_euler_rusanov_step(W_n, dt, eos, dx, bc_l, bc_r, *,
     F_rusanov = 0.5 * (F_L + F_R) - 0.5 * s_rusanov * (U_R - U_L)
     s_L = np.minimum(u_L_h - c_L, u_R_h - c_R)
     s_R = np.maximum(u_L_h + c_L, u_R_h + c_R)
-    F_face = _single_phase_hllc_flux(
-        U_L, F_L, rho_L_h, u_L_h, p_L_h,
-        U_R, F_R, rho_R_h, u_R_h, p_R_h,
-        s_L, s_R)
+    pure_flux = os.environ.get(
+        "FIVE_EQ_IMEX_PURE_EULER_FLUX", "hlle"
+    ).strip().lower().replace("-", "_")
+    if pure_flux in {"hlle", "hll"}:
+        F_face = _single_phase_hlle_flux(U_L, F_L, U_R, F_R, s_L, s_R)
+    else:
+        F_face = _single_phase_hllc_flux(
+            U_L, F_L, rho_L_h, u_L_h, p_L_h,
+            U_R, F_R, rho_R_h, u_R_h, p_R_h,
+            s_L, s_R)
     bad_face = ~np.all(np.isfinite(F_face), axis=0)
-    if np.any(bad_face):
+    if np.any(bad_face) and _env_enabled("FIVE_EQ_IMEX_RUSANOV_FALLBACK", "1"):
         F_face[:, bad_face] = F_rusanov[:, bad_face]
     if bc_l == 'reflective':
         F_face[:, 0] = np.array([0.0, p[0], 0.0])
@@ -694,14 +1538,35 @@ def _single_phase_euler_rusanov_step(W_n, dt, eos, dx, bc_l, bc_r, *,
     e_new = U_new[2] / rho_new - 0.5 * u_new * u_new
     p_new = eos.pressure(rho_new, e_new)
     T_new = eos.temperature(rho_new, e_new)
-    if (not np.all(np.isfinite(p_new))) or np.min(p_new) <= 0.0 or (
-            not np.all(np.isfinite(T_new))) or np.min(T_new) <= 0.0:
+    if (_env_enabled("FIVE_EQ_IMEX_RUSANOV_FALLBACK", "1")
+            and ((not np.all(np.isfinite(p_new))) or np.min(p_new) <= 0.0 or (
+                not np.all(np.isfinite(T_new))) or np.min(T_new) <= 0.0)):
         U_new = U - dt * (F_rusanov[:, 1:] - F_rusanov[:, :-1]) / dx
         rho_new = np.maximum(U_new[0], _EPS)
         u_new = U_new[1] / rho_new
         e_new = U_new[2] / rho_new - 0.5 * u_new * u_new
         p_new = eos.pressure(rho_new, e_new)
         T_new = eos.temperature(rho_new, e_new)
+    if _primitive_lmp_enabled():
+        if _primitive_lmp_mode() in {"stencil", "local_stencil", "global", "old"}:
+            rho_new = np.minimum(float(np.max(rho)),
+                                 np.maximum(float(np.min(rho)), rho_new))
+            u_new = U_new[1] / np.maximum(rho_new, _EPS)
+            W_ref = (alpha, T1, T2, u, p)
+            u_new, p_new = _primitive_global_bounds_clip(W_ref, u_new, p_new)
+        elif _primitive_lmp_mode() in {"global_p", "pressure_global", "p_global"}:
+            W_ref = (alpha, T1, T2, u, p)
+            u_new, p_new = _primitive_global_pressure_clip(W_ref, u_new, p_new)
+        elif _primitive_lmp_mode() in {"led_p", "pressure_led", "p_led", "pressure"}:
+            u_new, p_new = _primitive_led_filter(
+                u_new, p_new, bc_l, bc_r, mode=_primitive_lmp_mode())
+        else:
+            rho_new = _local_extremum_diminishing_filter(
+                rho_new, bc_l, bc_r, odd=False, floor=_EPS)
+            u_new = U_new[1] / np.maximum(rho_new, _EPS)
+            u_new, p_new = _primitive_led_filter(
+                u_new, p_new, bc_l, bc_r, mode=_primitive_lmp_mode())
+        T_new = eos.temperature(rho_new, eos.energy(rho_new, p_new))
     W_new = (alpha.copy(), T_new, T_new.copy(), u_new, p_new)
     return W_new, {
         'scheme': 'single_phase_conservative_euler_hllc',
@@ -775,21 +1640,53 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     p_star = (Z_R * p_L + Z_L * p_R + Z_L * Z_R * (u_L - u_R)) / den
     u_star = (p_L - p_R + Z_L * u_L + Z_R * u_R) / den
 
+    material_flux = os.environ.get("FIVE_EQ_IMEX_MATERIAL_FLUX", "slau2")
+    material_flux = str(material_flux).strip().lower().replace("-", "_")
+    if material_flux in ("slau2", "slau2_split", "slau2_advection"):
+        p_slau2, u_slau2, slau2_valid = _slau2_faces_np(
+            W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme, bc_l, bc_r,
+            dt=dt, dx=dx)
+        p_star = np.where(slau2_valid, p_slau2, p_star)
+        u_star = np.where(slau2_valid, u_slau2, u_star)
+    elif material_flux in (
+            "hllc", "hllc_contact", "hllc_star",
+            "hllc_split", "hllc_flux", "hllc_advection"):
+        p_hllc, u_hllc, hllc_valid = _hllc_contact_faces_np(
+            W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme, bc_l, bc_r)
+        p_star = np.where(hllc_valid, p_hllc, p_star)
+        u_star = np.where(hllc_valid, u_hllc, u_star)
+
     if bc_l == 'reflective':
         u_star[0] = 0.0
     if bc_r == 'reflective':
         u_star[-1] = 0.0
 
     upwind_left = u_star >= 0.0
+    alpha_upwind = np.where(upwind_left, W_ext[0][:-1], W_ext[0][1:])
     prim_f = reconstruct_primitive_upwind_faces(
-        W_ext, u_star, scheme=primitive_scheme)
+        W_ext, u_star, scheme=primitive_scheme, dt=dt, dx=dx)
     T1_f = prim_f["T1"]
     T2_f = prim_f["T2"]
     u_adv_f = prim_f["u"]
     p_adv_f = prim_f["p"]
+    mix_rho_f = None
+    mix_y1_f = None
     rho1_f = np.maximum(eos1.density(p_adv_f, T1_f), _EPS)
     rho2_f = np.maximum(eos2.density(p_adv_f, T2_f), _EPS)
-    if os.environ.get("FIVE_EQ_IMEX_DENSITY_RECON", "1") == "1":
+    if _characteristic_recon_enabled() and primitive_scheme != 'upwind':
+        rho1_f, rho2_f, u_adv_f, p_adv_f = _characteristic_mixture_upwind_faces(
+            W_ext, c_mix_sq_ext, eos1, eos2, u_star, primitive_scheme)
+    elif _mixture_primitive_recon_enabled(primitive_scheme, W_ext):
+        alpha_mix_f, mix_rho_f, mix_y1_f, u_adv_f, p_adv_f = (
+            _mixture_primitive_upwind_components(
+                W_ext, eos1, eos2, u_star, primitive_scheme,
+                c_mix_sq_ext=c_mix_sq_ext, dt=dt, dx=dx)
+        )
+        q1_mix_f = mix_y1_f * mix_rho_f
+        q2_mix_f = (1.0 - mix_y1_f) * mix_rho_f
+        rho1_f = np.maximum(q1_mix_f / alpha_mix_f, _EPS)
+        rho2_f = np.maximum(q2_mix_f / (1.0 - alpha_mix_f), _EPS)
+    elif os.environ.get("FIVE_EQ_IMEX_DENSITY_RECON", "1") == "1":
         # Reconstruct EOS-consistent phase densities directly for the material
         # flux.  Reconstructing p and T independently can perturb rho=p/T on
         # pressure-equilibrium plateaus; rho is the conservative thermodynamic
@@ -797,21 +1694,25 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         # work and phase energies.
         rho1_ext = np.maximum(eos1.density(W_ext[4], W_ext[1]), _EPS)
         rho2_ext = np.maximum(eos2.density(W_ext[4], W_ext[2]), _EPS)
+        density_tvd = os.environ.get("FIVE_EQ_IMEX_DENSITY_TVD")
         rho1_f = reconstruct_upwind_faces(
-            rho1_ext, u_star, scheme=primitive_scheme, floor=_EPS)
+            rho1_ext, u_star, scheme=primitive_scheme, floor=_EPS,
+            tvd_kind=density_tvd, dt=dt, dx=dx)
         rho2_f = reconstruct_upwind_faces(
-            rho2_ext, u_star, scheme=primitive_scheme, floor=_EPS)
+            rho2_ext, u_star, scheme=primitive_scheme, floor=_EPS,
+            tvd_kind=density_tvd, dt=dt, dx=dx)
     e1_f = eos1.energy(rho1_f, p_adv_f)
     e2_f = eos2.energy(rho2_f, p_adv_f)
     E1_f = e1_f + 0.5 * u_adv_f * u_adv_f
     E2_f = e2_f + 0.5 * u_adv_f * u_adv_f
-    alpha_upwind = np.where(upwind_left, W_ext[0][:-1], W_ext[0][1:])
     inv_dx = 1.0 / dx
     q1_cons = alpha_upwind * rho1_f
     q2_cons = (1.0 - alpha_upwind) * rho2_f
     m_cons = (q1_cons + q2_cons) * u_adv_f
     rE_cons = q1_cons * E1_f + q2_cons * E2_f
-    if alpha_scheme in ('cicsam', 'mstacs', 'stacs', 'superbee', 'vanleer', 'tvd_vanleer'):
+    if alpha_scheme in (
+            'cicsam', 'mstacs', 'stacs', 'superbee',
+            'vanleer', 'tvd_vanleer', 'thinc', 'thinc_bvd', 'thinc-bvd'):
         # Apply the sharp alpha correction everywhere, but limit its induced
         # anti-diffusive correction by a face-local maximum principle on the
         # conservative quantities.  This is a flux-corrected transport form:
@@ -833,18 +1734,27 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
             theta_out[neg] = np.minimum(theta_out[neg], (lo[neg] - base[neg]) / delta[neg])
             return np.clip(theta_out, 0.0, 1.0)
 
-        theta = apply_lmp(theta, q1_cons, rho1_f, U_ext[0][:-1], U_ext[0][1:])
-        theta = apply_lmp(theta, q2_cons, -rho2_f, U_ext[1][:-1], U_ext[1][1:])
-        rho_ext = U_ext[0] + U_ext[1]
-        theta = apply_lmp(
-            theta, q1_cons + q2_cons, rho1_f - rho2_f,
-            rho_ext[:-1], rho_ext[1:])
-        theta = apply_lmp(
-            theta, m_cons, (rho1_f - rho2_f) * u_adv_f,
-            U_ext[2][:-1], U_ext[2][1:])
-        theta = apply_lmp(
-            theta, rE_cons, rho1_f * E1_f - rho2_f * E2_f,
-            U_ext[3][:-1], U_ext[3][1:])
+        alpha_fct_mode = os.environ.get("FIVE_EQ_IMEX_ALPHA_FCT", "auto")
+        alpha_fct_key = str(alpha_fct_mode).strip().lower()
+        if alpha_fct_key in {"auto", "default", ""}:
+            pure_tol_auto = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
+            alpha_fct_enabled = not _collocated_pressure_material_jump(
+                W_n, pure_tol_auto)
+        else:
+            alpha_fct_enabled = _env_enabled("FIVE_EQ_IMEX_ALPHA_FCT", "1")
+        if alpha_fct_enabled:
+            theta = apply_lmp(theta, q1_cons, rho1_f, U_ext[0][:-1], U_ext[0][1:])
+            theta = apply_lmp(theta, q2_cons, -rho2_f, U_ext[1][:-1], U_ext[1][1:])
+            rho_ext = U_ext[0] + U_ext[1]
+            theta = apply_lmp(
+                theta, q1_cons + q2_cons, rho1_f - rho2_f,
+                rho_ext[:-1], rho_ext[1:])
+            theta = apply_lmp(
+                theta, m_cons, (rho1_f - rho2_f) * u_adv_f,
+                U_ext[2][:-1], U_ext[2][1:])
+            theta = apply_lmp(
+                theta, rE_cons, rho1_f * E1_f - rho2_f * E2_f,
+                U_ext[3][:-1], U_ext[3][1:])
 
         def apply_update_lmp(theta_in, cell_now, low_face_value, coeff,
                              stencil_ext, extra_face_flux=None):
@@ -920,18 +1830,19 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
             return np.clip(theta_out, 0.0, 1.0)
 
         rho_ext = U_ext[0] + U_ext[1]
-        theta = apply_update_lmp(
-            theta, U_n[0], q1_cons, rho1_f, U_ext[0])
-        theta = apply_update_lmp(
-            theta, U_n[1], q2_cons, -rho2_f, U_ext[1])
-        theta = apply_update_lmp(
-            theta, U_n[0] + U_n[1], q1_cons + q2_cons,
-            rho1_f - rho2_f, rho_ext)
-        theta = apply_update_lmp(
-            theta, U_n[2], m_cons, (rho1_f - rho2_f) * u_adv_f, U_ext[2])
-        theta = apply_update_lmp(
-            theta, U_n[3], rE_cons, rho1_f * E1_f - rho2_f * E2_f,
-            U_ext[3], extra_face_flux=p_star * u_star)
+        if alpha_fct_enabled:
+            theta = apply_update_lmp(
+                theta, U_n[0], q1_cons, rho1_f, U_ext[0])
+            theta = apply_update_lmp(
+                theta, U_n[1], q2_cons, -rho2_f, U_ext[1])
+            theta = apply_update_lmp(
+                theta, U_n[0] + U_n[1], q1_cons + q2_cons,
+                rho1_f - rho2_f, rho_ext)
+            theta = apply_update_lmp(
+                theta, U_n[2], m_cons, (rho1_f - rho2_f) * u_adv_f, U_ext[2])
+            theta = apply_update_lmp(
+                theta, U_n[3], rE_cons, rho1_f * E1_f - rho2_f * E2_f,
+                U_ext[3], extra_face_flux=p_star * u_star)
 
         alpha_f = np.clip(alpha_upwind + theta * delta_alpha,
                           1.0e-12, 1.0 - 1.0e-12)
@@ -940,6 +1851,47 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         q2_f = q2_cons - rho2_f * delta_alpha
         m_f = m_cons + (rho1_f - rho2_f) * u_adv_f * delta_alpha
         rE_f = rE_cons + (rho1_f * E1_f - rho2_f * E2_f) * delta_alpha
+        if mix_rho_f is not None:
+            # Keep the sharp alpha face, but preserve the scalar-TVD
+            # conservative mixture density and mass fraction at the same face.
+            # Otherwise alpha anti-diffusion can add a new total-rho extremum by
+            # changing q1+q2 after rho/Y were already reconstructed.
+            preserve_mode = os.environ.get(
+                "FIVE_EQ_IMEX_PRESERVE_MIXTURE_RHO_ALPHA", "auto"
+            ).strip().lower()
+            if preserve_mode in {"0", "false", "off", "no"}:
+                preserve_mask = np.zeros_like(q1_f, dtype=bool)
+            elif preserve_mode in {"1", "true", "on", "yes"}:
+                preserve_mask = np.ones_like(q1_f, dtype=bool)
+            elif preserve_mode in {"auto", "default", ""}:
+                pure_tol_auto = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
+                a_l = np.asarray(W_ext[0][:-1], dtype=float)
+                a_r = np.asarray(W_ext[0][1:], dtype=float)
+                true_mixture_face = (
+                    (np.minimum(a_l, a_r) > pure_tol_auto)
+                    & (np.maximum(a_l, a_r) < 1.0 - pure_tol_auto)
+                )
+                # Homogeneous mixture shocks need alpha and phase-mass fluxes
+                # on the same path.  Near pure-material/immiscible interfaces
+                # preserve scalar-TVD mixture rho/Y to avoid density extrema.
+                preserve_mask = ~true_mixture_face
+            else:
+                raise ValueError(
+                    "FIVE_EQ_IMEX_PRESERVE_MIXTURE_RHO_ALPHA must be "
+                    "'auto', 'on', or 'off'.")
+
+            y1_mix = np.clip(mix_y1_f, 0.0, 1.0)
+            q1_pres = y1_mix * mix_rho_f
+            q2_pres = (1.0 - y1_mix) * mix_rho_f
+            q1_f = np.where(preserve_mask, q1_pres, q1_f)
+            q2_f = np.where(preserve_mask, q2_pres, q2_f)
+            rho1_cons_f = np.maximum(q1_f / np.maximum(alpha_f, 1.0e-12), _EPS)
+            rho2_cons_f = np.maximum(
+                q2_f / np.maximum(1.0 - alpha_f, 1.0e-12), _EPS)
+            E1_cons_f = eos1.energy(rho1_cons_f, p_adv_f) + 0.5 * u_adv_f * u_adv_f
+            E2_cons_f = eos2.energy(rho2_cons_f, p_adv_f) + 0.5 * u_adv_f * u_adv_f
+            m_f = mix_rho_f * u_adv_f
+            rE_f = q1_f * E1_cons_f + q2_f * E2_cons_f
     else:
         alpha_f = _alpha_face(W_ext[0], u_star, dt, dx, alpha_scheme)
         q1_f = q1_cons
@@ -947,7 +1899,7 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         m_f = m_cons
         rE_f = rE_cons
 
-    if primitive_scheme != 'upwind':
+    if primitive_scheme != 'upwind' and _env_enabled("FIVE_EQ_IMEX_PRIMITIVE_FCT", "1"):
         # Flux-corrected primitive reconstruction: keep the high-order
         # primitive face state, but reject the part of its conservative flux
         # correction that would create new local extrema in q1, q2, rho, m, or
@@ -1063,7 +2015,24 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     F_m_adv = m_f * u_star
     F_alpha = alpha_f * u_star
     F_rho = F_q1 + F_q2
-    if material_energy_form in ('apec', 'secant', 'differential'):
+    hllc_split = material_flux in (
+        "hllc_split", "hllc_flux", "hllc_advection")
+    if hllc_split:
+        p_hllc, u_hllc, hllc_valid, F_rho_h, F_m_adv_h, F_rE_adv_h = (
+            _hllc_split_material_fluxes_np(
+                W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme, bc_l, bc_r)
+        )
+        rho_f = np.maximum(q1_f + q2_f, _EPS)
+        y1_f = np.clip(q1_f / rho_f, 0.0, 1.0)
+        F_rho = np.where(hllc_valid, F_rho_h, F_rho)
+        F_q1 = y1_f * F_rho
+        F_q2 = (1.0 - y1_f) * F_rho
+        F_m_adv = np.where(hllc_valid, F_m_adv_h, F_m_adv)
+        F_rE_adv = np.where(hllc_valid, F_rE_adv_h, rE_f * u_star)
+        p_star = np.where(hllc_valid, p_hllc, p_star)
+        u_star = np.where(hllc_valid, u_hllc, u_star)
+        F_alpha = alpha_f * u_star
+    elif material_energy_form in ('apec', 'secant', 'differential'):
         face = _face_energy_dict(
             W_ext, p_star, u_star, upwind_left, alpha_f,
             rho1_f, rho2_f, eos1, eos2)
@@ -1115,6 +2084,21 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
             a_hi = np.maximum(np.maximum(a_ext[:-2], a_ext[1:-1]), a_ext[2:])
             immiscible_stencil = (a_lo <= pure_tol) & (a_hi >= 1.0 - pure_tol)
             source_alpha = np.where(immiscible_stencil, source_hybrid, source_trap)
+        elif kapila_source_mode == 'mixed_trapezoid':
+            source_trap = 0.5 * (source_face + source_cell)
+            source_hybrid = np.where(material_cells, source_cell, source_face)
+            a_ext = np.asarray(W_ext[0], dtype=float)
+            a_lo = np.minimum(np.minimum(a_ext[:-2], a_ext[1:-1]), a_ext[2:])
+            a_hi = np.maximum(np.maximum(a_ext[:-2], a_ext[1:-1]), a_ext[2:])
+            true_mixture_stencil = (a_lo > pure_tol) & (a_hi < 1.0 - pure_tol)
+            source_alpha = np.where(true_mixture_stencil, source_trap, source_hybrid)
+        elif kapila_source_mode == 'mixed_path':
+            source_hybrid = np.where(material_cells, source_cell, source_face)
+            a_ext = np.asarray(W_ext[0], dtype=float)
+            a_lo = np.minimum(np.minimum(a_ext[:-2], a_ext[1:-1]), a_ext[2:])
+            a_hi = np.maximum(np.maximum(a_ext[:-2], a_ext[1:-1]), a_ext[2:])
+            true_mixture_stencil = (a_lo > pure_tol) & (a_hi < 1.0 - pure_tol)
+            source_alpha = np.where(true_mixture_stencil, source_face, source_hybrid)
         else:
             source_alpha = np.where(material_cells, source_cell, source_face)
     else:
@@ -1140,6 +2124,7 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
             "kapila_source_mode": kapila_source_mode,
             "material_energy_form": material_energy_form,
             "primitive_scheme": primitive_scheme,
+            "material_flux": material_flux,
         }
         return out, aux
     return out
@@ -1169,12 +2154,14 @@ def _solve_acoustic_ad(W_n, q1_new, q2_new, m_adv, alpha_new, dt,
         p_f_old, u_f_old, high_face = _acoustic_faces_muscl_np(
             z0_u, z0_p, Z, alpha, bc_l, bc_r, alpha_pure_tol,
             u_inlet=u_inlet, p_inlet=p_inlet,
-            primitive_scheme=primitive_scheme)
+            primitive_scheme=primitive_scheme,
+            c=np.sqrt(np.maximum(c_mix_sq, _EPS)), dt=dt, dx=dx)
     else:
         p_f_old, u_f_old = _acoustic_faces_np(
             z0_u, z0_p, Z, bc_l, bc_r,
             u_inlet=u_inlet, p_inlet=p_inlet)
         high_face = np.zeros(n + 1, dtype=bool)
+    same_face = _same_pure_material_face_mask(alpha, bc_l, bc_r, alpha_pure_tol)
     div_p_old = (p_f_old[1:] - p_f_old[:-1]) / dx
     div_u_old = (u_f_old[1:] - u_f_old[:-1]) / dx
     p_ext_old = _extend_np(z0_p, bc_l, bc_r, odd=False)
@@ -1226,8 +2213,16 @@ def _solve_acoustic_ad(W_n, q1_new, q2_new, m_adv, alpha_new, dt,
             z0_u[ill], z0_u[il], z0_u, z0_u[ir], z0_u[irr],
             z0_p[ill], z0_p[il], z0_p, z0_p[ir], z0_p[irr],
         ))
+        alpha_np = np.asarray(alpha, dtype=float)
+        same_ill_il = _same_pure_pair_np(alpha_np[ill], alpha_np[il], alpha_pure_tol)
+        same_il_i = _same_pure_pair_np(alpha_np[il], alpha_np, alpha_pure_tol)
+        same_i_ir = _same_pure_pair_np(alpha_np, alpha_np[ir], alpha_pure_tol)
+        same_ir_irr = _same_pure_pair_np(alpha_np[ir], alpha_np[irr], alpha_pure_tol)
         params_np = np.column_stack((
             Z[il], Z, Z[ir],
+            np.sqrt(np.maximum(c_mix_sq[il], _EPS)),
+            np.sqrt(np.maximum(c_mix_sq, _EPS)),
+            np.sqrt(np.maximum(c_mix_sq[ir], _EPS)),
             rho_star, beta, u0, p0, m_adv,
             u_mask.astype(float),
             div_p_old, div_u_old, theta_cell,
@@ -1235,18 +2230,49 @@ def _solve_acoustic_ad(W_n, q1_new, q2_new, m_adv, alpha_new, dt,
             right_boundary.astype(float),
             high_face[:-1].astype(float),
             high_face[1:].astype(float),
+            same_face[:-1].astype(float),
+            same_face[1:].astype(float),
+            same_ill_il.astype(float),
+            same_i_ir.astype(float),
+            same_il_i.astype(float),
+            same_ir_irr.astype(float),
         ))
         z0_t = torch.as_tensor(z0_np, dtype=torch.float64)
         params_t = torch.as_tensor(params_np, dtype=torch.float64)
-        tvd_kind = os.environ.get("FIVE_EQ_IMEX_TMLPU_TVD", "minmod").strip().lower().replace("-", "_")
+        tvd_kind = os.environ.get(
+            "FIVE_EQ_IMEX_ACOUSTIC_TVD",
+            os.environ.get("FIVE_EQ_IMEX_TMLPU_TVD", "superbee"),
+        ).strip().lower().replace("-", "_")
+        waf_acoustic = (
+            os.environ.get("FIVE_EQ_IMEX_ACOUSTIC_WAF", "0")
+            .strip().lower() in {"1", "true", "on", "yes"}
+        )
+        centered_interface = (
+            os.environ.get("FIVE_EQ_IMEX_ACOUSTIC_INTERFACE_CENTERED", "1")
+            .strip().lower() in {"1", "true", "on", "yes"}
+        )
+        waf_sigma_mode = os.environ.get(
+            "FIVE_EQ_IMEX_ACOUSTIC_WAF_SIGMA", "pressure_sensor"
+        ).strip().lower().replace("-", "_")
+        if waf_sigma_mode not in {
+            "pressure_sensor", "sensor", "blend", "retained",
+            "one_minus_nu", "1_minus_nu", "one_minus_cfl", "1_minus_cfl",
+            "nu", "cfl",
+        }:
+            raise ValueError(
+                "FIVE_EQ_IMEX_ACOUSTIC_WAF_SIGMA must be 'pressure_sensor', "
+                "'one_minus_nu', or 'nu'.")
         left_reflective = 1.0 if bc_l == 'reflective' else 0.0
         right_reflective = 1.0 if bc_r == 'reflective' else 0.0
         left_dirichlet = 1.0 if has_left_dirichlet else 0.0
 
         def local_residual_torch(z, params):
             u_ll, u_l, u_c, u_r, u_rr, p_ll, p_l, p_c, p_r, p_rr = z
-            (Z_l, Z_c, Z_r, rho_i, beta_i, u0_i, p0_i, m_i, up_i,
-             dp_old_i, du_old_i, theta_i, lb_i, rb_i, ho_l_i, ho_r_i) = params
+            (Z_l, Z_c, Z_r, c_l, c_c, c_r,
+             rho_i, beta_i, u0_i, p0_i, m_i, up_i,
+             dp_old_i, du_old_i, theta_i, lb_i, rb_i, ho_l_i, ho_r_i,
+             same_l_i, same_r_i, same_ill_il_i, same_i_ir_i,
+             same_il_i_i, same_ir_irr_i) = params
 
             def limited_t(a, b):
                 same = (a * b) > 0.0
@@ -1273,29 +2299,113 @@ def _solve_acoustic_ad(W_n, q1_new, q2_new, m_adv, alpha_new, dt,
             den_l = torch.clamp(Z_l + Z_c, min=_EPS)
             p_fl_raw = (Z_c * p_l + Z_l * p_c + Z_l * Z_c * (u_l - u_c)) / den_l
             u_fl_raw = (p_l - p_c + Z_l * u_l + Z_c * u_c) / den_l
-            sp_l = limited_t(p_l - p_ll, p_c - p_l)
-            sp_c = limited_t(p_c - p_l, p_r - p_c)
-            su_l = limited_t(u_l - u_ll, u_c - u_l)
-            su_c = limited_t(u_c - u_l, u_r - u_c)
-            p_lh = p_l + 0.5 * sp_l
-            p_ch_l = p_c - 0.5 * sp_c
-            u_lh = u_l + 0.5 * su_l
-            u_ch_l = u_c - 0.5 * su_c
+            sp_l_center = limited_t(p_l - p_ll, p_c - p_l)
+            sp_c_center = limited_t(p_c - p_l, p_r - p_c)
+            su_l_center = limited_t(u_l - u_ll, u_c - u_l)
+            su_c_center = limited_t(u_c - u_l, u_r - u_c)
+            sp_l_one = torch.where(
+                same_ill_il_i > 0.5,
+                limited_t(p_l - p_ll, p_l - p_ll),
+                torch.zeros_like(p_l),
+            )
+            sp_c_one_r = torch.where(
+                same_i_ir_i > 0.5,
+                limited_t(p_r - p_c, p_r - p_c),
+                torch.zeros_like(p_c),
+            )
+            su_l_one = torch.where(
+                same_ill_il_i > 0.5,
+                limited_t(u_l - u_ll, u_l - u_ll),
+                torch.zeros_like(u_l),
+            )
+            su_c_one_r = torch.where(
+                same_i_ir_i > 0.5,
+                limited_t(u_r - u_c, u_r - u_c),
+                torch.zeros_like(u_c),
+            )
+            if centered_interface:
+                p_lh = p_l + 0.5 * sp_l_center
+                p_ch_l = p_c - 0.5 * sp_c_center
+                u_lh = u_l + 0.5 * su_l_center
+                u_ch_l = u_c - 0.5 * su_c_center
+            else:
+                p_lh = torch.where(same_l_i > 0.5, p_l + 0.5 * sp_l_center, p_l + 0.5 * sp_l_one)
+                p_ch_l = torch.where(same_l_i > 0.5, p_c - 0.5 * sp_c_center, p_c - 0.5 * sp_c_one_r)
+                u_lh = torch.where(same_l_i > 0.5, u_l + 0.5 * su_l_center, u_l + 0.5 * su_l_one)
+                u_ch_l = torch.where(same_l_i > 0.5, u_c - 0.5 * su_c_center, u_c - 0.5 * su_c_one_r)
             p_fl_ho = (Z_c * p_lh + Z_l * p_ch_l + Z_l * Z_c * (u_lh - u_ch_l)) / den_l
             u_fl_ho = (p_lh - p_ch_l + Z_l * u_lh + Z_c * u_ch_l) / den_l
+            if waf_acoustic:
+                Z_face_l = torch.clamp(0.5 * (Z_l + Z_c), min=_EPS)
+                c_face_l = torch.clamp(0.5 * (c_l + c_c), min=_EPS)
+                nu_l = torch.clamp(c_face_l * (dt / dx), min=0.0, max=1.0)
+                shock_l = torch.clamp(torch.abs(p_ch_l - p_lh) / torch.clamp(Z_face_l * c_face_l, min=_EPS),
+                                      min=0.0, max=1.0)
+                if waf_sigma_mode in {"one_minus_nu", "1_minus_nu", "one_minus_cfl", "1_minus_cfl"}:
+                    sigma_l = 1.0 - nu_l
+                elif waf_sigma_mode in {"nu", "cfl"}:
+                    sigma_l = nu_l
+                else:
+                    sigma_l = (1.0 - shock_l) * (1.0 - nu_l) + shock_l * nu_l
+                p_fl_waf = p_fl_ho + 0.5 * sigma_l * Z_face_l * (u_ch_l - u_lh)
+                u_fl_waf = u_fl_ho + 0.5 * sigma_l * (p_ch_l - p_lh) / Z_face_l
+                p_fl_ho = torch.where(same_l_i > 0.5, p_fl_waf, p_fl_ho)
+                u_fl_ho = torch.where(same_l_i > 0.5, u_fl_waf, u_fl_ho)
             p_fl_raw = torch.where(ho_l_i > 0.5, p_fl_ho, p_fl_raw)
             u_fl_raw = torch.where(ho_l_i > 0.5, u_fl_ho, u_fl_raw)
             den_r = torch.clamp(Z_c + Z_r, min=_EPS)
             p_fr_raw = (Z_r * p_c + Z_c * p_r + Z_c * Z_r * (u_c - u_r)) / den_r
             u_fr_raw = (p_c - p_r + Z_c * u_c + Z_r * u_r) / den_r
-            sp_r = limited_t(p_r - p_c, p_rr - p_r)
-            su_r = limited_t(u_r - u_c, u_rr - u_r)
-            p_ch_r = p_c + 0.5 * sp_c
-            p_rh = p_r - 0.5 * sp_r
-            u_ch_r = u_c + 0.5 * su_c
-            u_rh = u_r - 0.5 * su_r
+            sp_r_center = limited_t(p_r - p_c, p_rr - p_r)
+            su_r_center = limited_t(u_r - u_c, u_rr - u_r)
+            sp_c_one_l = torch.where(
+                same_il_i_i > 0.5,
+                limited_t(p_c - p_l, p_c - p_l),
+                torch.zeros_like(p_c),
+            )
+            sp_r_one = torch.where(
+                same_ir_irr_i > 0.5,
+                limited_t(p_rr - p_r, p_rr - p_r),
+                torch.zeros_like(p_r),
+            )
+            su_c_one_l = torch.where(
+                same_il_i_i > 0.5,
+                limited_t(u_c - u_l, u_c - u_l),
+                torch.zeros_like(u_c),
+            )
+            su_r_one = torch.where(
+                same_ir_irr_i > 0.5,
+                limited_t(u_rr - u_r, u_rr - u_r),
+                torch.zeros_like(u_r),
+            )
+            if centered_interface:
+                p_ch_r = p_c + 0.5 * sp_c_center
+                p_rh = p_r - 0.5 * sp_r_center
+                u_ch_r = u_c + 0.5 * su_c_center
+                u_rh = u_r - 0.5 * su_r_center
+            else:
+                p_ch_r = torch.where(same_r_i > 0.5, p_c + 0.5 * sp_c_center, p_c + 0.5 * sp_c_one_l)
+                p_rh = torch.where(same_r_i > 0.5, p_r - 0.5 * sp_r_center, p_r - 0.5 * sp_r_one)
+                u_ch_r = torch.where(same_r_i > 0.5, u_c + 0.5 * su_c_center, u_c + 0.5 * su_c_one_l)
+                u_rh = torch.where(same_r_i > 0.5, u_r - 0.5 * su_r_center, u_r - 0.5 * su_r_one)
             p_fr_ho = (Z_r * p_ch_r + Z_c * p_rh + Z_c * Z_r * (u_ch_r - u_rh)) / den_r
             u_fr_ho = (p_ch_r - p_rh + Z_c * u_ch_r + Z_r * u_rh) / den_r
+            if waf_acoustic:
+                Z_face_r = torch.clamp(0.5 * (Z_c + Z_r), min=_EPS)
+                c_face_r = torch.clamp(0.5 * (c_c + c_r), min=_EPS)
+                nu_r = torch.clamp(c_face_r * (dt / dx), min=0.0, max=1.0)
+                shock_r = torch.clamp(torch.abs(p_rh - p_ch_r) / torch.clamp(Z_face_r * c_face_r, min=_EPS),
+                                      min=0.0, max=1.0)
+                if waf_sigma_mode in {"one_minus_nu", "1_minus_nu", "one_minus_cfl", "1_minus_cfl"}:
+                    sigma_r = 1.0 - nu_r
+                elif waf_sigma_mode in {"nu", "cfl"}:
+                    sigma_r = nu_r
+                else:
+                    sigma_r = (1.0 - shock_r) * (1.0 - nu_r) + shock_r * nu_r
+                p_fr_waf = p_fr_ho + 0.5 * sigma_r * Z_face_r * (u_rh - u_ch_r)
+                u_fr_waf = u_fr_ho + 0.5 * sigma_r * (p_rh - p_ch_r) / Z_face_r
+                p_fr_ho = torch.where(same_r_i > 0.5, p_fr_waf, p_fr_ho)
+                u_fr_ho = torch.where(same_r_i > 0.5, u_fr_waf, u_fr_ho)
             p_fr_raw = torch.where(ho_r_i > 0.5, p_fr_ho, p_fr_raw)
             u_fr_raw = torch.where(ho_r_i > 0.5, u_fr_ho, u_fr_raw)
             p_fl_b = torch.where(
@@ -1399,7 +2509,7 @@ def _solve_acoustic_ad(W_n, q1_new, q2_new, m_adv, alpha_new, dt,
                 p_r_eff = p_c
             else:
                 p_fr, u_fr = face_local(p_c, p_r, u_c, u_r, Z[i], Z[ir])
-                p_r_eff = p_r
+            p_r_eff = p_r
             dp_back = (p_c - p_l_eff) / dx
             dp_forw = (p_r_eff - p_c) / dx
             dp_dx = dp_back if u_mask[i] else dp_forw
@@ -1431,7 +2541,8 @@ def _solve_acoustic_energy_ad(W_n, q1_new, q2_new, m_adv, rhoE_adv,
                               u_inlet=None, p_inlet=None,
                               mixture_kind, alpha_pure_tol,
                               primitive_scheme='upwind',
-                              max_newton=4, full_newton=False):
+                              max_newton=4, full_newton=False,
+                              momentum_refresh=False):
     """Implicit acoustic solve with total energy as the pressure equation.
 
     This is not the old post-step pressure recovery.  Pressure participates in
@@ -1485,6 +2596,13 @@ def _solve_acoustic_energy_ad(W_n, q1_new, q2_new, m_adv, rhoE_adv,
                     break
                 p_i = p_next
             p_out[i] = p_i
+        if momentum_refresh:
+            p_f, _ = _acoustic_faces_np(
+                u_new, p_out, Z, bc_l, bc_r,
+                u_inlet=u_inlet, p_inlet=p_inlet)
+            u_new = (
+                m_adv - dt * (p_f[1:] - p_f[:-1]) / dx
+            ) / np.maximum(rho, _EPS)
         return u_new, p_out
 
     alpha, _, _, u0, p0 = W_n
@@ -1642,6 +2760,7 @@ def imex_ad_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
                  pressure_closure='regime_auto'):
     pressure_closure = _normalise_pressure_closure(pressure_closure)
     primitive_scheme = normalise_primitive_scheme(primitive_scheme)
+    energy_momentum_refresh = pressure_closure == 'implicit_energy_momentum'
     if pressure_closure == 'regime_auto':
         alpha_now = np.asarray(W_n[0], dtype=float)
         pure_tol_auto = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
@@ -1649,49 +2768,64 @@ def imex_ad_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
             float(np.min(alpha_now)) <= pure_tol_auto
             and float(np.max(alpha_now)) >= 1.0 - pure_tol_auto
         )
-        pressure_closure = (
-            'pressure_work_consistent'
-            if has_immiscible_interface
-            else 'implicit_energy'
-        )
+        if has_immiscible_interface:
+            if _pressure_jump_high_to_low_impedance(
+                    W_n, eos1, eos2, mixture_kind=mixture_kind,
+                    alpha_pure_tol=alpha_pure_tol):
+                pressure_closure = 'implicit_energy'
+                energy_momentum_refresh = True
+            else:
+                pressure_closure = 'pressure_work_consistent'
+        else:
+            pressure_closure = 'implicit_energy'
     pure_tol = max(float(alpha_pure_tol), 0.0)
     if pure_tol > 0.0 and float(np.max(W_n[0])) <= pure_tol:
         return _single_phase_euler_rusanov_step(
             W_n, dt, eos2, dx, bc_l, bc_r,
             u_inlet=u_inlet, p_inlet=p_inlet,
             primitive_scheme=primitive_scheme)
-    if pure_tol > 0.0 and float(np.min(W_n[0])) >= 1.0 - pure_tol:
+    use_single_phase_shortcut = os.environ.get(
+        "FIVE_EQ_IMEX_SINGLE_PHASE_SHORTCUT", "1"
+    ).strip().lower() not in {"0", "false", "off", "no"}
+    if (use_single_phase_shortcut and pure_tol > 0.0
+            and float(np.min(W_n[0])) >= 1.0 - pure_tol):
         return _single_phase_euler_rusanov_step(
             W_n, dt, eos1, dx, bc_l, bc_r,
             u_inlet=u_inlet, p_inlet=p_inlet,
             primitive_scheme=primitive_scheme)
-    if (_same_eos(eos1, eos2)
+    if (use_single_phase_shortcut
+            and _same_eos(eos1, eos2)
             and float(np.max(W_n[0]) - np.min(W_n[0])) <= 1.0e-14
             and float(np.max(np.abs(W_n[1] - W_n[2]))) <= 1.0e-12):
         return _single_phase_euler_rusanov_step(
             W_n, dt, eos1, dx, bc_l, bc_r,
             u_inlet=u_inlet, p_inlet=p_inlet,
             primitive_scheme=primitive_scheme)
-    # Use the face-path Kapila source by default.  It discretizes the
-    # non-conservative D_K div(u) term on the same acoustic face path as the
-    # material flux, avoiding a cell/face mismatch that appears as contact
-    # overshoot or post-contact checkerboard in stiff gas-liquid shocks.
-    kapila_source_mode = 'hybrid'
+    # Use a path-conservative Kapila source only for resolved homogeneous
+    # mixture stencils.  Pure-material and immiscible-interface stencils keep
+    # the original hybrid source so pure/immiscible shock timing is not shifted.
+    kapila_source_mode = 'mixed_path'
     source_override = os.environ.get("FIVE_EQ_IMEX_KAPILA_SOURCE_MODE")
     if source_override:
         source_key = source_override.strip().lower().replace("-", "_")
         if source_key in ('immiscible', 'interface_preserving'):
             source_key = 'immiscible_trapezoid'
+        if source_key in ('mixed', 'true_mixture', 'mixture_trapezoid'):
+            source_key = 'mixed_trapezoid'
+        if source_key in ('mixture_path', 'true_mixture_path'):
+            source_key = 'mixed_path'
         if source_key not in ('path', 'cell', 'hybrid', 'trapezoid',
-                              'immiscible_trapezoid'):
+                              'immiscible_trapezoid', 'mixed_trapezoid',
+                              'mixed_path'):
             raise ValueError(
                 "FIVE_EQ_IMEX_KAPILA_SOURCE_MODE must be one of "
-                "'path', 'cell', 'hybrid', 'trapezoid', or "
-                "'immiscible_trapezoid'.")
+                "'path', 'cell', 'hybrid', 'trapezoid', "
+                "'immiscible_trapezoid', 'mixed_trapezoid', or 'mixed_path'.")
         kapila_source_mode = source_key
     material_energy_form = 'apec' if pressure_closure == 'apec_pe' else 'allaire'
     need_aux = pressure_closure in (
         'implicit_energy',
+        'implicit_energy_momentum',
         'pressure_work_consistent',
         'apec_pe',
     )
@@ -1712,14 +2846,15 @@ def imex_ad_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         q1_new, q2_new, m_adv, rhoE_new, alpha_new = mat_result
         aux = {}
     alpha_new = np.clip(alpha_new, 1.0e-12, 1.0 - 1.0e-12)
-    if pressure_closure in ('implicit_energy', 'apec_pe'):
+    if pressure_closure in ('implicit_energy', 'implicit_energy_momentum', 'apec_pe'):
         u_new, p_new = _solve_acoustic_energy_ad(
             W_n, q1_new, q2_new, m_adv, aux["rhoE_adv"], alpha_new, dt,
             eos1, eos2, dx, bc_l, bc_r,
             u_inlet=u_inlet, p_inlet=p_inlet,
             mixture_kind=mixture_kind,
             alpha_pure_tol=alpha_pure_tol,
-            primitive_scheme=primitive_scheme)
+            primitive_scheme=primitive_scheme,
+            momentum_refresh=energy_momentum_refresh)
         _, _, Z = _phase_acoustic(
             W_n, eos1, eos2, mixture_kind=mixture_kind,
             alpha_pure_tol=alpha_pure_tol)
@@ -1753,6 +2888,21 @@ def imex_ad_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
                 u_inlet=u_inlet, p_inlet=p_inlet)
             rhoE_new = aux["rhoE_adv"] - dt * (
                 p_f[1:] * u_f[1:] - p_f[:-1] * u_f[:-1]) / dx
+            if _env_enabled("FIVE_EQ_IMEX_PW_PURE_SHOCK_RECOVERY", "1"):
+                # Use conservative pressure recovery only for compressive
+                # shocks inside a resolved pure material.  The material-contact
+                # cells keep the pressure-work-consistent update, which avoids
+                # the gas-liquid contact tail while still letting pure-material
+                # shocks satisfy the total-energy Hugoniot relation.
+                recovery_mask = _compressive_pressure_mask(W_n)
+                pure_tol = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
+                recovery_mask = recovery_mask & ~_pure_material_cell_mask(
+                    W_n[0], pure_tol)
+                if np.any(recovery_mask):
+                    p_recovered = _recover_pressure_from_total_energy(
+                        q1_new, q2_new, rhoE_new, alpha_new, u_new, p_new,
+                        eos1, eos2)
+                    p_new = np.where(recovery_mask, p_recovered, p_new)
         elif pressure_closure == 'dual_entropy':
             entropy_mask = _compressive_pressure_mask(W_n)
             p_entropy = _entropy_pressure_estimate(
@@ -1763,6 +2913,14 @@ def imex_ad_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         mixture_kind=mixture_kind,
         alpha_pure_tol=alpha_pure_tol,
         bc_l=bc_l, bc_r=bc_r)
+    if _primitive_lmp_enabled():
+        if _primitive_lmp_mode() in {"stencil", "local_stencil", "old"}:
+            u_new, p_new = _primitive_lmp_clip(W_n, u_new, p_new, bc_l, bc_r)
+        elif _primitive_lmp_mode() in {"global_p", "pressure_global", "p_global"}:
+            u_new, p_new = _primitive_global_pressure_clip(W_n, u_new, p_new)
+        else:
+            u_new, p_new = _primitive_led_filter(
+                u_new, p_new, bc_l, bc_r, mode=_primitive_lmp_mode())
     rho1_new = q1_new / np.maximum(alpha_new, 1.0e-12)
     rho2_new = q2_new / np.maximum(1.0 - alpha_new, 1.0e-12)
     e1_new = eos1.energy(rho1_new, p_new)

@@ -204,6 +204,7 @@ class TMLPU(Reconstruction):
     order: int = 1
     mlp_bound: bool = True   # False ⇒ pure TVD limiter (no LMP wrapper)
     extremum_relax: bool = False   # smooth-region LMP relaxation
+    vertex_mlp: bool = False    # PYG2010 vertex-projected polynomial bound
     name: str = 't_mlp_u'
 
     def __post_init__(self):
@@ -536,6 +537,75 @@ class TMLPU(Reconstruction):
                     0.5 * coef_per_face[:, 7] * δx * δy * δy +
                     coef_per_face[:, 8] * δy * δy * δy / 6.0)
 
+        # Helper — evaluate the LSQ polynomial of cell C at displacement
+        # vectors arranged as (N, V, 2), returning (N, V).
+        def _poly_at_cell_offsets(coeffs_v, offsets_NV2):
+            """coeffs_v: (N, nbasis), offsets: (N, V, 2). Returns (N, V)."""
+            δx = offsets_NV2[:, :, 0]
+            δy = offsets_NV2[:, :, 1]
+            if nbasis == 2:
+                return (coeffs_v[:, None, 0] * δx +
+                        coeffs_v[:, None, 1] * δy)
+            quad = (coeffs_v[:, None, 0] * δx +
+                    coeffs_v[:, None, 1] * δy +
+                    0.5 * coeffs_v[:, None, 2] * δx * δx +
+                    coeffs_v[:, None, 3] * δx * δy +
+                    0.5 * coeffs_v[:, None, 4] * δy * δy)
+            if nbasis == 5:
+                return quad
+            return (quad +
+                    coeffs_v[:, None, 5] * δx * δx * δx / 6.0 +
+                    0.5 * coeffs_v[:, None, 6] * δx * δx * δy +
+                    0.5 * coeffs_v[:, None, 7] * δx * δy * δy +
+                    coeffs_v[:, None, 8] * δy * δy * δy / 6.0)
+
+        # Vertex-MLP — Park-Yoon-Kim 2010 cell-wise ψ from LSQ polynomial
+        # values at each cell vertex.  Computed once per call (per variable).
+        psi_vertex_cell = None
+        if self.vertex_mlp and ctx['vertex_offsets'] is not None:
+            v2c_safe = ctx['v2c_safe']
+            v2c_valid = ctx['v2c_valid']
+            cell_node_safe = np.where(ctx['cell_node_valid'],
+                                      ctx['cell_node_arr'], 0)
+            cell_node_valid = ctx['cell_node_valid']
+            vertex_offsets = ctx['vertex_offsets']  # (N, V, 2)
+
+            psi_vertex_cell = np.ones((nvar, N), dtype=float)
+            for v in range(nvar):
+                # Per-vertex bounds: φ_min^v / φ_max^v over cells touching vertex.
+                W_at_vc = W_cell[v, v2c_safe]                  # (Nnodes, max_v2c)
+                W_masked = np.where(v2c_valid, W_at_vc, np.nan)
+                phi_min_v = np.nanmin(W_masked, axis=1)        # (Nnodes,)
+                phi_max_v = np.nanmax(W_masked, axis=1)
+                # Project poly to each vertex of each cell: (N, V).
+                proj = _poly_at_cell_offsets(coeffs[v], vertex_offsets)
+                # ψ that brings projection inside [φ_min^v - W_C, φ_max^v - W_C].
+                W_C = W_cell[v]                                 # (N,)
+                phi_min_at_node = phi_min_v[cell_node_safe]    # (N, V)
+                phi_max_at_node = phi_max_v[cell_node_safe]    # (N, V)
+                # Δ_proj = poly value relative to W_C; allowed range
+                # similarly relative to W_C.
+                allowed_max = phi_max_at_node - W_C[:, None]   # (N, V)
+                allowed_min = phi_min_at_node - W_C[:, None]
+                eps = 1e-30
+                # Each vertex contributes a ψ_v ∈ [0, 1] (cap at 1 so we
+                # never grow the slope; we only shrink).
+                psi_v_each = np.ones_like(proj)
+                # When proj > allowed_max + 0 we must shrink:
+                pos = proj > eps
+                neg = proj < -eps
+                psi_v_each = np.where(
+                    pos,
+                    np.minimum(1.0, allowed_max / np.maximum(proj, eps)),
+                    psi_v_each)
+                psi_v_each = np.where(
+                    neg,
+                    np.minimum(1.0, allowed_min / np.minimum(proj, -eps)),
+                    psi_v_each)
+                psi_v_each = np.where(cell_node_valid, psi_v_each, 1.0)
+                psi_v_each = np.clip(psi_v_each, 0.0, 1.0)
+                psi_vertex_cell[v] = np.min(psi_v_each, axis=1)
+
         # 3) Default first-order (overridden for interior below).
         W_L = np.empty((nvar, n_faces), dtype=float)
         W_R = np.empty((nvar, n_faces), dtype=float)
@@ -575,18 +645,26 @@ class TMLPU(Reconstruction):
             psi_tvd = np.where(np.abs(delta_plus) > _EPS, psi_tvd, 2.0)
 
             if self.mlp_bound:
-                phi_min = phi_min_cell[v, o_idx]
-                phi_max = phi_max_cell[v, o_idx]
-                safe_pos = np.where(delta >  _EPS,  delta,  _EPS)
-                safe_neg = np.where(delta < -_EPS,  delta, -_EPS)
-                psi_mlp_pos = (phi_max - phi_U) / safe_pos
-                psi_mlp_neg = (phi_min - phi_U) / safe_neg
-                psi_mlp = np.where(delta >  _EPS, psi_mlp_pos,
-                          np.where(delta < -_EPS, psi_mlp_neg,
-                                   np.full_like(delta, 2.0)))
-                psi_lmp = np.maximum(0.0,
-                                     np.minimum(2.0,
-                                                np.minimum(psi_tvd, psi_mlp)))
+                if psi_vertex_cell is not None:
+                    # PYG2010 vertex-MLP path — ψ already constrains the
+                    # whole polynomial at vertices.  Combine with TVD ψ.
+                    psi_v_o = psi_vertex_cell[v, o_idx]
+                    psi_lmp = np.maximum(0.0,
+                                         np.minimum(2.0,
+                                                    np.minimum(psi_tvd, psi_v_o)))
+                else:
+                    phi_min = phi_min_cell[v, o_idx]
+                    phi_max = phi_max_cell[v, o_idx]
+                    safe_pos = np.where(delta >  _EPS,  delta,  _EPS)
+                    safe_neg = np.where(delta < -_EPS,  delta, -_EPS)
+                    psi_mlp_pos = (phi_max - phi_U) / safe_pos
+                    psi_mlp_neg = (phi_min - phi_U) / safe_neg
+                    psi_mlp = np.where(delta >  _EPS, psi_mlp_pos,
+                              np.where(delta < -_EPS, psi_mlp_neg,
+                                       np.full_like(delta, 2.0)))
+                    psi_lmp = np.maximum(0.0,
+                                         np.minimum(2.0,
+                                                    np.minimum(psi_tvd, psi_mlp)))
                 if self.extremum_relax:
                     psi_tvd_only = np.maximum(0.0, np.minimum(2.0, psi_tvd))
                     psi_final = np.where(is_smooth_cell[v, o_idx],
@@ -616,18 +694,24 @@ class TMLPU(Reconstruction):
             psi_tvd = np.where(np.abs(delta_plus) > _EPS, psi_tvd, 2.0)
 
             if self.mlp_bound:
-                phi_min = phi_min_cell[v, n_idx]
-                phi_max = phi_max_cell[v, n_idx]
-                safe_pos = np.where(delta >  _EPS,  delta,  _EPS)
-                safe_neg = np.where(delta < -_EPS,  delta, -_EPS)
-                psi_mlp_pos = (phi_max - phi_U) / safe_pos
-                psi_mlp_neg = (phi_min - phi_U) / safe_neg
-                psi_mlp = np.where(delta >  _EPS, psi_mlp_pos,
-                          np.where(delta < -_EPS, psi_mlp_neg,
-                                   np.full_like(delta, 2.0)))
-                psi_lmp = np.maximum(0.0,
-                                     np.minimum(2.0,
-                                                np.minimum(psi_tvd, psi_mlp)))
+                if psi_vertex_cell is not None:
+                    psi_v_n = psi_vertex_cell[v, n_idx]
+                    psi_lmp = np.maximum(0.0,
+                                         np.minimum(2.0,
+                                                    np.minimum(psi_tvd, psi_v_n)))
+                else:
+                    phi_min = phi_min_cell[v, n_idx]
+                    phi_max = phi_max_cell[v, n_idx]
+                    safe_pos = np.where(delta >  _EPS,  delta,  _EPS)
+                    safe_neg = np.where(delta < -_EPS,  delta, -_EPS)
+                    psi_mlp_pos = (phi_max - phi_U) / safe_pos
+                    psi_mlp_neg = (phi_min - phi_U) / safe_neg
+                    psi_mlp = np.where(delta >  _EPS, psi_mlp_pos,
+                              np.where(delta < -_EPS, psi_mlp_neg,
+                                       np.full_like(delta, 2.0)))
+                    psi_lmp = np.maximum(0.0,
+                                         np.minimum(2.0,
+                                                    np.minimum(psi_tvd, psi_mlp)))
                 if self.extremum_relax:
                     psi_tvd_only = np.maximum(0.0, np.minimum(2.0, psi_tvd))
                     psi_final = np.where(is_smooth_cell[v, n_idx],
@@ -772,6 +856,39 @@ class TMLPU(Reconstruction):
             dx_fo = np.zeros((0, 2), dtype=float)
             dx_fn = np.zeros((0, 2), dtype=float)
 
+        # ---- 5) Vertex-MLP supporting structures ------------------------
+        # Used only when self.vertex_mlp is True; cheap to build always.
+        cn = getattr(mesh, 'cell_nodes', None)
+        if cn:
+            n_v_per_cell = max(len(c) for c in cn)
+            cell_node_arr = np.full((N, n_v_per_cell), -1, dtype=int)
+            for c, vs in enumerate(cn):
+                cell_node_arr[c, :len(vs)] = vs
+            cell_node_valid = cell_node_arr >= 0
+            cell_node_safe = np.where(cell_node_valid, cell_node_arr, 0)
+            # Vertex coordinates (broadcast vs cell centre).
+            vertex_xy = mesh.nodes[cell_node_safe]            # (N, V, 2)
+            vertex_offsets = vertex_xy - mesh.cell_centers[:, None, :]
+            vertex_offsets = vertex_offsets * cell_node_valid[:, :, None]
+            # Inverse map vertex → cells.
+            n_nodes = mesh.nodes.shape[0]
+            v2c_lists = [[] for _ in range(n_nodes)]
+            for c, vs in enumerate(cn):
+                for v in vs:
+                    v2c_lists[int(v)].append(c)
+            v2c_max = max(len(L) for L in v2c_lists) if v2c_lists else 1
+            v2c_max = max(v2c_max, 1)
+            v2c_padded = np.full((n_nodes, v2c_max), -1, dtype=int)
+            for vi, cs in enumerate(v2c_lists):
+                v2c_padded[vi, :len(cs)] = cs
+            v2c_valid = v2c_padded >= 0
+            v2c_safe = np.where(v2c_valid, v2c_padded, 0)
+        else:
+            cell_node_arr = None
+            cell_node_valid = None
+            vertex_offsets = None
+            v2c_padded = v2c_safe = v2c_valid = None
+
         ctx = dict(
             nb_padded=nb_padded, nb_safe=nb_safe, valid_nb=valid_nb,
             A=A, ATA_inv=ATA_inv, nbasis=nbasis,
@@ -779,6 +896,10 @@ class TMLPU(Reconstruction):
             UU_o_int=UU_o_int, UU_n_int=UU_n_int,
             dx_fo=dx_fo, dx_fn=dx_fn,
             order=self.order, stencil=self.stencil,
+            cell_node_arr=cell_node_arr,
+            cell_node_valid=cell_node_valid,
+            vertex_offsets=vertex_offsets,
+            v2c_safe=v2c_safe, v2c_valid=v2c_valid,
         )
         setattr(mesh, cache_key, ctx)
         return ctx

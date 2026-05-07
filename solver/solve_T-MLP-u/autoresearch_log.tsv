@@ -1,0 +1,2 @@
+iter	change	metric	delta	verdict	notes
+0	baseline	0.06570	0	keep	N=25, T-MLP-u+downwind, vertex-stencil, k=2 LSQ, SSP-RK3, 2-pt GQ

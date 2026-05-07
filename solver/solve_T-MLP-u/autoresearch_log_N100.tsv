@@ -1,0 +1,3 @@
+iter	change	metric	delta	verdict	notes
+0	N=100 baseline (carry-over from N=50: TVB M=16, IDW p=6)	0.02835	0	keep	Case A=0.02835, Case B=0.04881, Case C=0.06797 (oscillating)
+1	TVB M=16 -> M=32	0.02819	-0.56%	keep	cone peak 0.9686 -> 0.9723 sharper

@@ -809,8 +809,9 @@ class TMLPU(Reconstruction):
             nbasis = 9
         A = A * valid_nb[:, :, None]
         # Inverse-distance LSQ weighting — emphasises closer cells.
+        # weight = 1/d^4  (more aggressive than 1/d^2)
         dist_sq = dx * dx + dy * dy + 1e-30
-        sqrt_w = (1.0 / dist_sq) ** 0.5 * valid_nb              # (N, max_nb)
+        sqrt_w = (1.0 / dist_sq) ** 1.0 * valid_nb              # √(1/d^4) = 1/d^2
         A = A * sqrt_w[:, :, None]                              # A → √W · A
         ATA = np.einsum('cki,ckj->cij', A, A)                  # (N, nbasis, nbasis)
 

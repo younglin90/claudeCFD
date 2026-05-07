@@ -16,7 +16,7 @@ type: five_equation_1d_periodic_smooth_advection
 - x_min: 0.0 m
 - x_max: 1.0 m
 - length: 1.0 m
-- N: 190
+- N: 550
 
 ## 초기조건
 - pressure : 1.0E+5 Pa
@@ -40,10 +40,10 @@ type: five_equation_1d_periodic_smooth_advection
 
 ## 결과
 - t_end : 0.1 sec.
-- dt_fixed : 0.0005 sec.
-- steps : 200
-- material CFL : u0*dt/dx = 0.95
-- 주의: 이 온도차 검증 suite는 `dt = dx/u0`로 자동 선택해 Co=1이 되게 하면 안 된다. `dt=0.01`은 01/02 pressure-equilibrium advection 검증에서 사용한 값이며, 본 17_T 검증의 기본 시간 간격은 위의 `dt_fixed=0.0005`이다.
+- dt_fixed : 0.0001 sec.
+- steps : 1000
+- material CFL : u0*dt/dx = 0.55
+- 주의: 이 온도차 검증 suite는 `dt = dx/u0`로 자동 선택해 Co=1이 되게 하면 안 된다. `dt=0.01`은 01/02 pressure-equilibrium advection 검증에서 사용한 값이며, 본 17_T 검증의 기본 시간 간격은 위의 `dt_fixed=0.0001`이다.
 - 정확 해
     alpha_liquid(x,t) = alpha_liquid(x-u_0 * t, 0)
     T_liquid(x,t) = T_liquid(x-u_0 * t, 0)
@@ -57,7 +57,7 @@ type: five_equation_1d_periodic_smooth_advection
 - alpha에는 sharp interface 계열 flux를 사용하고, alpha를 제외한 primitive에는 동일 high-order TVD reconstruction을 사용한다.
 
 ## PASS 기준
-- 200 step 완주: N = 190, dt_fixed = 0.0005 s, t_end = 0.1 s, Co = 0.95
+- 1000 step 완주: N = 550, dt_fixed = 0.0001 s, t_end = 0.1 s, Co = 0.55
 - Co=1 exact-remap 또는 `dt = dx/u0` 자동 설정을 사용하지 않는다.
 - max |(p - p_exact) / p_0| < 1.0E-8
 - max |u - u_exact| < 1.0E-8 m/s

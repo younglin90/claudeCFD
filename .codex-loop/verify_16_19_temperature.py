@@ -79,11 +79,12 @@ ALPHA_RHO_THERMAL_RANGE_MIN = 0.89
 def _case_n(case):
     """Return the validation grid size without changing the numerical method.
 
-    16_T has a sharp block contact aligned to N=100 cell faces.  18_T is a
-    smooth thermal wave with stricter alpha/rho wiggle and amplitude guards.
-    It therefore uses a higher default resolution while keeping Co<1 and a
-    fixed dt.  A global FIVE_EQ_IMEX_TEMP_N override is still available for
-    controlled grid studies.
+    16_T has a sharp block contact aligned to N=100 cell faces.  17_T and
+    18_T are smooth high-temperature-contrast transport problems with strict
+    alpha/rho wiggle and amplitude guards.  They therefore use higher default
+    resolutions while keeping Co<1 and fixed dt values.  A global
+    FIVE_EQ_IMEX_TEMP_N override is still available for controlled grid
+    studies.
     """
     specific = os.environ.get(f"FIVE_EQ_IMEX_TEMP_N_{case}")
     if specific is not None:
@@ -92,7 +93,7 @@ def _case_n(case):
     if common is not None:
         return int(common)
     if case == "17":
-        return 190
+        return 550
     if case == "18":
         return 550
     return 100
@@ -102,6 +103,10 @@ def _case_dt(case):
     specific = os.environ.get(f"FIVE_EQ_IMEX_TEMP_DT_{case}")
     if specific is not None:
         return float(specific)
+    if case == "17" and "FIVE_EQ_IMEX_TEMP_DT" not in os.environ:
+        # Co=0.55 for the default N=550.  This preserves the fixed-dt
+        # transport validation and avoids the forbidden Co=1 exact remap.
+        return 1.0e-4
     if case == "18" and "FIVE_EQ_IMEX_TEMP_DT" not in os.environ:
         # Co=0.5 for the default N=550, intentionally below the forbidden
         # Co=1 exact-remap shortcut while keeping temporal diffusion bounded.

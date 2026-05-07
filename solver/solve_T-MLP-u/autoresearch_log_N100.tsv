@@ -3,3 +3,4 @@ iter	change	metric	delta	verdict	notes
 1	TVB M=16 -> M=32	0.02819	-0.56%	keep	cone peak 0.9686 -> 0.9723 sharper
 2	TVB M=32 -> M=64	0.02809	-0.36%	keep	cone peak 0.972 -> 0.975, undershoot -0.0005 -> -0.0016
 3	TVB M=64 -> M=128	0.02813	+0.14%	revert	M=64 sweet spot at N=100. Peak 0.975 -> 0.980 sharper, but cone L1 regressed.
+4	IDW p=6 -> p=8	0.02859	+1.78%	revert	p=6 sweet spot. Slot regressed (0.157 -> 0.160). Note Case B also changed (0.04881 -> 0.04912) because LSQ weighting affects both.

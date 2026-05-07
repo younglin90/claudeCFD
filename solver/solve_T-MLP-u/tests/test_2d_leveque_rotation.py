@@ -126,10 +126,10 @@ def _l1(field_num, field_exact, V, mask=None):
 
 
 def main():
-    # N=50 criss-cross gives 4·N² = 10 000 triangles.  At ~3 RHS
-    # evaluations/step (RK3) × ~3000 steps × 3 cases the full sweep is
-    # roughly 5–7 min wall-time on this machine.
-    N = 50
+    # N=100 criss-cross gives 4·N² = 40 000 triangles.  Wall time per
+    # full sweep ~25–35 min; carry-over of the N=50 best config is the
+    # baseline starting point.
+    N = 100
     mesh = criss_cross_box(N, L=1.0)
     print(f"criss-cross mesh: N={N}, n_cells={mesh.n_cells}, "
           f"n_faces={mesh.n_faces}, area={float(np.sum(mesh.cell_volumes)):.6f}")

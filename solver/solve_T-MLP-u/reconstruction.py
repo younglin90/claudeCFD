@@ -524,7 +524,7 @@ class TMLPU(Reconstruction):
                 num = np.sqrt(np.sum(resid * resid, axis=1))
                 den = np.sqrt(np.sum(delta_W * delta_W, axis=1))
                 smoothness = num / np.maximum(den, 1e-30)
-                is_smooth_cell[v] = smoothness < 0.07
+                is_smooth_cell[v] = smoothness < 0.1
 
         # Helper — evaluate the LSQ polynomial at a face displacement vector.
         def _poly_at(coef_per_face, dxs):

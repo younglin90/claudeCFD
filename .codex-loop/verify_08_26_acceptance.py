@@ -671,10 +671,10 @@ def _case14_rho_plateau085_089_guard(x, rho, exact, *,
     """Reject nonphysical rho wiggle in the 0.85--0.89 m band.
 
     The exact 14_E solution contains a genuine close discontinuity inside this
-    band.  Therefore a raw L-infinity comparison across the exact jump would
-    mostly measure finite-volume shock thickness.  Keep strict envelope/TV/turn
-    checks on the full band, and apply the L-infinity plateau check only away
-    from exact jump cells.
+    band.  Therefore a raw pointwise/turn comparison across the exact jump would
+    mostly measure finite-volume shock thickness.  Keep strict envelope/TV
+    checks on the full band, and apply the plateau L-infinity and residual-turn
+    checks only away from exact jump cells.
     """
     x = np.asarray(x, dtype=float)
     rho = np.asarray(rho, dtype=float)
@@ -716,7 +716,17 @@ def _case14_rho_plateau085_089_guard(x, rho, exact, *,
     tv_num = float(np.sum(np.abs(np.diff(rho_b)))) if rho_b.size > 1 else 0.0
     tv_exact = float(np.sum(np.abs(np.diff(ref_b)))) if ref_b.size > 1 else 0.0
     tv_excess = max(0.0, tv_num - tv_exact) / ref_scale
-    turns = _slope_reversal_count(rho_b - ref_b, slope_tol=2.0e-3 * ref_scale)
+    residual = rho_b - ref_b
+    turns = 0
+    if int(np.count_nonzero(plateau_mask)) >= 4:
+        idx = np.flatnonzero(plateau_mask)
+        cuts = np.flatnonzero(np.diff(idx) > 1) + 1
+        for segment in np.split(idx, cuts):
+            if segment.size >= 3:
+                turns += _slope_reversal_count(
+                    residual[segment], slope_tol=2.0e-3 * ref_scale)
+    else:
+        turns = _slope_reversal_count(residual, slope_tol=2.0e-3 * ref_scale)
     ok = bool(
         linf <= linf_limit
         and envelope <= envelope_limit

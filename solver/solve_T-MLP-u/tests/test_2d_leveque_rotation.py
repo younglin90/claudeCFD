@@ -77,7 +77,7 @@ def phi0(x, y):
 
 # ─── Run helper ────────────────────────────────────────────────────────────
 def _run(mesh, recon, *, t_end, cfl=0.4, integrator='ssp_rk2',
-         n_face_quad=1, label=''):
+         flux='upwind', n_face_quad=1, label=''):
     eq = Advection(velocity=lambda x, y: (-2 * np.pi * (y - 0.5),
                                           2 * np.pi * (x - 0.5)))
     x = mesh.cell_centers[:, 0]
@@ -87,15 +87,21 @@ def _run(mesh, recon, *, t_end, cfl=0.4, integrator='ssp_rk2',
           for p in mesh.bc_patches}
 
     t0 = time.time()
-    res = solve(mesh, eq, U0,
-                reconstruction=recon, flux='upwind',
-                integrator=integrator, bc=bc,
-                cfl=cfl, n_face_quad=n_face_quad,
-                t_end=t_end, max_steps=30_000)
-    wall = time.time() - t0
-    print(f"  [{label}]  n={res['n_steps']:5d}  t={res['t']:.4f}/{t_end:.4f}  "
-          f"wall={wall:.1f} s")
-    return res['U_final'][0]
+    try:
+        res = solve(mesh, eq, U0,
+                    reconstruction=recon, flux=flux,
+                    integrator=integrator, bc=bc,
+                    cfl=cfl, n_face_quad=n_face_quad,
+                    t_end=t_end, max_steps=50_000)
+        wall = time.time() - t0
+        out = res['U_final'][0]
+        print(f"  [{label}]  n={res['n_steps']:5d}  t={res['t']:.4f}/{t_end:.4f}  "
+              f"wall={wall:.1f} s")
+    except FloatingPointError as e:
+        wall = time.time() - t0
+        print(f"  [{label}]  DIVERGED ({e})  wall={wall:.1f} s")
+        out = np.zeros_like(phi0(x, y))
+    return out
 
 
 # ─── Per-shape error diagnostics ──────────────────────────────────────────
@@ -120,10 +126,10 @@ def _l1(field_num, field_exact, V, mask=None):
 
 
 def main():
-    # N reduced from 100 → 25 for fast iteration; criss-cross gives
-    # 4·N² = 2500 triangles which finishes both cases under ~2 min on
-    # the SSP-RK3 + 2-pt Gauss + k=2 high-order path.
-    N = 25
+    # N=50 criss-cross gives 4·N² = 10 000 triangles.  At ~3 RHS
+    # evaluations/step (RK3) × ~3000 steps × 3 cases the full sweep is
+    # roughly 5–7 min wall-time on this machine.
+    N = 50
     mesh = criss_cross_box(N, L=1.0)
     print(f"criss-cross mesh: N={N}, n_cells={mesh.n_cells}, "
           f"n_faces={mesh.n_faces}, area={float(np.sum(mesh.cell_volumes)):.6f}")
@@ -167,40 +173,61 @@ def main():
                   t_end=1.0, integrator='ssp_rk3', n_face_quad=2,
                   label='B: plain van Leer       (vertex, k=2, RK3, 2-pt GQ)')
 
+    # -- Case C: textbook central scheme --------------------------------
+    # 1st-order reconstruction (W_L = W_owner, W_R = W_neighbour) +
+    # central flux F = ½(F_L + F_R) — no upwinding, no limiter.  Pure
+    # central differencing; well-known to oscillate on advection
+    # without artificial dissipation.  Provided as an absolute reference.
+    case_C = _run(mesh,
+                  'first_order',
+                  t_end=1.0, integrator='ssp_rk3',
+                  flux='central', n_face_quad=1,
+                  label='C: 1st-order recon + central flux  (RK3, 1-pt midpoint)')
+
     # ── Quantitative metrics ─────────────────────────────────────────────
     masks = _shape_masks(x, y)
     print("\n  ──── L1 error vs analytic (= initial) per shape ────")
-    print("  shape       Case A (T-MLP-u+downwind)  Case B (plain van Leer)   B/A")
+    print("  shape       Case A (T-MLP-u+DW)   Case B (van Leer)   "
+          "Case C (central)   B/A    C/A")
     rows = []
     for name in ('slot', 'cone', 'hump'):
         eA = _l1(case_A, U0_field, V, masks[name])
         eB = _l1(case_B, U0_field, V, masks[name])
-        ratio = eB / max(eA, 1e-30)
-        rows.append((name, eA, eB, ratio))
-        print(f"  {name:8s}    {eA:.5f}            {eB:.5f}                     {ratio:.2f}")
+        eC = _l1(case_C, U0_field, V, masks[name])
+        rA = eB / max(eA, 1e-30); rC = eC / max(eA, 1e-30)
+        rows.append((name, eA, eB, eC, rA, rC))
+        print(f"  {name:8s}    {eA:.5f}             {eB:.5f}             "
+              f"{eC:.5f}            {rA:.2f}   {rC:.2f}")
     eA_total = _l1(case_A, U0_field, V)
     eB_total = _l1(case_B, U0_field, V)
-    print(f"  {'TOTAL':8s}    {eA_total:.5f}            {eB_total:.5f}                     "
-          f"{eB_total/max(eA_total,1e-30):.2f}")
-    rows.append(('TOTAL', eA_total, eB_total, eB_total / max(eA_total, 1e-30)))
+    eC_total = _l1(case_C, U0_field, V)
+    rB_t = eB_total / max(eA_total, 1e-30)
+    rC_t = eC_total / max(eA_total, 1e-30)
+    print(f"  {'TOTAL':8s}    {eA_total:.5f}             {eB_total:.5f}             "
+          f"{eC_total:.5f}            {rB_t:.2f}   {rC_t:.2f}")
+    rows.append(('TOTAL', eA_total, eB_total, eC_total, rB_t, rC_t))
 
     over_A = float(np.max(case_A) - init_max);  under_A = float(init_min - np.min(case_A))
     over_B = float(np.max(case_B) - init_max);  under_B = float(init_min - np.min(case_B))
+    over_C = float(np.max(case_C) - init_max);  under_C = float(init_min - np.min(case_C))
     drift_A = abs(np.sum(case_A * V) - np.sum(U0_field * V)) / np.sum(U0_field * V)
     drift_B = abs(np.sum(case_B * V) - np.sum(U0_field * V)) / np.sum(U0_field * V)
+    drift_C = abs(np.sum(case_C * V) - np.sum(U0_field * V)) / np.sum(U0_field * V)
     print()
     print(f"  range  : Case A φ ∈ [{np.min(case_A):.4f}, {np.max(case_A):.4f}]  "
           f"(over={over_A:+.3e}, under={under_A:+.3e})")
     print(f"  range  : Case B φ ∈ [{np.min(case_B):.4f}, {np.max(case_B):.4f}]  "
           f"(over={over_B:+.3e}, under={under_B:+.3e})")
-    print(f"  ∫φ drift A = {drift_A:.2e},  B = {drift_B:.2e}")
+    print(f"  range  : Case C φ ∈ [{np.min(case_C):.4f}, {np.max(case_C):.4f}]  "
+          f"(over={over_C:+.3e}, under={under_C:+.3e})")
+    print(f"  ∫φ drift A = {drift_A:.2e},  B = {drift_B:.2e},  C = {drift_C:.2e}")
 
     # ── Plots ───────────────────────────────────────────────────────────
     triang = mtri.Triangulation(mesh.nodes[:, 0], mesh.nodes[:, 1],
                                 triangles=np.array(mesh.cell_nodes))
 
-    fig = plt.figure(figsize=(15, 9))
-    gs = fig.add_gridspec(3, 4, height_ratios=[1.2, 1.2, 0.9],
+    fig = plt.figure(figsize=(18, 10))
+    gs = fig.add_gridspec(3, 5, height_ratios=[1.2, 1.2, 0.9],
                           hspace=0.40, wspace=0.30)
 
     def panel(ax, field, title, vmin=None, vmax=None, cmap='viridis'):
@@ -213,12 +240,15 @@ def main():
     ax = fig.add_subplot(gs[0, 0]); panel(ax, U0_field,    'initial φ₀',
                                           vmin=0, vmax=1)
     ax = fig.add_subplot(gs[0, 1]); panel(ax, case_A,
-                                          'Case A: T-MLP-u + downwind\n(vertex, k=2, RK3, 2-pt GQ)',
+                                          'Case A: T-MLP-u + downwind\n(vertex2, k=3, RK3, 2-pt GQ)',
                                           vmin=0, vmax=1)
     ax = fig.add_subplot(gs[0, 2]); panel(ax, case_B,
-                                          'Case B: plain van Leer\n(vertex, k=2, RK3, 2-pt GQ)',
+                                          'Case B: plain van Leer\n(vertex2, k=3, RK3, 2-pt GQ)',
                                           vmin=0, vmax=1)
-    ax = fig.add_subplot(gs[0, 3]); panel(ax, case_B - case_A,
+    ax = fig.add_subplot(gs[0, 3]); panel(ax, case_C,
+                                          'Case C: 1st-order + central flux\n(no upwind, no limiter)',
+                                          vmin=-0.5, vmax=1.5, cmap='RdBu_r')
+    ax = fig.add_subplot(gs[0, 4]); panel(ax, case_B - case_A,
                                           'B − A',
                                           vmin=-0.5, vmax=0.5, cmap='RdBu_r')
 
@@ -227,20 +257,22 @@ def main():
     panel(ax, case_A - U0_field, 'A − exact', vmin=-0.5, vmax=0.5, cmap='RdBu_r')
     ax = fig.add_subplot(gs[1, 2])
     panel(ax, case_B - U0_field, 'B − exact', vmin=-0.5, vmax=0.5, cmap='RdBu_r')
+    ax = fig.add_subplot(gs[1, 3])
+    panel(ax, case_C - U0_field, 'C − exact', vmin=-0.5, vmax=0.5, cmap='RdBu_r')
 
     # Bar chart of L1 errors per shape
     ax = fig.add_subplot(gs[1, 0])
     shapes = [r[0] for r in rows[:-1]]
     eA_arr = [r[1] for r in rows[:-1]]
     eB_arr = [r[2] for r in rows[:-1]]
+    eC_arr = [r[3] for r in rows[:-1]]
     xpos = np.arange(len(shapes))
-    ax.bar(xpos - 0.18, eA_arr, 0.36, label='A: T-MLP-u+downwind',
-           color='tab:blue')
-    ax.bar(xpos + 0.18, eB_arr, 0.36, label='B: plain van Leer',
-           color='tab:orange')
+    ax.bar(xpos - 0.27, eA_arr, 0.27, label='A: T-MLP-u+DW',  color='tab:blue')
+    ax.bar(xpos + 0.00, eB_arr, 0.27, label='B: van Leer',     color='tab:orange')
+    ax.bar(xpos + 0.27, eC_arr, 0.27, label='C: central',      color='tab:red')
     ax.set_xticks(xpos);  ax.set_xticklabels(shapes)
     ax.set_ylabel('L1 error');  ax.set_title('L1 error per shape', fontsize=10)
-    ax.legend(fontsize=8);  ax.grid(alpha=0.3)
+    ax.legend(fontsize=7);  ax.grid(alpha=0.3)
 
     # 1D slices through each shape
     # Slot at x = 0.5  → vs y
@@ -258,18 +290,20 @@ def main():
     if np.any(strip_x):
         order = np.argsort(y[strip_x])
         ys = y[strip_x][order]
-        ax_slot.plot(ys, U0_field[strip_x][order], 'k-', lw=1.6, label='exact')
-        ax_slot.plot(ys, case_A   [strip_x][order], 'b-', lw=1.0, label='A: T-MLP-u+DW')
-        ax_slot.plot(ys, case_B   [strip_x][order], 'r-', lw=1.0, label='B: van Leer')
+        ax_slot.plot(ys, U0_field[strip_x][order], 'k-',  lw=1.6, label='exact')
+        ax_slot.plot(ys, case_A   [strip_x][order], 'b-',  lw=1.0, label='A: T-MLP-u+DW')
+        ax_slot.plot(ys, case_B   [strip_x][order], 'r-',  lw=1.0, label='B: van Leer')
+        ax_slot.plot(ys, case_C   [strip_x][order], 'g--', lw=0.8, alpha=0.6, label='C: central')
         ax_slot.set_xlim(0.55, 0.95);  ax_slot.set_ylim(-0.1, 1.2)
         ax_slot.set_title('slotted cylinder slice (x ≈ ½)', fontsize=10)
         ax_slot.set_xlabel('y');  ax_slot.legend(fontsize=8)
         ax_slot.grid(alpha=0.3)
 
         order = np.argsort(y[strip_x])
-        ax_cone.plot(ys, U0_field[strip_x][order], 'k-', lw=1.6, label='exact')
-        ax_cone.plot(ys, case_A   [strip_x][order], 'b-', lw=1.0, label='A: T-MLP-u+DW')
-        ax_cone.plot(ys, case_B   [strip_x][order], 'r-', lw=1.0, label='B: van Leer')
+        ax_cone.plot(ys, U0_field[strip_x][order], 'k-',  lw=1.6, label='exact')
+        ax_cone.plot(ys, case_A   [strip_x][order], 'b-',  lw=1.0, label='A: T-MLP-u+DW')
+        ax_cone.plot(ys, case_B   [strip_x][order], 'r-',  lw=1.0, label='B: van Leer')
+        ax_cone.plot(ys, case_C   [strip_x][order], 'g--', lw=0.8, alpha=0.6, label='C: central')
         ax_cone.set_xlim(0.05, 0.45);  ax_cone.set_ylim(-0.1, 1.2)
         ax_cone.set_title('cone slice (x ≈ ½)', fontsize=10)
         ax_cone.set_xlabel('y');  ax_cone.legend(fontsize=8)
@@ -278,31 +312,33 @@ def main():
     if np.any(strip_y):
         order = np.argsort(x[strip_y])
         xs = x[strip_y][order]
-        ax_hump.plot(xs, U0_field[strip_y][order], 'k-', lw=1.6, label='exact')
-        ax_hump.plot(xs, case_A   [strip_y][order], 'b-', lw=1.0, label='A: T-MLP-u+DW')
-        ax_hump.plot(xs, case_B   [strip_y][order], 'r-', lw=1.0, label='B: van Leer')
+        ax_hump.plot(xs, U0_field[strip_y][order], 'k-',  lw=1.6, label='exact')
+        ax_hump.plot(xs, case_A   [strip_y][order], 'b-',  lw=1.0, label='A: T-MLP-u+DW')
+        ax_hump.plot(xs, case_B   [strip_y][order], 'r-',  lw=1.0, label='B: van Leer')
+        ax_hump.plot(xs, case_C   [strip_y][order], 'g--', lw=0.8, alpha=0.6, label='C: central')
         ax_hump.set_xlim(0.05, 0.45);  ax_hump.set_ylim(-0.05, 0.6)
         ax_hump.set_title('cosine-bell slice (y ≈ ½)', fontsize=10)
         ax_hump.set_xlabel('x');  ax_hump.legend(fontsize=8)
         ax_hump.grid(alpha=0.3)
 
     # Caption / summary
-    ax_caption = fig.add_subplot(gs[2, 3]);  ax_caption.axis('off')
+    ax_caption = fig.add_subplot(gs[2, 3:]);  ax_caption.axis('off')
     txt = (f"N = {N}, mesh = {mesh.n_cells} triangles\n"
-           f"flux = upwind, time = SSP-RK2, CFL = 0.4\n\n"
-           f"L1 (slot)  A→{rows[0][1]:.4f}, B→{rows[0][2]:.4f}\n"
-           f"L1 (cone)  A→{rows[1][1]:.4f}, B→{rows[1][2]:.4f}\n"
-           f"L1 (hump)  A→{rows[2][1]:.4f}, B→{rows[2][2]:.4f}\n"
-           f"L1 (total) A→{rows[3][1]:.4f}, B→{rows[3][2]:.4f}\n\n"
+           f"A,B: SSP-RK3, 2-pt GQ, k=3 cubic, vertex2 stencil\n"
+           f"C: SSP-RK3, 1-pt midpoint, 1st-order recon, central flux\n\n"
+           f"L1 (slot)  A→{rows[0][1]:.4f}, B→{rows[0][2]:.4f}, C→{rows[0][3]:.4f}\n"
+           f"L1 (cone)  A→{rows[1][1]:.4f}, B→{rows[1][2]:.4f}, C→{rows[1][3]:.4f}\n"
+           f"L1 (hump)  A→{rows[2][1]:.4f}, B→{rows[2][2]:.4f}, C→{rows[2][3]:.4f}\n"
+           f"L1 (total) A→{rows[3][1]:.4f}, B→{rows[3][2]:.4f}, C→{rows[3][3]:.4f}\n\n"
            f"Case A range: [{np.min(case_A):.3f}, {np.max(case_A):.3f}]\n"
            f"Case B range: [{np.min(case_B):.3f}, {np.max(case_B):.3f}]\n"
-           f"∫φ drift  A {drift_A:.2e}, B {drift_B:.2e}")
+           f"Case C range: [{np.min(case_C):.3f}, {np.max(case_C):.3f}]\n"
+           f"∫φ drift  A {drift_A:.1e}, B {drift_B:.1e}, C {drift_C:.1e}")
     ax_caption.text(0.0, 0.95, txt, fontsize=9, family='monospace', va='top')
 
     fig.suptitle("LeVeque rigid-rotation benchmark — "
-                 "T-MLP-u+downwind  vs  plain van Leer  "
-                 "(both: vertex stencil, k=2, SSP-RK3, 2-pt Gauss face quadrature)",
-                 fontsize=10)
+                 "A: T-MLP-u+downwind   B: plain van Leer   C: 1st-order + central flux",
+                 fontsize=11)
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output')
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, '2d_leveque_rotation.png')

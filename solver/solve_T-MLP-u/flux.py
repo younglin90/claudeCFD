@@ -31,6 +31,24 @@ def upwind_advection(eq, W_L, W_R, normal, points=None):
     return np.where(upwind_left, a_dot_n * U_L, a_dot_n * U_R)
 
 
+def central(eq, W_L, W_R, normal, points=None):
+    """Pure central flux:  F = ½ (F_L + F_R), no dissipation.
+
+    Textbook central differencing — well-known to be unconditionally
+    unstable for advection without limiting and oscillation-prone at
+    discontinuities.  Provided here as a reference comparison only.
+    """
+    U_L = eq.prim_to_cons(W_L)
+    U_R = eq.prim_to_cons(W_R)
+    try:
+        F_L = eq.physical_flux(U_L, normal, points=points)
+        F_R = eq.physical_flux(U_R, normal, points=points)
+    except TypeError:
+        F_L = eq.physical_flux(U_L, normal)
+        F_R = eq.physical_flux(U_R, normal)
+    return 0.5 * (F_L + F_R)
+
+
 def llf(eq, W_L, W_R, normal, points=None):
     """Local Lax-Friedrichs (Rusanov)."""
     U_L = eq.prim_to_cons(W_L)
@@ -131,6 +149,7 @@ def get_flux(name: str):
     table = {
         'upwind':         upwind_advection,
         'upwind_advection': upwind_advection,
+        'central':        central,
         'llf':            llf,
         'rusanov':        llf,
         'hllc':           hllc_1d,

@@ -3581,7 +3581,7 @@ def _case24_subcase(psi_water):
     else:
         eos1, eos2 = eos_air, eos_water
     alpha_floor = 1.0e-6
-    n = int(os.environ.get("FIVE_EQ_CASE24_N", "400"))
+    n = int(os.environ.get("FIVE_EQ_CASE24_N", "800"))
     L = 1.0
     dx = L / n
     x = (np.arange(n) + 0.5) * dx

@@ -15,7 +15,7 @@
 |------|-----|
 | 도메인 | $x \in [0, 1]\text{ m}$ |
 | 경계조건 | 좌·우 모두 Transmissive (투과 경계조건 / Outflow) |
-| 격자 수 (N) | 400 cells ($\Delta x = 0.0025\text{ m}$) 균일 격자 |
+| 격자 수 (N) | 800 cells ($\Delta x = 0.00125\text{ m}$) 균일 격자 |
 | Post-shock (I) 영역 | $x < 0.1\text{ m}$ (충격파 통과 후 고압/고속 구역) |
 | Pre-shock (II) 영역 | $x \ge 0.1\text{ m}$ (초기 대기압/정지 상태 구역) |
 | 시간 차분 | CFL = 0.5 |
@@ -69,7 +69,7 @@ true mixture 케이스에서 $x=0$부터 shock 전까지는 하나의 post-shock
 - reference 결과는 active five-equation/Kapila solver와 일치하는 Kapila/Wood + D_K path-conservative Rankine-Hugoniot exact step profile을 직접 계산해 사용한다.
 - `24_ref1.png`, `24_ref2.png`는 시각적 문헌 reference로만 사용하고, PNG digitization 값은 exact로 사용하지 않는다.
 - 현재 검증 드라이버 `.codex-loop/verify_08_26_acceptance.py --case 24`는 `psi_water in {0, 0.25, 0.50, 0.75, 1}`에 대해 각각 exact state를 생성한다.
-- Acceptance 기본 설정은 `FIVE_EQ_CASE24_N=400`, `FIVE_EQ_CASE24_CFL=0.10`이다. CFL `0.10`은 scheme을 바꾸는 tuning 계수가 아니라, hypersonic homogeneous-mixture shock에서 2nd-order source/flux time-centering의 finite-step rho-plateau bias를 줄이기 위한 시간분해능 조건이다.
+- Acceptance 기본 설정은 `FIVE_EQ_CASE24_N=800`, `FIVE_EQ_CASE24_CFL=0.10`이다. N=800은 hypersonic homogeneous-mixture shock의 rho post-shock plateau/profile 기준을 같은 수치기법으로 만족하기 위한 해상도이며, 사용자 제한 `N<=800`을 넘지 않는다. CFL `0.10`은 scheme을 바꾸는 tuning 계수가 아니라, hypersonic homogeneous-mixture shock에서 2nd-order source/flux time-centering의 finite-step rho-plateau bias를 줄이기 위한 시간분해능 조건이다.
 - 결과 PNG: `results/1D/24_H/diff_vs_exact.png`
 - exact CSV: `results/1D/24_H/reference_exact_24_psi_*.csv`
 

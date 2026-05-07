@@ -473,9 +473,10 @@ class TMLPU(Reconstruction):
         nb_padded = ctx['nb_padded']    # (N, max_nb)
         nb_safe   = ctx['nb_safe']
         valid_nb  = ctx['valid_nb']
-        A_basis   = ctx['A']            # (N, max_nb, nbasis)
+        A_basis   = ctx['A']            # (N, max_nb, nbasis)  ← already √W·A
         ATA_inv   = ctx['ATA_inv']      # (N, nbasis, nbasis)
         nbasis    = ctx['nbasis']
+        sqrt_w    = ctx['sqrt_w']       # (N, max_nb) — same √W weighting
         UU_o_int  = ctx['UU_o_int']     # interior faces only
         UU_n_int  = ctx['UU_n_int']
         interior  = ctx['interior']
@@ -502,7 +503,9 @@ class TMLPU(Reconstruction):
         is_smooth_cell = np.zeros((nvar, N), dtype=bool)
         for v in range(nvar):
             delta_W = (W_cell[v, nb_safe] - W_cell[v, :, None]) * valid_nb
-            rhs = np.einsum('cki,ck->ci', A_basis, delta_W)        # (N, nbasis)
+            # Weighted RHS: A_basis is already √W·A, multiply ΔW by √W too.
+            delta_W_w = delta_W * sqrt_w
+            rhs = np.einsum('cki,ck->ci', A_basis, delta_W_w)      # (N, nbasis)
             coeffs[v] = np.einsum('cij,cj->ci', ATA_inv, rhs)
             if self.extremum_relax:
                 # Smoothness indicator: relative LSQ residual norm.  On a
@@ -510,7 +513,12 @@ class TMLPU(Reconstruction):
                 # neighbours to O(h^{k+1}); discontinuities give residual
                 # ≈ jump.  We additionally restrict relaxation to cells
                 # that are LOCAL EXTREMA (the only place LMP is binding).
-                delta_W_pred = np.einsum('ckb,cb->ck', A_basis, coeffs[v]) * valid_nb
+                # Predicted ΔW (un-weighted): A · p, not √W · A · p.
+                # `A_basis` here is √W·A, so divide by sqrt_w (safe because
+                # sqrt_w > 0 on valid neighbours).
+                delta_W_pred_w = np.einsum('ckb,cb->ck', A_basis, coeffs[v])
+                delta_W_pred = delta_W_pred_w / np.maximum(sqrt_w, 1e-30)
+                delta_W_pred = delta_W_pred * valid_nb
                 resid = (delta_W - delta_W_pred) * valid_nb
                 num = np.sqrt(np.sum(resid * resid, axis=1))
                 den = np.sqrt(np.sum(delta_W * delta_W, axis=1))
@@ -790,6 +798,10 @@ class TMLPU(Reconstruction):
                           dy * dy * dy / 6.0], axis=-1)        # (N, max_nb, 9)
             nbasis = 9
         A = A * valid_nb[:, :, None]
+        # Inverse-distance LSQ weighting — emphasises closer cells.
+        dist_sq = dx * dx + dy * dy + 1e-30
+        sqrt_w = (1.0 / dist_sq) ** 0.5 * valid_nb              # (N, max_nb)
+        A = A * sqrt_w[:, :, None]                              # A → √W · A
         ATA = np.einsum('cki,ckj->cij', A, A)                  # (N, nbasis, nbasis)
 
         if nbasis == 2:
@@ -891,7 +903,7 @@ class TMLPU(Reconstruction):
 
         ctx = dict(
             nb_padded=nb_padded, nb_safe=nb_safe, valid_nb=valid_nb,
-            A=A, ATA_inv=ATA_inv, nbasis=nbasis,
+            A=A, ATA_inv=ATA_inv, nbasis=nbasis, sqrt_w=sqrt_w,
             interior=interior,
             UU_o_int=UU_o_int, UU_n_int=UU_n_int,
             dx_fo=dx_fo, dx_fn=dx_fn,

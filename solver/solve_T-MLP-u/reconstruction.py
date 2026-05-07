@@ -223,12 +223,16 @@ class TMLPU(Reconstruction):
         if self.stencil not in ('face', 'vertex', 'vertex2'):
             raise ValueError(
                 f"stencil must be 'face' / 'vertex' / 'vertex2', got {self.stencil!r}")
-        if self.order not in (1, 2):
-            raise ValueError(f"order must be 1 or 2, got {self.order!r}")
-        if self.order == 2 and self.stencil != 'vertex':
+        if self.order not in (1, 2, 3):
+            raise ValueError(f"order must be 1, 2, or 3, got {self.order!r}")
+        if self.order == 2 and self.stencil == 'face':
             # Quadratic needs 5 unknowns — face stencil (3 nbrs on triangles)
             # is under-determined.  Promote to vertex stencil silently.
             self.stencil = 'vertex'
+        if self.order == 3 and self.stencil != 'vertex2':
+            # Cubic LSQ needs 9 unknowns; vertex (≈ 7–10 cells) is borderline,
+            # vertex2 (≈ 25 cells) is comfortably over-determined.
+            self.stencil = 'vertex2'
 
     def reconstruct(self, mesh, W_cell, eq, eval_points=None):
         if mesh.dim == 1:
@@ -483,7 +487,15 @@ class TMLPU(Reconstruction):
         dx_fo = eval_points[interior] - mesh.cell_centers[mesh.face_owner[interior]]
         dx_fn = eval_points[interior] - mesh.cell_centers[mesh.face_neighbour[interior]]
 
-        # 1) LSQ polynomial coefficients per cell, per variable.
+        # 1) phi_min / phi_max per cell over (self ∪ chosen stencil).
+        W_with_self = np.concatenate(
+            [W_cell[:, :, None],
+             np.where(valid_nb[None, :, :], W_cell[:, nb_safe], np.nan)],
+            axis=2)                                          # (nvar, N, 1+max_nb)
+        phi_min_cell = np.nanmin(W_with_self, axis=2)
+        phi_max_cell = np.nanmax(W_with_self, axis=2)
+
+        # 2) LSQ polynomial coefficients per cell, per variable.
         #    coeffs[v, c, :] = ATA_inv[c] · (Aᵀ · ΔW)[c]
         coeffs = np.empty((nvar, N, nbasis), dtype=float)
         is_smooth_cell = np.zeros((nvar, N), dtype=bool)
@@ -492,32 +504,17 @@ class TMLPU(Reconstruction):
             rhs = np.einsum('cki,ck->ci', A_basis, delta_W)        # (N, nbasis)
             coeffs[v] = np.einsum('cij,cj->ci', ATA_inv, rhs)
             if self.extremum_relax:
-                # Smoothness indicator: relative LSQ residual norm.
-                # On a smooth function, the k-th order LSQ polynomial fits
-                # neighbours up to O(h^{k+1}); normalised against the data
-                # variation this is a small dimensionless number.  At
-                # discontinuities the residual is O(jump) → smoothness ≈ 1.
-                # When smoothness ≪ 1 we trust the polynomial enough to
-                # let it bypass the LMP bound.
+                # Smoothness indicator: relative LSQ residual norm.  On a
+                # smooth function the k-th-order LSQ polynomial fits
+                # neighbours to O(h^{k+1}); discontinuities give residual
+                # ≈ jump.  We additionally restrict relaxation to cells
+                # that are LOCAL EXTREMA (the only place LMP is binding).
                 delta_W_pred = np.einsum('ckb,cb->ck', A_basis, coeffs[v]) * valid_nb
                 resid = (delta_W - delta_W_pred) * valid_nb
                 num = np.sqrt(np.sum(resid * resid, axis=1))
                 den = np.sqrt(np.sum(delta_W * delta_W, axis=1))
                 smoothness = num / np.maximum(den, 1e-30)
-                # Universal threshold derived from the LSQ truncation
-                # estimate: residual/data ≈ h^{k+1} / h ≈ h^k.  For k=2,
-                # h ≈ 0.04 (criss-cross @ N=25) gives threshold ≈ 1.6e-3;
-                # we pick 0.1 to give comfortable headroom against round-off
-                # while still firing only on data the polynomial fits well.
                 is_smooth_cell[v] = smoothness < 0.1
-
-        # 2) phi_min / phi_max per cell over (self ∪ chosen stencil).
-        W_with_self = np.concatenate(
-            [W_cell[:, :, None],
-             np.where(valid_nb[None, :, :], W_cell[:, nb_safe], np.nan)],
-            axis=2)                                          # (nvar, N, 1+max_nb)
-        phi_min_cell = np.nanmin(W_with_self, axis=2)
-        phi_max_cell = np.nanmax(W_with_self, axis=2)
 
         # Helper — evaluate the LSQ polynomial at a face displacement vector.
         def _poly_at(coef_per_face, dxs):
@@ -525,12 +522,19 @@ class TMLPU(Reconstruction):
             δx = dxs[:, 0]; δy = dxs[:, 1]
             if nbasis == 2:
                 return coef_per_face[:, 0] * δx + coef_per_face[:, 1] * δy
-            # nbasis == 5
-            return (coef_per_face[:, 0] * δx +
+            quad = (coef_per_face[:, 0] * δx +
                     coef_per_face[:, 1] * δy +
                     0.5 * coef_per_face[:, 2] * δx * δx +
                     coef_per_face[:, 3] * δx * δy +
                     0.5 * coef_per_face[:, 4] * δy * δy)
+            if nbasis == 5:
+                return quad
+            # nbasis == 9 (cubic)
+            return (quad +
+                    coef_per_face[:, 5] * δx * δx * δx / 6.0 +
+                    0.5 * coef_per_face[:, 6] * δx * δx * δy +
+                    0.5 * coef_per_face[:, 7] * δx * δy * δy +
+                    coef_per_face[:, 8] * δy * δy * δy / 6.0)
 
         # 3) Default first-order (overridden for interior below).
         W_L = np.empty((nvar, n_faces), dtype=float)
@@ -687,12 +691,20 @@ class TMLPU(Reconstruction):
         if self.order == 1:
             A = d_full                                         # (N, max_nb, 2)
             nbasis = 2
-        else:
+        elif self.order == 2:
             A = np.stack([dx, dy,
                           0.5 * dx * dx,
                           dx * dy,
                           0.5 * dy * dy], axis=-1)             # (N, max_nb, 5)
             nbasis = 5
+        else:  # order == 3
+            A = np.stack([dx, dy,
+                          0.5 * dx * dx, dx * dy, 0.5 * dy * dy,
+                          dx * dx * dx / 6.0,
+                          0.5 * dx * dx * dy,
+                          0.5 * dx * dy * dy,
+                          dy * dy * dy / 6.0], axis=-1)        # (N, max_nb, 9)
+            nbasis = 9
         A = A * valid_nb[:, :, None]
         ATA = np.einsum('cki,ckj->cij', A, A)                  # (N, nbasis, nbasis)
 

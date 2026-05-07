@@ -1,2 +1,6 @@
 iter	change	metric	delta	verdict	notes
 0	baseline	0.06570	0	keep	N=25, T-MLP-u+downwind, vertex-stencil, k=2 LSQ, SSP-RK3, 2-pt GQ
+1	cfl 0.4 -> 0.2	0.06634	+0.97%	revert	spatial err dominates, more steps doesn't help
+2	face GQ 2pt -> 3pt	0.06573	+0.05%	revert	2pt 4th-order already > k=2 spatial
+3	stencil vertex -> vertex2 (2-ring)	0.06570	0%	revert	LMP binding limits effect of wider stencil
+4	extremum_relax (LMP off in smooth cells, smoothness < 0.1)	0.06542	-0.43%	keep	cone peak 0.749 -> 0.765

@@ -146,7 +146,7 @@ def main():
     #   • time integrator = SSP-RK3
     #   • face quadrature = 2-point Gauss-Legendre on every edge
     # so the only difference is the face-side limiter.
-    common = dict(stencil='vertex', order=2)
+    common = dict(stencil='vertex2', order=3)
 
     # -- Case A: T-MLP-u wrapping the *downwind* TVD limiter -------------
     # ψ_DW(r)=max(0,min(2r,2)) is the most compressive symmetric Sweby-

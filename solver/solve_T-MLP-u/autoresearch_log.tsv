@@ -4,3 +4,20 @@ iter	change	metric	delta	verdict	notes
 2	face GQ 2pt -> 3pt	0.06573	+0.05%	revert	2pt 4th-order already > k=2 spatial
 3	stencil vertex -> vertex2 (2-ring)	0.06570	0%	revert	LMP binding limits effect of wider stencil
 4	extremum_relax (LMP off in smooth cells, smoothness < 0.1)	0.06542	-0.43%	keep	cone peak 0.749 -> 0.765
+5	smoothness threshold 0.1 -> 0.5	0.06550	+0.12% vs 4	revert	too loose, undershoot worsened
+6	smooth & extremum AND-combination	0.06572	+0.46% vs 4	revert	too restrictive
+7	k=2 -> k=3 cubic LSQ + vertex2 stencil	0.06258	-4.34%	keep	big win: cubic better fits smooth peaks
+8	face GQ 2pt -> 3pt with k=3	0.06259	0%	revert	2pt sufficient for k=3
+9	extremum_relax=False (sanity)	0.06296	+0.61%	revert	relax confirmed helping
+10	smoothness threshold 0.1 -> 0.3	0.06327	+1.10%	revert	too loose
+11	smoothness threshold 0.1 -> 0.05	0.06289	+0.50%	revert	too tight
+12	vertex-MLP (PYG2010 cell-wise)	0.06891	+10.1%	revert	cell-wise psi too restrictive vs per-face
+13	IDW LSQ weighting (1/d^2)	0.06247	-0.18%	keep	closer cells weighted more
+14	IDW^1 weighting	0.06248	+0.01%	revert	IDW^2 marginally better
+15	uniform LSQ (sanity)	0.06258	+0.18%	revert	confirms IDW^2 helps
+16	smoothness threshold 0.1 -> 0.15	0.06263	+0.26%	revert	0.1 sweet spot
+17	TVB tolerance M=1	0.06228	-0.30%	keep	cell h^2 LMP relaxation
+18	TVB M=2	0.06224	-0.06%	keep	slight further improvement
+19	TVB M=4	0.06215	-0.14%	keep	best so far
+20	TVB M=10	0.06225	+0.16% vs M=4	revert	M=4 sweet spot
+final	BEST: k=3 + vertex2 + IDW^2 + extremum_relax(0.1) + TVB(M=4)	0.06215	-5.40% vs base	-	cone L1 0.0498 -> 0.0536, hump 0.0531 -> 0.0644, slot 0.298 -> 0.298

@@ -185,7 +185,9 @@ def blended_advective_fluxes(W_anchor, eos1, eos2, dx, dt, bc_l, bc_r,
     face = face_state(W_anchor, eos1, eos2, bc_l, bc_r,
                       alpha_scheme=alpha_scheme,
                       primitive_scheme=primitive_scheme,
-                      face_thermo=face_thermo)
+                      face_thermo=face_thermo,
+                      dt=dt,
+                      dx=dx)
     F_HO = advective_fluxes(face, eos1, eos2, energy_form=energy_form,
                             energy_alpha_pure_tol=energy_alpha_pure_tol)
     if not positivity and not force_lo:

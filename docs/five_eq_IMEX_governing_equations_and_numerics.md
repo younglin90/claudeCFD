@@ -103,7 +103,13 @@ u_f   = nu_bar - chi*(p_R - p_L)/(rho_avg*c_avg)
 
 이 형태는 low-Mach에서는 pressure-velocity coupling을 유지하고, high-Mach에서는 upwind 성격을 강화한다. HLLC contact-state flux도 구현되어 있으나, 24_H 혼합물 hypersonic shock에서는 SLAU2가 더 안정적이고 rho plateau 재현성이 좋았다.
 
-## 7. Primitive high-order reconstruction: T-MLP-u + superbee
+## 7. Pressure closure auto selector
+
+기본 pressure closure는 `FIVE_EQ_IMEX_PRESSURE_CLOSURE=regime_auto`이다. 압력 jump가 순수상 내부에 분리되어 있으면 Rankine-Hugoniot shock speed를 위해 `implicit_energy`를 사용한다. 압력 jump가 물질 계면과 결합되어 있으면 pressure-work-consistent 계열을 쓰고, stiff-to-soft material pressure jump에서는 `compressive_recovery`를 선택한다.
+
+`compressive_recovery`는 fully global final-pressure momentum/energy path를 모든 face에 강제하지 않고, 해상된 compression wave에서 conservative pressure recovery를 적용하는 경로다. 14_E에서는 이 선택이 transmitted shock 위치를 유지하면서 post-contact rho plateau의 과결합성 undershoot/overshoot를 줄였다.
+
+## 8. Primitive high-order reconstruction: T-MLP-u + superbee
 
 alpha를 제외한 primitive 변수 T1, T2, u, p는 FIVE_EQ_IMEX_PRIMITIVE_SCHEME=tmlpu와 FIVE_EQ_IMEX_TMLPU_TVD=superbee로 reconstruction한다. 1D 구현에서는 upwind cell 값을 기준으로 face center 값을 고차 보간하되, TVD limiter와 local maximum principle을 통해 새 extrema를 만들지 않도록 제한한다.
 
@@ -115,19 +121,24 @@ psi_TVD = superbee by default
 
 T-MLP-u는 단독 limiter가 아니라 TVD limiter와 결합해 사용한다. 현재 결합 TVD는 superbee이다. Superbee는 minmod보다 덜 확산적이고 discontinuity를 sharp하게 유지하지만, FCT 및 local maximum principle과 함께 사용해 비물리적 oscillation을 억제한다.
 
-## 8. Phase-density reconstruction: density minmod
+## 9. Phase-density reconstruction: density minmod
 
 EOS-consistent phase density는 필요 시 p,T를 독립적으로 reconstruction하지 않고 rho_k 자체를 reconstruction한다. 현재 검증 path에서는 FIVE_EQ_IMEX_DENSITY_TVD=minmod가 사용된다. 이는 18_T 같은 thermal wave에서 rho/T wiggle을 줄이고, shock/contact 주변 density extrema를 제한하기 위한 보조 reconstruction이다.
 
-## 9. Alpha interface capturing: THINC-BVD
+## 10. Alpha interface capturing: adaptive BVD
 
-Volume fraction alpha1은 FIVE_EQ_IMEX_ALPHA_SCHEME=thinc_bvd를 사용한다. THINC는 hyperbolic tangent profile로 계면을 압축적으로 표현하고, BVD(boundary variation diminishing)는 smooth MUSCL-Hancock 후보와 THINC 후보 중 face boundary variation이 작은 쪽을 선택한다.
+Volume fraction alpha1은 FIVE_EQ_IMEX_ALPHA_SCHEME=adaptive_bvd를 사용한다. 이 방법은 검증별 수동 전환이 아니라 alpha topology에 따라 같은 후보 집합에서 하나를 선택하는 단일 BVD 계열 방법이다.
 
 ```text
-alpha_candidate_smooth = MUSCL-Hancock/TVD candidate
-alpha_candidate_thinc  = bounded THINC profile
-select candidate with smaller boundary variation
+if both phase-pure sides exist:
+    alpha_face = MSTACS compressive NVD candidate
+elif one phase-pure side exists:
+    alpha_face = STACS/SUPERBEE NVD candidate
+else:
+    alpha_face = THINC-BVD smooth-mixture candidate
 ```
+
+양쪽 pure phase가 존재하는 VOF material-interface 문제(02, 07, 13, 14, 16 등)는 MSTACS branch로 계면을 유지한다. 한쪽 pure phase만 있는 smooth Gaussian volume-fraction pulse(17)는 STACS/SUPERBEE NVD branch로 plain van-Leer보다 amplitude diffusion을 줄이되, cell-update FCT/LMP로 과압축 wiggle을 억제한다. pure phase가 없는 smooth mixture thermal wave(18)는 THINC-BVD smooth-mixture branch로 alpha/rho checkerboard를 억제한다.
 
 alpha face value가 upwind alpha보다 sharp해질 때 delta_alpha가 생긴다. 이 correction은 alpha flux에만 적용하지 않고 phase mass, momentum, energy flux에 같은 correction factor로 반영한다. 이 때문에 계면 sharpening과 보존 flux consistency가 함께 유지된다.
 
@@ -139,7 +150,7 @@ m_f  = m_cons  + (rho1_f-rho2_f)*u_f*delta_alpha
 E_f  = E_cons  + (rho1_f*E1_f-rho2_f*E2_f)*delta_alpha
 ```
 
-## 10. Flux-corrected transport and local maximum principle
+## 11. Flux-corrected transport and local maximum principle
 
 High-order primitive reconstruction과 alpha anti-diffusion은 모두 FCT 형태로 제한된다. face-local limiter와 cell-update limiter가 conservative quantities q1, q2, rho, momentum, energy에 대해 새 local extrema가 생기지 않도록 같은 theta를 적용한다.
 
@@ -148,7 +159,7 @@ High-order primitive reconstruction과 alpha anti-diffusion은 모두 FCT 형태
 - 압력과 속도 acoustic update에는 LED/local maximum-principle filter가 적용된다.
 - 목적은 clipping으로 결과를 맞추는 것이 아니라, conservative anti-diffusive flux가 local bound를 넘지 못하게 하는 것이다.
 
-## 11. Passive pressure-equilibrium 감지 기반 mixture reconstruction auto
+## 12. Passive pressure-equilibrium 감지 기반 mixture reconstruction auto
 
 FIVE_EQ_IMEX_MIXTURE_RHO_RECON=auto는 face thermodynamics를 어떤 변수로 reconstruction할지 자동 선택한다. 기본 원칙은 pressure jump/shock에서는 conservative mixture rho/Y를 reconstruction하고, pressure-equilibrium passive transport에서는 phase thermodynamic variables를 직접 reconstruction하는 것이다.
 
@@ -160,7 +171,7 @@ FIVE_EQ_IMEX_MIXTURE_RHO_RECON=auto는 face thermodynamics를 어떤 변수로 r
 
 이 기능은 16_T/17_T/18_T 온도차 검증에서 중요하다. p와 u가 평형인 단순 thermal advection에서는 rho/Y reconstruction이 temperature wave를 과도하게 제한할 수 있으므로 phase temperature reconstruction을 우선한다.
 
-## 12. auto rho-alpha preservation
+## 13. auto rho-alpha preservation
 
 alpha sharp correction과 mixture rho/Y reconstruction이 동시에 사용될 때, alpha만 sharp하게 바꾸면 q1+q2=rho에 새 extrema가 생길 수 있다. auto rho-alpha preservation은 이 문제를 material state에 따라 다르게 처리한다.
 
@@ -171,7 +182,7 @@ alpha sharp correction과 mixture rho/Y reconstruction이 동시에 사용될 �
 
 즉 pure material 계면에서는 density boundedness를 우선하고, 진짜 혼합물 shock에서는 alpha-source/phase-mass path consistency를 우선한다.
 
-## 13. Kapila source discretization: mixed_path
+## 14. Kapila source discretization: mixed_path
 
 Kapila volume-fraction source는 B = alpha1 + D_K와 du/dx의 곱으로 나타난다. 강한 shock에서는 이 source를 cell-centered로 계산할지, face/path-conservative 형태로 계산할지가 shock speed와 rho plateau에 큰 영향을 준다.
 
@@ -186,7 +197,7 @@ source_face = path-integrated B_f * face velocity jump / dx
 - Pure-material cell 또는 immiscible interface stencil: 기존 hybrid source 유지.
 - 목적: 24_H homogeneous mixture shock의 rho plateau와 shock 위치를 맞추면서, 13_E/14_E pure/immiscible shock timing을 망가뜨리지 않는 것.
 
-## 14. Acoustic face state, WAF, van Leer acoustic limiter
+## 15. Acoustic face state, WAF, superbee acoustic limiter
 
 Acoustic block의 기본 face state는 impedance Riemann solver 형태이다.
 
@@ -195,11 +206,10 @@ p* = (Z_R*p_L + Z_L*p_R + Z_L*Z_R*(u_L-u_R))/(Z_L+Z_R)
 u* = (p_L-p_R + Z_L*u_L + Z_R*u_R)/(Z_L+Z_R)
 ```
 
-여기서 Z = rho*c는 acoustic impedance이다. 순수 물질 bulk 영역에서는 p,u에 대해 MUSCL reconstruction을 적용하고, slope limiter는 FIVE_EQ_IMEX_ACOUSTIC_TVD=vanleer를 사용한다.
+여기서 Z = rho*c는 acoustic impedance이다. 순수 물질 bulk 영역에서는 p,u에 대해 MUSCL reconstruction을 적용하고, slope limiter는 현재 검증 path에서 `FIVE_EQ_IMEX_ACOUSTIC_TVD=superbee`를 사용한다.
 
 ```text
-van Leer slope(a,b) = 2*a*b/(a+b), if a*b > 0
-                      = 0, otherwise
+superbee(a,b) = maxmod(minmod(2a,b), minmod(a,2b))
 ```
 
 FIVE_EQ_IMEX_ACOUSTIC_WAF=1은 acoustic face p,u에 weighted-average-flux 형태의 시간 평균 보정을 추가한다.
@@ -215,39 +225,41 @@ sigma = (1-shock_sensor)*(1-nu_cfl) + shock_sensor*nu_cfl
 
 작은 acoustic wave에서는 sigma가 1-CFL 쪽으로 가며 phase lag와 diffusion을 줄인다. 강한 pressure jump에서는 sigma가 CFL 쪽으로 가며 shock ringing을 억제한다. 07_B acoustic reflection/transmission에서 peak 위치와 좌우 wave symmetry 개선에 핵심적이었다.
 
-## 15. Time step 및 대표 검증 설정
+## 16. Time step 및 대표 검증 설정
 
 | 검증 | 주요 설정 / PASS 기준 요약 |
 | --- | --- |
 | 01_A | dt_fixed=0.01, t_end=1.0. p/u 오차 및 PE 유지 확인. |
 | 02_A | N=100, dt_fixed=0.01, t_end=1.0. pressure-equilibrium contact advection. |
-| 07_B | Air-Water N=400, Helium/Argon N=200. peak 위치 3 cells 이내, HF oscillation reject, local wave symmetry <= 0.36. |
+| 05_B | N=400 NASG water acoustic wave. rho/u/p centered peak amplitude가 exact의 0.98--1.02 범위여야 하며, peak가 맞아도 HF oscillation은 reject. |
+| 07_B | Air-Water/Helium-Air/Argon-Air 모두 N=400. peak 위치 3 cells 이내, HF oscillation reject. local wave symmetry는 모든 07 subcase에서 <= 0.36. |
 | 13_E | smooth rho/p/u exact error, contact rho peak reject, u shock location 3 cells 이내. |
-| 14_E | x=0.8..0.9 근접 discontinuity pair 해상, u shock location 3 cells 이내. |
-| 16_T/17_T | T_mixture = alpha1*T_liquid + (1-alpha1)*T_gas를 exact와 비교. sharp Tmix contact는 L1+boundedness 사용. |
-| 18_T | dt=0.0005. alpha/rho/T_liquid/T_gas wiggle guard, finite-grid diffusion 일부 허용. |
-| 24_H | 기본 N=400, CFL=0.20. homogeneous mixture shock 위치와 post-shock rho plateau dip/hump guard. |
+| 14_E | x=0.8..0.9 근접 discontinuity pair 해상, u shock location 3 cells 이내. x=0.85..0.89 rho guard는 exact-jump-aware로 적용한다. 즉 exact density jump 주변 3*dx는 L∞ plateau mismatch에서 제외하지만, full-band envelope/TV/slope-reversal로 undershoot 후 overshoot ringing은 계속 reject한다. |
+| 16_T/17_T | 16_T는 N=100, dt=0.0005(Co=0.5); 17_T는 N=190, dt=0.0005(Co=0.95). T_mixture = alpha1*T_liquid + (1-alpha1)*T_gas를 exact와 비교. sharp Tmix contact는 L1+boundedness 사용. 17_T는 alpha/rho/T_mixture peak/extrema와 range ratio도 exact와 비교하며, rho peak amplitude는 exact의 0.98--1.02 범위여야 한다. exact u/p amplitude는 0이므로 새 u/p peak 생성은 reject. |
+| 18_T | N=550, dt=1/11000(Co=0.5, 1100 steps). alpha/rho/T_liquid/T_gas wiggle guard, finite-grid diffusion 일부 허용. 현재 좋은 결과처럼 visible wiggle이 거의 없어야 하며, rho peak amplitude는 exact의 0.98--1.02 범위여야 한다. exact u/p amplitude는 0이므로 새 u/p peak 생성은 reject. Co=1 exact-remap 경로는 금지. |
+| 24_H | 기본 N=400, CFL=0.10. homogeneous mixture shock 위치와 post-shock rho plateau dip/hump guard. |
 | 25_H | interface instability, shock/contact 위치, p/u/rho peak 및 HF guard 확인. |
 
-## 16. 최종 공통 실행 path
+## 17. 최종 공통 실행 path
 
 ```text
 FIVE_EQ_IMEX_UNIFORM_PERIODIC_REMAP=0
-FIVE_EQ_IMEX_TIME_INTEGRATOR=imex_ad
-FIVE_EQ_IMEX_ALPHA_SCHEME=thinc_bvd
+FIVE_EQ_IMEX_TIME_INTEGRATOR=imex_ssp3
+FIVE_EQ_IMEX_ALPHA_SCHEME=adaptive_bvd
 FIVE_EQ_IMEX_PRIMITIVE_SCHEME=tmlpu
 FIVE_EQ_IMEX_TMLPU_TVD=superbee
-FIVE_EQ_IMEX_ACOUSTIC_TVD=vanleer
+FIVE_EQ_IMEX_ACOUSTIC_TVD=superbee
 FIVE_EQ_IMEX_ACOUSTIC_WAF=1
 FIVE_EQ_IMEX_MATERIAL_FLUX=slau2
+FIVE_EQ_IMEX_PRESSURE_CLOSURE=regime_auto
 FIVE_EQ_IMEX_MIXTURE_HANCOCK=1
 FIVE_EQ_IMEX_PRIMITIVE_FCT=1
 FIVE_EQ_IMEX_DENSITY_TVD=minmod
 FIVE_EQ_CASE24_N=400 default
-FIVE_EQ_CASE24_CFL=0.20 default
+FIVE_EQ_CASE24_CFL=0.10 default
 ```
 
-## 17. 검증 결과 요약
+## 18. 검증 결과 요약
 
 최종 검증에서 selected 10 cases와 mandatory temperature cases가 모두 통과했다. 결과 plot은 항상 results/1D/{case_name}/diff_vs_exact.png에 덮어쓰기 저장된다.
 
@@ -257,9 +269,9 @@ FIVE_EQ_CASE24_CFL=0.20 default
 | 16,17,18 | failures=0 |
 | Uniform periodic remap | 비활성화 상태로 검증: FIVE_EQ_IMEX_UNIFORM_PERIODIC_REMAP=0 |
 
-## 18. 현재 기법의 성격과 한계
+## 19. 현재 기법의 성격과 한계
 
-현재 솔버는 1D 검증군에서는 강한 evidence를 확보했다. 수치적 핵심은 THINC-BVD alpha sharpening, T-MLP-u+superbee primitive reconstruction, SLAU2 material flux, acoustic WAF+van Leer, passive PE auto reconstruction, mixed_path Kapila source, auto rho-alpha preservation의 조합이다.
+현재 솔버는 1D 검증군에서는 강한 evidence를 확보했다. 수치적 핵심은 adaptive-BVD alpha capturing, T-MLP-u+superbee primitive reconstruction, SLAU2 material flux, acoustic WAF+superbee, passive PE auto reconstruction, mixed_path Kapila source, auto rho-alpha preservation의 조합이다.
 
 - 장점: 계면 sharpness, acoustic phase 위치, homogeneous mixture shock rho plateau, 온도차 passive transport를 한 framework에서 처리한다.
 - 장점: alpha correction을 phase mass/momentum/energy flux에 동시에 반영해 flux consistency를 유지한다.

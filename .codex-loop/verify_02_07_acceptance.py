@@ -51,12 +51,14 @@ PEAK_CELL_TOL_07 = 3
 # correlation, L2/L1 error, and HF guards remain strict; L-infinity alone is
 # diffusion-tolerant because the finite-N transmitted peak is broadened and
 # under-resolved for the air-water impedance jump.
-MAX_L2_07 = 0.35
-MAX_LINF_07 = 1.00
-MAX_LINF_AIR_WATER_07 = 0.98
-MIN_FRAC_07 = 0.65
-MAX_L1_07 = 1.25
-MIN_CORR_07 = 0.80
+MAX_L2_07 = 0.20
+MAX_LINF_07 = 0.75
+MAX_LINF_AIR_WATER_07 = 0.70
+MIN_FRAC_07 = 0.80
+MAX_L1_07 = 0.60
+MIN_CORR_07 = 0.90
+MIN_PEAK_AMP_RATIO_07 = 0.85
+MAX_PEAK_AMP_RATIO_07 = 1.15
 
 # Oscillation guard limits for 07-B.  These are intentionally looser than the
 # dense shock-tube guards, but still reject visible high-frequency ringing.
@@ -70,7 +72,11 @@ HF_SHARP_TURN_LIMIT_07 = 4
 # correlation, profile error, and HF guards pass.  Keep this close to the
 # historical 0.35 guard while avoiding single-sample false failures.
 WAVE_SYMMETRY_LIMIT_07 = 0.36
-DEFAULT_N_07 = 200
+# Air-Water uses the same finite-grid symmetry allowance as the gas-gas cases.
+# Peak-location and HF guards still reject phase errors and nonphysical
+# oscillation; this guard should not reject acceptable amplitude diffusion.
+WAVE_SYMMETRY_LIMIT_AIR_WATER_07 = WAVE_SYMMETRY_LIMIT_07
+DEFAULT_N_07 = 400
 DEFAULT_N_AIR_WATER_07 = 400
 
 
@@ -304,7 +310,7 @@ def verify_02_A() -> dict:
 
     t0 = time.time()
     pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "regime_auto")
-    alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs")
+    alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "adaptive_bvd")
     primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu")
     time_integrator = os.environ.get("FIVE_EQ_IMEX_TIME_INTEGRATOR", "imex_ad")
     out = solve(
@@ -451,9 +457,9 @@ def _linf_limit_07(case_name: str) -> float:
 def _n_for_07_case(case_name: str) -> int:
     """Return the grid size for one 07 subcase.
 
-    Air-Water is under-resolved at N=200 because the large impedance jump makes
-    transmitted/reflected acoustic peaks narrow and diffusion-sensitive.  Keep
-    the gas-gas subcases at the historical N=200 unless explicitly overridden.
+    The tightened low-diffusion/peak-amplitude guard requires N=400 for all
+    07-B subcases.  At N=200 the Helium-Air reflected/transmitted pair is
+    under-resolved enough to fail amplitude and symmetry despite correct phase.
     """
     if case_name == "Air-Water":
         specific = os.environ.get("FIVE_EQ_CASE07_N_AIR_WATER")
@@ -502,7 +508,8 @@ def _significant_exact_peak_indices(signal: np.ndarray,
     return sorted(separated)
 
 
-def _wave_symmetry_for_field(num: np.ndarray, exact: np.ndarray) -> tuple[bool, dict]:
+def _wave_symmetry_for_field(num: np.ndarray, exact: np.ndarray,
+                             limit: float = WAVE_SYMMETRY_LIMIT_07) -> tuple[bool, dict]:
     """Check that each significant local acoustic wave remains left/right symmetric.
 
     Peak location is tested separately.  This guard targets a different failure
@@ -517,7 +524,7 @@ def _wave_symmetry_for_field(num: np.ndarray, exact: np.ndarray) -> tuple[bool, 
     details: dict[str, float | int | bool] = {
         "symmetry_max_error": 0.0,
         "symmetry_wave_count": 0,
-        "symmetry_limit": float(WAVE_SYMMETRY_LIMIT_07),
+        "symmetry_limit": float(limit),
     }
     if amp_global <= 1.0e-30:
         details["symmetry_ok"] = True
@@ -549,21 +556,28 @@ def _wave_symmetry_for_field(num: np.ndarray, exact: np.ndarray) -> tuple[bool, 
         err = float(np.mean(np.abs(left_vals - right_vals)) / denom)
         max_err = max(max_err, err)
         count += 1
-    ok = max_err <= WAVE_SYMMETRY_LIMIT_07
+    ok = max_err <= limit
     details["symmetry_ok"] = bool(ok)
     details["symmetry_max_error"] = float(max_err)
     details["symmetry_wave_count"] = int(count)
     return bool(ok), details
 
 
-def _wave_symmetry_ok_07(W, p_exact, u_exact) -> tuple[bool, dict]:
+def _wave_symmetry_ok_07(W, p_exact, u_exact, case_name: str = "") -> tuple[bool, dict]:
+    limit = (
+        WAVE_SYMMETRY_LIMIT_AIR_WATER_07
+        if case_name == "Air-Water"
+        else WAVE_SYMMETRY_LIMIT_07
+    )
     p_ok, p_details = _wave_symmetry_for_field(
         np.asarray(W[4], dtype=float) - P0,
         np.asarray(p_exact, dtype=float) - P0,
+        limit=limit,
     )
     u_ok, u_details = _wave_symmetry_for_field(
         np.asarray(W[3], dtype=float),
         np.asarray(u_exact, dtype=float),
+        limit=limit,
     )
     details = {
         "p_symmetry_ok": bool(p_ok),
@@ -572,9 +586,36 @@ def _wave_symmetry_ok_07(W, p_exact, u_exact) -> tuple[bool, dict]:
         "u_symmetry_max_error": u_details["symmetry_max_error"],
         "p_symmetry_wave_count": p_details["symmetry_wave_count"],
         "u_symmetry_wave_count": u_details["symmetry_wave_count"],
-        "symmetry_limit": float(WAVE_SYMMETRY_LIMIT_07),
+        "symmetry_limit": float(limit),
     }
     return bool(p_ok and u_ok), details
+
+
+def _peak_amplitude_ok_07(peak: dict) -> tuple[bool, dict]:
+    """Require acoustic p/u peak amplitudes to remain close to exact.
+
+    Location-only peak checks can pass a strongly diffused wave if the maximum
+    occurs at the right cell.  This guard directly checks the absolute peak
+    amplitude ratio for both p and u against the exact acoustic solution.
+    """
+    details: dict[str, float | bool] = {
+        "peak_amp_min_ratio": float(MIN_PEAK_AMP_RATIO_07),
+        "peak_amp_max_ratio": float(MAX_PEAK_AMP_RATIO_07),
+    }
+    ok = True
+    for name in ("p", "u"):
+        num_amp = float(peak.get(f"{name}_abs_amp", 0.0))
+        exact_amp = float(peak.get(f"{name}_exact_abs_amp", 0.0))
+        if exact_amp <= 1.0e-30:
+            ratio = 1.0 if num_amp <= 1.0e-12 else float("inf")
+        else:
+            ratio = num_amp / exact_amp
+        field_ok = MIN_PEAK_AMP_RATIO_07 <= ratio <= MAX_PEAK_AMP_RATIO_07
+        details[f"{name}_peak_amp_ratio"] = float(ratio)
+        details[f"{name}_peak_amp_ok"] = bool(field_ok)
+        ok = bool(ok and field_ok)
+    details["peak_amplitude_ok"] = bool(ok)
+    return bool(ok), details
 
 
 def _peak_location_ok(x, W, p_exact, u_exact,
@@ -721,7 +762,7 @@ def verify_07_B() -> dict:
         W0 = (a1, T1, T2, u, p)
         try:
             pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "regime_auto")
-            alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs")
+            alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "adaptive_bvd")
             primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu")
             time_integrator = os.environ.get("FIVE_EQ_IMEX_TIME_INTEGRATOR", "imex_ad")
             out = solve(
@@ -759,7 +800,8 @@ def verify_07_B() -> dict:
                 u_exact,
                 require_abs_peak=(case.name == "Air-Water"),
             )
-            symmetry_ok, symmetry = _wave_symmetry_ok_07(W, p_exact, u_exact)
+            peak_amplitude_ok, peak_amplitude = _peak_amplitude_ok_07(peak)
+            symmetry_ok, symmetry = _wave_symmetry_ok_07(W, p_exact, u_exact, case.name)
             hf = high_frequency_oscillation_guard(
                 x,
                 {
@@ -777,6 +819,7 @@ def verify_07_B() -> dict:
             )
             ok = bool(
                 finite and complete and profile_ok and osc_ok and peak_ok
+                and peak_amplitude_ok
                 and symmetry_ok and hf["hf_oscillation_ok"]
             )
             failures += 0 if ok else 1
@@ -798,6 +841,8 @@ def verify_07_B() -> dict:
                     "hf": hf,
                     "peak_ok": bool(peak_ok),
                     "peak": peak,
+                    "peak_amplitude_ok": bool(peak_amplitude_ok),
+                    "peak_amplitude": peak_amplitude,
                     "symmetry_ok": bool(symmetry_ok),
                     "symmetry": symmetry,
                     "N": int(n),
@@ -816,10 +861,13 @@ def verify_07_B() -> dict:
                 f"u_alt={osc['u_alt_ratio']:.2f}/{osc['u_alt_amp']:.2f} "
                 f"p_peak={peak['p_abs_idx']}/{peak['p_exact_abs_idx']} "
                 f"u_peak={peak['u_abs_idx']}/{peak['u_exact_abs_idx']} "
+                f"amp={peak_amplitude['p_peak_amp_ratio']:.2f}/"
+                f"{peak_amplitude['u_peak_amp_ratio']:.2f} "
                 f"sym={symmetry['p_symmetry_max_error']:.2f}/"
                 f"{symmetry['u_symmetry_max_error']:.2f} "
                 f"N={n} finite={finite} complete={complete} profile={profile_ok} "
                 f"osc={osc_ok} hf={hf['hf_oscillation_ok']} peak={peak_ok} "
+                f"amp_ok={peak_amplitude_ok} "
                 f"symmetry={symmetry_ok}"
             )
         except Exception as exc:  # pragma: no cover - verifier diagnostics

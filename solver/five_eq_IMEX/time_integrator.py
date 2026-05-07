@@ -29,6 +29,7 @@ algorithmic round-off path; replaced here.
 """
 from __future__ import annotations
 import math
+import os
 import numpy as np
 
 from .primitive import prim_to_cons_W, cons_to_prim_W
@@ -67,6 +68,33 @@ A_I = (
 )
 B_E = (0.0, 1.0, 0.0)
 B_I = (0.0, 1.0 - GAMMA, GAMMA)
+
+# Pareschi-Russo IMEX-SSP3(4,3,3) L-stable tableau.
+#
+# References:
+#   Pareschi & Russo, J. Sci. Comput. 25 (2005), Table 6.
+#   Boscheri & Pareschi, JCP 434 (2021), SSP3(4,3,3) option.
+#
+# Sign convention follows this file: dU/dt + L_E(W) + L_I(W) = 0.
+_SSP3_A = 0.24169426078821
+_SSP3_BETA = 0.06042356519705
+_SSP3_ETA = 0.12915286960590
+_SSP3_DELTA = 0.5 - _SSP3_BETA - _SSP3_ETA - _SSP3_A
+
+SSP3_A_E = (
+    (0.0, 0.0, 0.0, 0.0),
+    (0.0, 0.0, 0.0, 0.0),
+    (0.0, 1.0, 0.0, 0.0),
+    (0.0, 0.25, 0.25, 0.0),
+)
+SSP3_A_I = (
+    (_SSP3_A, 0.0, 0.0, 0.0),
+    (-_SSP3_A, _SSP3_A, 0.0, 0.0),
+    (0.0, 1.0 - _SSP3_A, _SSP3_A, 0.0),
+    (_SSP3_BETA, _SSP3_ETA, _SSP3_DELTA, _SSP3_A),
+)
+SSP3_B_E = (0.0, 1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0)
+SSP3_B_I = SSP3_B_E
 
 
 def _L_I(W, dx, bc_l, bc_r, u_inlet=None, p_inlet=None,
@@ -125,6 +153,67 @@ def _relative_update_norm(U_ref, dU):
     return max(vals) if vals else 0.0
 
 
+def _explicit_stage_operator(W_anchor, dt, eos1, eos2, dx, bc_l, bc_r, *,
+                             u_inlet=None, p_inlet=None,
+                             mixture_kind='kapila',
+                             kapila_closure=False,
+                             alpha_pure_tol=0.0,
+                             alpha_scheme='upwind',
+                             primitive_scheme='upwind',
+                             energy_form='apec',
+                             energy_alpha_pure_tol=1.0e-12,
+                             face_thermo='acid',
+                             positivity=True,
+                             lo_flux='pe_preserving',
+                             explicit_operator='residual'):
+    """Return L_E(W_anchor) for RK stages.
+
+    ``residual`` is the clean Phase-3 operator.  ``imex_ad_material`` reuses
+    the current production material/advection update and converts its
+    conservative one-step delta into an RK residual.  The latter is the
+    relevant ablation for the current solver because it includes SLAU2,
+    THINC-BVD/MSTACS alpha handling, density reconstruction, and rho-alpha
+    preservation that are not present in the older Phase-3 residual path.
+    """
+    key = str(explicit_operator or 'residual').strip().lower().replace('-', '_')
+    if key in {'residual', 'phase3', 'clean'}:
+        L_E, face = explicit_residual(
+            W_anchor, eos1, eos2, dx, bc_l, bc_r,
+            alpha_scheme=alpha_scheme,
+            primitive_scheme=primitive_scheme,
+            energy_form=energy_form,
+            energy_alpha_pure_tol=energy_alpha_pure_tol,
+            face_thermo=face_thermo,
+            kapila_closure=kapila_closure,
+            positivity=positivity,
+            dt=dt,
+            force_lo=False,
+            lo_flux=lo_flux)
+        return L_E, face
+    if key in {'imex_ad_material', 'material', 'production_material'}:
+        from .imex_ad import _material_update
+        U_anchor, _ = prim_to_cons_W(W_anchor, eos1, eos2)
+        mat = _material_update(
+            W_anchor, dt, eos1, eos2, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet,
+            mixture_kind=mixture_kind,
+            kapila_closure=kapila_closure,
+            alpha_pure_tol=alpha_pure_tol,
+            alpha_scheme=alpha_scheme,
+            primitive_scheme=primitive_scheme,
+            kapila_source_mode=os.environ.get(
+                "FIVE_EQ_IMEX_KAPILA_SOURCE_MODE", "mixed_path"),
+            material_energy_form=energy_form,
+            return_aux=False)
+        U_mat = tuple(np.asarray(c, dtype=float) for c in mat)
+        L_E = tuple((np.asarray(U_anchor[k], dtype=float) - U_mat[k]) / dt
+                    for k in range(5))
+        return L_E, {}
+    raise ValueError(
+        "FIVE_EQ_IMEX_SSP3_EXPLICIT_OPERATOR must be 'residual' or "
+        "'imex_ad_material'.")
+
+
 def _max_adjacent_impedance_ratio(W, eos1, eos2):
     from .residual import _mixture_impedance
     Z = np.asarray(_mixture_impedance(W, eos1, eos2), dtype=float)
@@ -172,6 +261,50 @@ def _pe_projection_allowed(W, eos1=None, eos2=None, *,
     p_jump = float(np.max(np.abs(np.diff(p)))) / p_scale
     u_jump = float(np.max(np.abs(np.diff(u)))) / max(c_ref, 1.0)
     return p_jump <= p_tol and u_jump <= u_tol
+
+
+def _project_conservative_target_to_pe(U_target, W_ref, eos1, eos2, *,
+                                       alpha_pure_tol=0.0):
+    """Put a p/u-flat material-contact target back on the PE manifold.
+
+    Sharp-interface material advection updates phase masses and volume
+    fraction.  The corresponding energy row must be thermodynamically
+    consistent with the same uniform pressure; otherwise the following
+    implicit acoustic stage is asked to solve a spurious EOS pressure jump.
+    This projection is activated only by the same pressure/velocity-flat
+    material-contact sensor used by the existing PE tangent correction.
+    """
+    if not _pe_projection_allowed(W_ref, eos1, eos2):
+        return U_target
+
+    q1 = np.maximum(np.asarray(U_target[0], dtype=float), 0.0)
+    q2 = np.maximum(np.asarray(U_target[1], dtype=float), 0.0)
+    alpha = np.clip(
+        np.asarray(U_target[4], dtype=float),
+        max(float(alpha_pure_tol), 1.0e-12),
+        1.0 - max(float(alpha_pure_tol), 1.0e-12))
+    rho = np.maximum(q1 + q2, 1.0e-30)
+    u0 = float(np.mean(np.asarray(W_ref[3], dtype=float)))
+    p0 = float(np.mean(np.asarray(W_ref[4], dtype=float)))
+    if not (np.isfinite(u0) and np.isfinite(p0) and p0 > 0.0):
+        return U_target
+
+    rho1 = np.maximum(q1 / np.maximum(alpha, 1.0e-12), 1.0e-30)
+    rho2 = np.maximum(q2 / np.maximum(1.0 - alpha, 1.0e-12), 1.0e-30)
+    p_arr = np.full_like(alpha, p0)
+    e1 = eos1.energy(rho1, p_arr)
+    e2 = eos2.energy(rho2, p_arr)
+    kinetic = 0.5 * rho * u0 * u0
+    U_pe = (
+        q1,
+        q2,
+        rho * u0,
+        q1 * e1 + q2 * e2 + kinetic,
+        alpha,
+    )
+    if all(np.all(np.isfinite(c)) for c in U_pe):
+        return U_pe
+    return U_target
 
 
 def ars222_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
@@ -288,6 +421,516 @@ def ars222_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         raise ValueError(f"Unknown pe_relax='{pe_relax}'.")
     return W_new, dict(stage2=info2, stage3=info3,
                         L_E=L_E_list, L_I=L_I_list)
+
+
+def imex_ssp3_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
+                   u_inlet=None, p_inlet=None, p_outlet=None,
+                   newton_kwargs=None,
+                   mixture_kind='kapila',
+                   kapila_closure=False,
+                   rhie_chow=False,
+                   imp_dissipation=0.02,
+                   imp_dissipation_form='biharmonic',
+                   imp_compact_lap_coeff=0.0,
+                   schur=True,
+                   alpha_scheme='muscl',
+                   primitive_scheme='upwind',
+                   energy_form='apec',
+                   energy_alpha_pure_tol=1.0e-12,
+                   face_thermo='acid',
+                   positivity=True,
+                   lo_flux='pe_preserving',
+                   kapila_acoustic_source=False,
+                   alpha_pure_tol=1.0e-8,
+                   explicit_operator='imex_ad_material',
+                   stage_pe_relax='none',
+                   pe_relax='none',
+                   verbose=False):
+    """Pareschi-Russo IMEX-SSP3(4,3,3) additive RK step.
+
+    This is the stage-residual split form, not a wrapper around
+    ``imex_ad_step``:
+
+        U_i^* = U^n - dt * sum_{j<i}(aE_ij L_E(W_j)
+                                    +aI_ij L_I(W_j))
+        R_i(W_i) = (U(W_i) - U_i^*)/(aI_ii dt) + L_I(W_i) = 0
+
+    The final update uses the published equal explicit/implicit weights.
+    Limiters remain inside ``explicit_residual`` and are evaluated at every
+    explicit RK stage, so this is the clean split path to test whether a real
+    high-order IMEX time discretization improves the current composite solver.
+    """
+    newton_kwargs = newton_kwargs or {}
+    primitive_scheme = normalise_primitive_scheme(primitive_scheme)
+    U_n, _ = prim_to_cons_W(W_n, eos1, eos2)
+    solver_fn = newton_solve_schur if schur else newton_solve
+
+    W_stages = []
+    L_E_list = []
+    L_I_list = []
+    info_stages = []
+
+    for i in range(4):
+        U_star = _accumulate_target(
+            U_n, dt, SSP3_A_E[i], SSP3_A_I[i], L_E_list, L_I_list)
+
+        kapila_source = None
+        if kapila_closure and kapila_acoustic_source:
+            from .source_d1 import D_K_kapila
+            source_anchor = W_stages[-1] if W_stages else W_n
+            kapila_source = D_K_kapila(source_anchor, eos1, eos2)
+
+        if i == 0:
+            guess = W_n
+        else:
+            guess = W_stages[-1]
+        pe_target = _pe_projection_allowed(guess, eos1, eos2)
+        U_star = _project_conservative_target_to_pe(
+            U_star, guess, eos1, eos2, alpha_pure_tol=alpha_pure_tol)
+        gamma_dt = SSP3_A_I[i][i] * dt
+        if pe_target:
+            W_i = cons_to_prim_W(
+                U_star, eos1, eos2,
+                T1_init=guess[1], T2_init=guess[2],
+                alpha_pure_tol=alpha_pure_tol,
+                tol=1e-13,
+                max_iter=50)
+            info_i = dict(
+                converged=True,
+                iter=0,
+                history=[0.0],
+                solver='pe_target_recovery')
+        else:
+            W_i, info_i = solver_fn(
+                guess, U_star, gamma_dt,
+                tuple(np.zeros_like(W_n[0]) for _ in range(5)),
+                eos1, eos2, dx, bc_l, bc_r,
+                u_inlet=u_inlet, p_inlet=p_inlet,
+                alpha_source_explicit=(kapila_source is None),
+                kapila_source=kapila_source,
+                rhie_chow=rhie_chow,
+                imp_dissipation=imp_dissipation,
+                imp_dissipation_form=imp_dissipation_form,
+                imp_compact_lap_coeff=imp_compact_lap_coeff,
+                include_explicit_residual=False,
+                pe_correct=False,
+                verbose=verbose, **newton_kwargs)
+        W_stages.append(W_i)
+        if stage_pe_relax == 'pressure':
+            W_i = relax_pressure(W_i, eos1, eos2)
+            W_stages[-1] = W_i
+        elif stage_pe_relax == 'pT':
+            W_i = relax_pT(W_i, eos1, eos2)
+            W_stages[-1] = W_i
+        elif stage_pe_relax != 'none':
+            raise ValueError(f"Unknown stage_pe_relax='{stage_pe_relax}'.")
+        info_stages.append(info_i)
+
+        L_E_i, _ = _explicit_stage_operator(
+            W_i, dt, eos1, eos2, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet,
+            mixture_kind=mixture_kind,
+            kapila_closure=kapila_closure,
+            alpha_pure_tol=alpha_pure_tol,
+            alpha_scheme=alpha_scheme,
+            primitive_scheme=primitive_scheme,
+            energy_form=energy_form,
+            energy_alpha_pure_tol=energy_alpha_pure_tol,
+            face_thermo=face_thermo,
+            positivity=positivity,
+            lo_flux=lo_flux,
+            explicit_operator=explicit_operator)
+        L_I_i = _L_I(
+            W_i, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet,
+            eos1=eos1, eos2=eos2,
+            rhie_chow=rhie_chow,
+            gamma_dt=gamma_dt,
+            imp_dissipation=imp_dissipation,
+            imp_dissipation_form=imp_dissipation_form,
+            imp_compact_lap_coeff=imp_compact_lap_coeff,
+            kapila_source=kapila_source)
+        L_E_list.append(L_E_i)
+        L_I_list.append(L_I_i)
+
+    U_next = list(np.asarray(c).copy() for c in U_n)
+    for i in range(4):
+        be = dt * SSP3_B_E[i]
+        bi = dt * SSP3_B_I[i]
+        if be != 0.0:
+            for k in range(5):
+                U_next[k] = U_next[k] - be * L_E_list[i][k]
+        if bi != 0.0:
+            for k in range(5):
+                U_next[k] = U_next[k] - bi * L_I_list[i][k]
+    U_next = tuple(U_next)
+    U_next = _project_conservative_target_to_pe(
+        U_next, W_stages[-1], eos1, eos2, alpha_pure_tol=alpha_pure_tol)
+
+    W_new = cons_to_prim_W(
+        U_next, eos1, eos2,
+        T1_init=W_stages[-1][1],
+        T2_init=W_stages[-1][2],
+        alpha_pure_tol=alpha_pure_tol,
+        tol=1e-13,
+        max_iter=50)
+    if pe_relax == 'pressure':
+        W_new = relax_pressure(W_new, eos1, eos2)
+    elif pe_relax == 'pT':
+        W_new = relax_pT(W_new, eos1, eos2)
+    elif pe_relax != 'none':
+        raise ValueError(f"Unknown pe_relax='{pe_relax}'.")
+
+    return W_new, dict(
+        time_integrator='imex_ssp3_433_stage_residual',
+        tableau='Pareschi-Russo IMEX-SSP3(4,3,3)',
+        stages=info_stages,
+        L_E=L_E_list,
+        L_I=L_I_list,
+        primitive_scheme=primitive_scheme,
+        alpha_scheme=alpha_scheme)
+
+
+def _blend_conservative_states(W_a, W_b, theta, eos1, eos2, *,
+                               alpha_pure_tol=0.0,
+                               pe_reference=None):
+    """Convex blend in conservative variables and recover primitives."""
+    U_a, _ = prim_to_cons_W(W_a, eos1, eos2)
+    U_b, _ = prim_to_cons_W(W_b, eos1, eos2)
+    U = tuple(theta * np.asarray(U_a[k]) + (1.0 - theta) * np.asarray(U_b[k])
+              for k in range(5))
+    if pe_reference is not None:
+        U = _project_conservative_target_to_pe(
+            U, pe_reference, eos1, eos2, alpha_pure_tol=alpha_pure_tol)
+    return cons_to_prim_W(
+        U, eos1, eos2,
+        T1_init=theta * np.asarray(W_a[1]) + (1.0 - theta) * np.asarray(W_b[1]),
+        T2_init=theta * np.asarray(W_a[2]) + (1.0 - theta) * np.asarray(W_b[2]),
+        alpha_pure_tol=alpha_pure_tol,
+        tol=1e-13,
+        max_iter=50)
+
+
+def _imex_ad_ssp3_transport_acoustic_cn(
+        W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
+        u_inlet=None, p_inlet=None, p_outlet=None,
+        alpha_inlet=None, T1_inlet=None, T2_inlet=None,
+        mixture_kind='kapila',
+        kapila_closure=False,
+        alpha_pure_tol=1.0e-8,
+        alpha_scheme='muscl',
+        primitive_scheme='upwind',
+        pressure_closure='regime_auto'):
+    """SSP3 material transport followed by one production acoustic CN solve."""
+    from .imex_ad import (
+        _material_update,
+        _normalise_pressure_closure,
+        _pressure_jump_high_to_low_impedance,
+        _solve_acoustic_ad,
+        _solve_acoustic_energy_ad,
+        _phase_acoustic,
+        _acoustic_faces_np,
+        _recover_pressure_from_total_energy,
+        _compressive_pressure_mask,
+        _pure_material_cell_mask,
+        _entropy_pressure_estimate,
+        _regularize_near_vacuum_velocity,
+        _primitive_lmp_effective_mode,
+        _primitive_lmp_enabled,
+        _primitive_lmp_clip,
+        _primitive_global_pressure_clip,
+        _primitive_led_filter,
+        _env_enabled,
+    )
+
+    primitive_scheme = normalise_primitive_scheme(primitive_scheme)
+    pressure_closure = _normalise_pressure_closure(pressure_closure)
+    energy_momentum_refresh = pressure_closure == 'implicit_energy_momentum'
+    pure_tol_auto = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
+    alpha_now = np.asarray(W_n[0], dtype=float)
+    single_phase_limit = (
+        float(np.min(alpha_now)) >= 1.0 - pure_tol_auto
+        or float(np.max(alpha_now)) <= pure_tol_auto
+    )
+    if single_phase_limit:
+        from .imex_ad import imex_ad_step
+        W_new, info = imex_ad_step(
+            W_n, dt, eos1, eos2, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet,
+            alpha_inlet=alpha_inlet, T1_inlet=T1_inlet, T2_inlet=T2_inlet,
+            mixture_kind=mixture_kind,
+            kapila_closure=kapila_closure,
+            alpha_pure_tol=alpha_pure_tol,
+            alpha_scheme=alpha_scheme,
+            primitive_scheme=primitive_scheme,
+            pressure_closure=pressure_closure)
+        info = dict(info)
+        info['time_integrator'] = 'imex_ad_ssp3_single_phase_acoustic_cn'
+        info['ssp3_single_phase_limit'] = True
+        return W_new, info
+    p_now = np.asarray(W_n[4], dtype=float)
+    if p_now.size > 1 and np.all(np.isfinite(p_now)):
+        p_den = np.maximum(np.maximum(np.abs(p_now[:-1]), np.abs(p_now[1:])), 1.0)
+        max_rel_p_jump = float(np.max(np.abs(np.diff(p_now)) / p_den))
+    else:
+        max_rel_p_jump = 0.0
+    if max_rel_p_jump > np.finfo(float).eps ** 0.25:
+        from .imex_ad import imex_ad_step
+        W_new, info = imex_ad_step(
+            W_n, dt, eos1, eos2, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet,
+            alpha_inlet=alpha_inlet, T1_inlet=T1_inlet, T2_inlet=T2_inlet,
+            mixture_kind=mixture_kind,
+            kapila_closure=kapila_closure,
+            alpha_pure_tol=alpha_pure_tol,
+            alpha_scheme=alpha_scheme,
+            primitive_scheme=primitive_scheme,
+            pressure_closure=pressure_closure)
+        info = dict(info)
+        info['time_integrator'] = 'imex_ad_ssp3_pressure_jump_acoustic_cn'
+        info['ssp3_pressure_jump_limit'] = True
+        info['max_rel_p_jump'] = max_rel_p_jump
+        return W_new, info
+    if pressure_closure == 'regime_auto':
+        has_immiscible_interface = (
+            float(np.min(alpha_now)) <= pure_tol_auto
+            and float(np.max(alpha_now)) >= 1.0 - pure_tol_auto
+        )
+        if has_immiscible_interface:
+            if _pressure_jump_high_to_low_impedance(
+                    W_n, eos1, eos2, mixture_kind=mixture_kind,
+                    alpha_pure_tol=alpha_pure_tol):
+                pressure_closure = 'implicit_energy'
+                energy_momentum_refresh = True
+            else:
+                pressure_closure = 'pressure_work_consistent'
+        else:
+            pressure_closure = 'implicit_energy'
+
+    kapila_source_mode = os.environ.get(
+        "FIVE_EQ_IMEX_KAPILA_SOURCE_MODE", "mixed_path")
+    kapila_source_mode = str(kapila_source_mode).strip().lower().replace("-", "_")
+    if kapila_source_mode in ('mixture_path', 'true_mixture_path'):
+        kapila_source_mode = 'mixed_path'
+    elif kapila_source_mode in ('mixed', 'true_mixture', 'mixture_trapezoid'):
+        kapila_source_mode = 'mixed_trapezoid'
+    elif kapila_source_mode in ('immiscible', 'interface_preserving'):
+        kapila_source_mode = 'immiscible_trapezoid'
+    material_energy_form = 'apec' if pressure_closure == 'apec_pe' else 'allaire'
+
+    def material_euler(W_anchor):
+        U_mat = _material_update(
+            W_anchor, dt, eos1, eos2, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet,
+            alpha_inlet=alpha_inlet, T1_inlet=T1_inlet, T2_inlet=T2_inlet,
+            mixture_kind=mixture_kind,
+            kapila_closure=kapila_closure,
+            alpha_pure_tol=alpha_pure_tol,
+            alpha_scheme=alpha_scheme,
+            primitive_scheme=primitive_scheme,
+            kapila_source_mode=kapila_source_mode,
+            material_energy_form=material_energy_form,
+            return_aux=False)
+        U_mat = tuple(np.asarray(c, dtype=float) for c in U_mat)
+        U_mat = _project_conservative_target_to_pe(
+            U_mat, W_anchor, eos1, eos2, alpha_pure_tol=alpha_pure_tol)
+        return cons_to_prim_W(
+            U_mat, eos1, eos2,
+            T1_init=W_anchor[1],
+            T2_init=W_anchor[2],
+            alpha_pure_tol=alpha_pure_tol,
+            tol=1e-13,
+            max_iter=50)
+
+    W1 = material_euler(W_n)
+    W2_euler = material_euler(W1)
+    pe_ref = W_n if _pe_projection_allowed(W_n, eos1, eos2) else None
+    W2 = _blend_conservative_states(
+        W_n, W2_euler, 0.75, eos1, eos2,
+        alpha_pure_tol=alpha_pure_tol,
+        pe_reference=pe_ref)
+    W3_euler = material_euler(W2)
+    W_adv = _blend_conservative_states(
+        W_n, W3_euler, 1.0 / 3.0, eos1, eos2,
+        alpha_pure_tol=alpha_pure_tol,
+        pe_reference=pe_ref)
+
+    U_adv, _ = prim_to_cons_W(W_adv, eos1, eos2)
+    q1_new = np.asarray(U_adv[0], dtype=float)
+    q2_new = np.asarray(U_adv[1], dtype=float)
+    m_adv = np.asarray(U_adv[2], dtype=float)
+    rhoE_new = np.asarray(U_adv[3], dtype=float)
+    alpha_new = np.clip(np.asarray(U_adv[4], dtype=float), 1.0e-12, 1.0 - 1.0e-12)
+
+    if pressure_closure in ('implicit_energy', 'implicit_energy_momentum', 'apec_pe'):
+        u_new, p_new = _solve_acoustic_energy_ad(
+            W_n, q1_new, q2_new, m_adv, rhoE_new, alpha_new, dt,
+            eos1, eos2, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet,
+            mixture_kind=mixture_kind,
+            alpha_pure_tol=alpha_pure_tol,
+            primitive_scheme=primitive_scheme,
+            momentum_refresh=energy_momentum_refresh)
+        _, _, Z = _phase_acoustic(
+            W_n, eos1, eos2, mixture_kind=mixture_kind,
+            alpha_pure_tol=alpha_pure_tol)
+        p_f, u_f = _acoustic_faces_np(
+            u_new, p_new, Z, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet)
+        rhoE_new = rhoE_new - dt * (
+            p_f[1:] * u_f[1:] - p_f[:-1] * u_f[:-1]) / dx
+    else:
+        u_new, p_new = _solve_acoustic_ad(
+            W_n, q1_new, q2_new, m_adv, alpha_new, dt,
+            eos1, eos2, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet,
+            mixture_kind=mixture_kind,
+            alpha_pure_tol=alpha_pure_tol,
+            primitive_scheme=primitive_scheme)
+        if pressure_closure == 'compressive_recovery':
+            recovery_mask = _compressive_pressure_mask(W_n)
+            if alpha_pure_tol > 0.0:
+                pure_tol = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
+                recovery_mask = recovery_mask & ~_pure_material_cell_mask(
+                    W_n[0], pure_tol)
+            if np.any(recovery_mask):
+                p_recovered = _recover_pressure_from_total_energy(
+                    q1_new, q2_new, rhoE_new, alpha_new, u_new, p_new,
+                    eos1, eos2)
+                p_new = np.where(recovery_mask, p_recovered, p_new)
+        elif pressure_closure == 'pressure_work_consistent':
+            _, _, Z = _phase_acoustic(
+                W_n, eos1, eos2, mixture_kind=mixture_kind,
+                alpha_pure_tol=alpha_pure_tol)
+            p_f, u_f = _acoustic_faces_np(
+                u_new, p_new, Z, bc_l, bc_r,
+                u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet)
+            rhoE_new = rhoE_new - dt * (
+                p_f[1:] * u_f[1:] - p_f[:-1] * u_f[:-1]) / dx
+            if _env_enabled("FIVE_EQ_IMEX_PW_PURE_SHOCK_RECOVERY", "1"):
+                recovery_mask = _compressive_pressure_mask(W_n)
+                pure_tol = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
+                recovery_mask = recovery_mask & ~_pure_material_cell_mask(
+                    W_n[0], pure_tol)
+                if np.any(recovery_mask):
+                    p_recovered = _recover_pressure_from_total_energy(
+                        q1_new, q2_new, rhoE_new, alpha_new, u_new, p_new,
+                        eos1, eos2)
+                    p_new = np.where(recovery_mask, p_recovered, p_new)
+        elif pressure_closure == 'dual_entropy':
+            entropy_mask = _compressive_pressure_mask(W_n)
+            p_entropy = _entropy_pressure_estimate(
+                W_n, q1_new, q2_new, alpha_new, p_new, eos1, eos2)
+            p_new = np.where(entropy_mask, p_entropy, p_new)
+
+    u_new, vacuum_velocity_mask = _regularize_near_vacuum_velocity(
+        W_n, q1_new, q2_new, u_new, p_new, eos1, eos2,
+        mixture_kind=mixture_kind,
+        alpha_pure_tol=alpha_pure_tol,
+        bc_l=bc_l, bc_r=bc_r)
+    lmp_mode = _primitive_lmp_effective_mode(W_n)
+    if _primitive_lmp_enabled(lmp_mode):
+        if lmp_mode in {"stencil", "local_stencil", "old"}:
+            u_new, p_new = _primitive_lmp_clip(W_n, u_new, p_new, bc_l, bc_r)
+        elif lmp_mode in {"global_p", "pressure_global", "p_global"}:
+            u_new, p_new = _primitive_global_pressure_clip(W_n, u_new, p_new)
+        else:
+            u_new, p_new = _primitive_led_filter(
+                u_new, p_new, bc_l, bc_r, mode=lmp_mode)
+
+    rho1_new = q1_new / np.maximum(alpha_new, 1.0e-12)
+    rho2_new = q2_new / np.maximum(1.0 - alpha_new, 1.0e-12)
+    e1_new = eos1.energy(rho1_new, p_new)
+    e2_new = eos2.energy(rho2_new, p_new)
+    T1_new = eos1.temperature(rho1_new, e1_new)
+    T2_new = eos2.temperature(rho2_new, e2_new)
+    return (
+        alpha_new, T1_new, T2_new, u_new, p_new
+    ), {
+        'time_integrator': 'imex_ad_ssp3_transport_acoustic_cn',
+        'scheme': 'ssp3_material_transport_plus_cn_acoustic',
+        'pressure_closure': pressure_closure,
+        'primitive_scheme': primitive_scheme,
+        'alpha_scheme': alpha_scheme,
+        'kapila_source_mode': kapila_source_mode,
+        'material_energy_form': material_energy_form,
+        'vacuum_velocity_cells': int(np.count_nonzero(vacuum_velocity_mask)),
+    }
+
+
+def imex_ad_ssp3_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
+                      u_inlet=None, p_inlet=None, p_outlet=None,
+                      alpha_inlet=None, T1_inlet=None, T2_inlet=None,
+                      mixture_kind='kapila',
+                      kapila_closure=False,
+                      alpha_pure_tol=1.0e-8,
+                      alpha_scheme='muscl',
+                      primitive_scheme='upwind',
+                      pressure_closure='regime_auto',
+                      **_unused):
+    scope = os.environ.get("FIVE_EQ_IMEX_SSP3_SCOPE", "transport_acoustic_cn")
+    scope = str(scope).strip().lower().replace("-", "_")
+    if scope in {"transport", "material", "transport_acoustic_cn",
+                 "material_acoustic_cn", "single_acoustic"}:
+        return _imex_ad_ssp3_transport_acoustic_cn(
+            W_n, dt, eos1, eos2, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet,
+            alpha_inlet=alpha_inlet, T1_inlet=T1_inlet, T2_inlet=T2_inlet,
+            mixture_kind=mixture_kind,
+            kapila_closure=kapila_closure,
+            alpha_pure_tol=alpha_pure_tol,
+            alpha_scheme=alpha_scheme,
+            primitive_scheme=primitive_scheme,
+            pressure_closure=pressure_closure)
+    if scope not in {"full_step", "shu_osher_full", "full_imex"}:
+        raise ValueError(
+            "FIVE_EQ_IMEX_SSP3_SCOPE must be 'transport_acoustic_cn' or "
+            "'full_step'.")
+    """Shu-Osher SSP3 composition of the production all-Mach IMEX step.
+
+    The stage map ``G`` is the same numerically stable all-Mach update used by
+    the accepted solver path: material/advection fluxes plus the implicit
+    acoustic pressure solve.  Convex combinations are done in conservative
+    variables, preserving the SSP/TVD contract of the stage map.  On p/u-flat
+    material-contact states, the conservative blends are projected back onto
+    the pressure-equilibrium manifold so that SSP sub-staging does not create
+    an EOS pressure defect.
+    """
+    from .imex_ad import imex_ad_step
+
+    primitive_scheme = normalise_primitive_scheme(primitive_scheme)
+
+    def G(W):
+        W_next, info = imex_ad_step(
+            W, dt, eos1, eos2, dx, bc_l, bc_r,
+            u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet,
+            alpha_inlet=alpha_inlet, T1_inlet=T1_inlet, T2_inlet=T2_inlet,
+            mixture_kind=mixture_kind,
+            kapila_closure=kapila_closure,
+            alpha_pure_tol=alpha_pure_tol,
+            alpha_scheme=alpha_scheme,
+            primitive_scheme=primitive_scheme,
+            pressure_closure=pressure_closure)
+        return W_next, info
+
+    pe_ref = W_n if _pe_projection_allowed(W_n, eos1, eos2) else None
+    W1, info1 = G(W_n)
+    W2_star, info2 = G(W1)
+    W2 = _blend_conservative_states(
+        W_n, W2_star, 0.75, eos1, eos2,
+        alpha_pure_tol=alpha_pure_tol,
+        pe_reference=pe_ref)
+    W3_star, info3 = G(W2)
+    W_new = _blend_conservative_states(
+        W_n, W3_star, 1.0 / 3.0, eos1, eos2,
+        alpha_pure_tol=alpha_pure_tol,
+        pe_reference=pe_ref)
+    return W_new, dict(
+        time_integrator='imex_ad_ssp3_shu_osher',
+        tableau='Shu-Osher SSPRK3 conservative composition of imex_ad_step',
+        stages=[info1, info2, info3],
+        primitive_scheme=primitive_scheme,
+        alpha_scheme=alpha_scheme)
 
 
 def strang_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, **kwargs):

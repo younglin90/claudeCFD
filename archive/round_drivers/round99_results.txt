@@ -1,0 +1,4 @@
+07 argon-air theta=1.00: L2p=0.135 Lip=0.485 L2u=0.183 Liu=0.650 fin=True FAIL wall=22.0s
+07 argon-air theta=0.85: L2p=0.135 Lip=0.485 L2u=0.183 Liu=0.650 fin=True FAIL wall=22.1s
+07 argon-air theta=0.70: L2p=0.135 Lip=0.485 L2u=0.183 Liu=0.650 fin=True FAIL wall=21.9s
+07 argon-air theta=0.55: L2p=0.135 Lip=0.485 L2u=0.183 Liu=0.650 fin=True FAIL wall=21.9s

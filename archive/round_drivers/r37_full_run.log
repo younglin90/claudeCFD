@@ -1,0 +1,57 @@
+
+[01] SG static (imex_5n)
+/home/younglin90/work/claude_code/claudeCFD/solver/He2024/explicit_mmacm_ex.py:988: RuntimeWarning: invalid value encountered in divide
+  nd = np.where(np.abs(dAU) > _eps, (aD - aU) / dAU, 0.5)
+Done: 712 steps, t=1.0000e-03
+  saved: /home/younglin90/work/claude_code/claudeCFD/results/all_26_plots/case_01_result.png
+  PASS wall=0.64s err_p=3.576e-12 err_u=0.000e+00 L1_p=1.79e-12 osc=2.55e-13
+
+[02] Abgrall NASG advection (imex_5n)
+Done: 50 steps, t=1.0000e+00
+  saved: /home/younglin90/work/claude_code/claudeCFD/results/all_26_plots/case_02_result.png
+  PASS wall=0.23s err_p=3.816e-13 err_u=0.000e+00 L1_p=7.63e-14 L1_u=0.00e+00 osc=1.35e-13
+
+[03] Low-Mach pulse water (imex_5n)
+/home/younglin90/work/claude_code/claudeCFD/solver/He2024/explicit_mmacm_ex.py:988: RuntimeWarning: divide by zero encountered in divide
+  nd = np.where(np.abs(dAU) > _eps, (aD - aU) / dAU, 0.5)
+Done: 214 steps, t=3.0000e-04
+  saved: /home/younglin90/work/claude_code/claudeCFD/results/all_26_plots/case_03_result.png
+  PASS wall=2.11s err_p=4.956e-06 err_u=2.974e-07 L1_p=2.90e-07 osc=8.35e-09
+
+[04] Air 2kHz acoustic (imex_5n_riemann, N=200)
+Done: 402 steps, t=2.3000e-03
+  saved: /home/younglin90/work/claude_code/claudeCFD/results/all_26_plots/case_04_result.png
+  PASS wall=4.03s dp_meas=3.38 λ_meas=0.175(th=0.174) L2_p=1.22e-05 osc=1.68e-08
+
+[05] Water 6kHz acoustic (imex_5n+RK2, N=100)
+Done: 217 steps, t=6.5000e-04
+  saved: /home/younglin90/work/claude_code/claudeCFD/results/all_26_plots/case_05_result.png
+  PASS wall=1.13s dp_meas=11854 λ_meas=0.223(th=0.224) L2_p=3.98e-02 osc=2.32e-04
+
+[06] Impedance match Z=423.588 (imex_5n, N=200, PE preservation)
+Done: 550 steps, t=3.3000e-03
+  saved: /home/younglin90/work/claude_code/claudeCFD/results/all_26_plots/case_06_result.png
+  PASS wall=17.49s Z_L=420.83 Z_R=420.86 pe_rel=1.46e-16 L1_p=7.28e-17 osc=1.03e-17
+
+[07] Reflection/Transmission 3 sub-cases (imex_5n)
+  [1] Air-Water: x_intf=0.5 σ=0.014 Z_L=402.4 Z_R=1.34e+06 R=+0.999 T=+1.999
+Done: 484 steps, t=1.6300e-03
+      wall=138.81s L2p/A=1.60e+03 L2u/A=1.55e+01 Lip/A=3.70e+03 Liu/A=5.74e+01 frac_p=0.05 frac_u=0.22 L1p=5.65e+03 L1u=2.91e+02 corr_p=0.64 corr_u=0.43 sign=True osc=1.00e-02 FAIL
+  [2] Helium-Air: x_intf=1.0 σ=0.049 Z_L=165.3 Z_R=4.02e+02 R=+0.418 T=+1.418
+Done: 339 steps, t=1.5130e-03
+      wall=97.36s L2p/A=1.56e-01 L2u/A=8.52e-02 Lip/A=1.01e+00 Liu/A=4.13e-01 frac_p=0.97 frac_u=0.99 L1p=9.69e-01 L1u=9.22e-01 corr_p=0.72 corr_u=0.77 sign=True osc=1.01e-07 FAIL
+  [3] Argon-Air: x_intf=0.5 σ=0.038 Z_L=538.7 Z_R=4.02e+02 R=-0.145 T=+0.855
+Done: 157 steps, t=2.0200e-03
+      wall=44.89s L2p/A=1.11e-01 L2u/A=1.45e-01 Lip/A=4.56e-01 Liu/A=6.10e-01 frac_p=0.96 frac_u=0.95 L1p=9.24e-01 L1u=9.20e-01 corr_p=0.85 corr_u=0.84 sign=True osc=1.53e-07 FAIL
+  saved: /home/younglin90/work/claude_code/claudeCFD/results/all_26_plots/case_07_result.png
+  Overall: FAIL total_wall=281.1s
+
+============================================================
+Total wall: 309.7s
+Case 01: PASS            wall=0.6s
+Case 02: PASS            wall=0.2s
+Case 03: PASS            wall=2.1s
+Case 04: PASS            wall=4.0s
+Case 05: PASS            wall=1.1s
+Case 06: PASS            wall=17.5s
+Case 07: FAIL            wall=281.1s

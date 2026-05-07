@@ -262,6 +262,10 @@ def _tvd_slope_1d(d_up, d_down, kind):
     if kind in {"mc", "monotonized_central", "monotonised_central"}:
         return np.sign(d_down) * min(
             2.0 * abs(d_up), 0.5 * abs(d_up + d_down), 2.0 * abs(d_down))
+    if kind in {"umist"}:
+        r = d_down / d_up
+        psi = max(0.0, min(2.0 * r, 0.25 + 0.75 * r, 0.75 + 0.25 * r, 2.0))
+        return psi * d_up
     # Smooth default: van Leer harmonic limiter.
     return 2.0 * d_up * d_down / (d_up + d_down)
 
@@ -361,7 +365,7 @@ def _thinc_alpha_face(alpha_ext, u_face):
     return np.clip(face, 0.0, 1.0)
 
 
-def _thinc_bvd_alpha_face(alpha_ext, u_face, dt, dx):
+def _thinc_bvd_alpha_face(alpha_ext, u_face, dt, dx, *, tvd_kind=None):
     """THINC-BVD alpha flux with a MUSCL-Hancock smooth candidate.
 
     The old ``thinc_bvd`` path was only THINC.  That is too compressive for
@@ -373,7 +377,7 @@ def _thinc_bvd_alpha_face(alpha_ext, u_face, dt, dx):
     """
     alpha_ext = np.asarray(alpha_ext, dtype=float)
     u_face = np.asarray(u_face, dtype=float)
-    tvd_kind = (
+    tvd_kind = tvd_kind or (
         os.environ.get("FIVE_EQ_IMEX_ALPHA_TVD")
         or os.environ.get("FIVE_EQ_IMEX_TMLPU_TVD")
         or "vanleer"
@@ -403,7 +407,45 @@ def _thinc_bvd_alpha_face(alpha_ext, u_face, dt, dx):
     return np.clip(face, 0.0, 1.0)
 
 
-def _alpha_face(alpha_ext, u_face, dt, dx, alpha_scheme):
+def _adaptive_bvd_alpha_face(alpha_ext, u_face, dt, dx, *, tvd_kind=None,
+                             alpha_pure_tol=None):
+    """Regime-consistent alpha BVD flux for sharp contacts and smooth waves.
+
+    The candidate set is fixed for every case:
+
+    * no phase-pure cells: THINC-BVD smooth-mixture transport, which suppresses
+      checkerboard-like wiggle in thermal-wave mixture states;
+    * one phase-pure side only: STACS/SUPERBEE NVD transport, a bounded
+      compressive high-resolution branch that preserves localized one-sided
+      smooth volume-fraction pulses better than plain van-Leer without using a
+      case sensor;
+    * both phase-pure sides present in the domain: MSTACS compression, so true
+      VOF material interfaces remain sharp throughout long advection.
+
+    This is a single alpha method selected by volume-fraction topology, not by
+    validation case id or by flow-variable tuning.
+    """
+    alpha_ext = np.asarray(alpha_ext, dtype=float)
+    u_face = np.asarray(u_face, dtype=float)
+    pure_tol = max(
+        np.finfo(float).eps ** 0.25,
+        1.0e-12 if alpha_pure_tol is None else float(alpha_pure_tol))
+    interior = alpha_ext[1:-1] if alpha_ext.size > 2 else alpha_ext
+    pure_band = pure_tol * (1.0 + 1.0e-9) + 1.0e-15
+    has_low_pure = bool(np.min(interior) <= pure_band)
+    has_high_pure = bool(np.max(interior) >= 1.0 - pure_band)
+
+    if not (has_low_pure or has_high_pure):
+        return _thinc_bvd_alpha_face(alpha_ext, u_face, dt, dx, tvd_kind=tvd_kind)
+
+    if has_low_pure and has_high_pure:
+        return _mstacs_alpha_face(alpha_ext, u_face, dt, dx)
+    return _stacs_alpha_face(alpha_ext, u_face)
+
+
+def _alpha_face(alpha_ext, u_face, dt, dx, alpha_scheme, *, tvd_kind=None,
+                alpha_pure_tol=None):
+    alpha_scheme = str(alpha_scheme).strip().lower().replace("-", "_")
     if alpha_scheme == 'cicsam':
         return _cicsam_alpha_face(alpha_ext, u_face, dt, dx)
     if alpha_scheme == 'mstacs':
@@ -413,7 +455,11 @@ def _alpha_face(alpha_ext, u_face, dt, dx, alpha_scheme):
     if alpha_scheme in ('vanleer', 'tvd_vanleer'):
         return _vanleer_alpha_face(alpha_ext, u_face)
     if alpha_scheme in ('thinc_bvd', 'thinc-bvd'):
-        return _thinc_bvd_alpha_face(alpha_ext, u_face, dt, dx)
+        return _thinc_bvd_alpha_face(alpha_ext, u_face, dt, dx, tvd_kind=tvd_kind)
+    if alpha_scheme in ('adaptive_bvd', 'adaptive_alpha_bvd', 'bvd_adaptive'):
+        return _adaptive_bvd_alpha_face(
+            alpha_ext, u_face, dt, dx,
+            tvd_kind=tvd_kind, alpha_pure_tol=alpha_pure_tol)
     if alpha_scheme == 'thinc':
         return _thinc_alpha_face(alpha_ext, u_face)
     if alpha_scheme in ('upwind', 'muscl', 'limited', 'central'):
@@ -426,6 +472,8 @@ def _alpha_face(alpha_ext, u_face, dt, dx, alpha_scheme):
 
 def explicit_rusanov_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
                           u_inlet=None, p_inlet=None,
+                          p_outlet=None,
+                          alpha_inlet=None, T1_inlet=None, T2_inlet=None,
                           mixture_kind='kapila',
                           kapila_closure=False,
                           alpha_pure_tol=0.0,
@@ -444,6 +492,10 @@ def explicit_rusanov_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
 
     W_ext = extend_W(W_n, bc_l, bc_r, ng=1,
                      u_inlet_l=u_inlet, p_inlet_l=p_inlet,
+                     p_inlet_r=p_outlet,
+                     alpha_inlet_l=alpha_inlet,
+                     T1_inlet_l=T1_inlet,
+                     T2_inlet_l=T2_inlet,
                      eos1=eos1, eos2=eos2)
     U_ext, _ = prim_to_cons_W(W_ext, eos1, eos2)
     s_ext = _signal_speed(
@@ -465,8 +517,13 @@ def explicit_rusanov_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     u_star = (p_L - p_R + Z_L * u_L + Z_R * u_R) / den
 
     upwind_left = u_star >= 0.0
-    if alpha_scheme in ('cicsam', 'stacs', 'superbee', 'vanleer', 'tvd_vanleer'):
-        alpha_f = np.clip(_alpha_face(W_ext[0], u_star, dt, dx, alpha_scheme),
+    if alpha_scheme in (
+            'cicsam', 'stacs', 'superbee', 'vanleer', 'tvd_vanleer',
+            'adaptive_bvd', 'adaptive-alpha-bvd', 'adaptive_alpha_bvd',
+            'bvd_adaptive'):
+        alpha_f = np.clip(_alpha_face(
+                              W_ext[0], u_star, dt, dx, alpha_scheme,
+                              alpha_pure_tol=alpha_pure_tol),
                           1.0e-12, 1.0 - 1.0e-12)
         # Keep conservative phase mass/momentum on one monotone material flux;
         # the sharp-interface method is applied to the alpha equation itself.
@@ -474,7 +531,9 @@ def explicit_rusanov_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         q2_f = np.where(upwind_left, U_ext[1][:-1], U_ext[1][1:])
         m_f = np.where(upwind_left, U_ext[2][:-1], U_ext[2][1:])
     else:
-        alpha_f = _alpha_face(W_ext[0], u_star, dt, dx, alpha_scheme)
+        alpha_f = _alpha_face(
+            W_ext[0], u_star, dt, dx, alpha_scheme,
+            alpha_pure_tol=alpha_pure_tol)
         q1_f = np.where(upwind_left, U_ext[0][:-1], U_ext[0][1:])
         q2_f = np.where(upwind_left, U_ext[1][:-1], U_ext[1][1:])
         m_f = np.where(upwind_left, U_ext[2][:-1], U_ext[2][1:])

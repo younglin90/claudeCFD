@@ -367,7 +367,9 @@ def explicit_residual(W_anchor, eos1, eos2, dx, bc_l, bc_r, *,
         face = face_state(W_anchor, eos1, eos2, bc_l, bc_r,
                           alpha_scheme=alpha_scheme,
                           primitive_scheme=primitive_scheme,
-                          face_thermo=face_thermo)
+                          face_thermo=face_thermo,
+                          dt=dt,
+                          dx=dx)
         flx = advective_fluxes(face, eos1, eos2, energy_form=energy_form,
                                energy_alpha_pure_tol=energy_alpha_pure_tol)
 

@@ -9,7 +9,7 @@ from .base import compute_phase_props
 
 
 def invert_eos(psi, rho_target, E_target, p_guess, T_guess, ph1, ph2,
-               tol=1e-12, max_iter=20):
+               tol=1e-10, max_iter=50):
     """
     Recover (p, T) from conserved mixture state (psi, rho, E_int).
 

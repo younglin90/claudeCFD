@@ -1,0 +1,3 @@
+07 air-water  : L2p=0.522 Lip=1.999 L2u=0.182 Liu=0.999 fin=True FAIL wall=31.2s
+07 helium-air : L2p=0.224 Lip=1.417 L2u=0.319 Liu=1.155 fin=True FAIL wall=28.7s
+07 argon-air  : L2p=0.195 Lip=0.855 L2u=0.335 Liu=1.145 fin=True FAIL wall=12.9s

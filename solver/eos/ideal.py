@@ -76,8 +76,8 @@ class IdealGasEOS:
         """(∂p/∂T)_rho = rho * R_s"""
         return rho * self.R_s
 
-    def dp_drho(self, T: float) -> float:
-        """(∂p/∂rho)_T = R_s * T"""
+    def dp_drho(self, rho: float, T: float) -> float:
+        """(∂p/∂rho)_T = R_s * T  (rho argument unused for ideal gas, kept for API uniformity)"""
         return self.R_s * T
 
     def de_dT(self) -> float:
@@ -113,6 +113,6 @@ class IdealGasEOS:
             (∂p/∂T)_rho for the mixture [Pa/K].
         """
         drhoE_drho_i_T = self.drho_e_drho_i_T(rho, T)
-        dp_drho_i_T = self.dp_drho(T)
+        dp_drho_i_T = self.dp_drho(rho, T)
         eps_i = drhoE_drho_i_T - (rho_cv_mix / dp_dT_mix) * dp_drho_i_T
         return eps_i

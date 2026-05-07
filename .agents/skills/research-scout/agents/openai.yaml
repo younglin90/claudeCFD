@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Scout"
+  short_description: "Find candidate CFD papers and rank implementable methods."
+  default_prompt: "Search for relevant multiphase CFD research ideas and write pipeline/scout_report.json."

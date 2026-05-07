@@ -195,7 +195,7 @@ class SRKEOS:
     # Ref: docs/APEC_flux.md εᵢ 계산 (Eq.(49)~(51))
     # ------------------------------------------------------------------
 
-    def dp_dT_v(self, rho: float, T: float) -> float:
+    def dp_dT(self, rho: float, T: float) -> float:
         """
         (∂p/∂T)_v = R_s/(v - b_kg) - a_kg*dalpha/dT / (v*(v + b_kg))
         """
@@ -203,7 +203,12 @@ class SRKEOS:
         dalp = self._dalpha_dT(T)
         return self.R_s / (v - self.b_kg) - self.a_kg * dalp / (v * (v + self.b_kg))
 
-    def dp_drho_T(self, rho: float, T: float) -> float:
+    # Keep old name as alias for backward compatibility
+    def dp_dT_v(self, rho: float, T: float) -> float:
+        """Alias for dp_dT (deprecated name)."""
+        return self.dp_dT(rho, T)
+
+    def dp_drho(self, rho: float, T: float) -> float:
         """
         (∂p/∂rho)_T = -(1/rho^2) * (dp/dv)_T converted:
 
@@ -218,6 +223,11 @@ class SRKEOS:
         num1 = self.R_s * T / (1.0 - bk * rho) ** 2
         num2 = self.a_kg * alp * (2.0 * rho * (1.0 + bk * rho) - bk * rho ** 2) / (1.0 + bk * rho) ** 2
         return num1 - num2
+
+    # Keep old name as alias for backward compatibility
+    def dp_drho_T(self, rho: float, T: float) -> float:
+        """Alias for dp_drho (deprecated name)."""
+        return self.dp_drho(rho, T)
 
     def drho_e_drho_i_T(self, rho: float, T: float) -> float:
         """
@@ -251,6 +261,6 @@ class SRKEOS:
         εᵢ = (∂ρe/∂ρᵢ)_T - (ρ Cᵥ_mix / (∂p/∂T)_mix) * (∂p/∂ρᵢ)_T
         """
         drhoE_drho_i_T = self.drho_e_drho_i_T(rho, T)
-        dp_drho_i_T = self.dp_drho_T(rho, T)
+        dp_drho_i_T = self.dp_drho(rho, T)
         eps_i = drhoE_drho_i_T - (rho_cv_mix / dp_dT_mix) * dp_drho_i_T
         return eps_i

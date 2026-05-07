@@ -478,9 +478,15 @@ This section records the active acceptance used for the current `solver/five_eq_
 autoresearch pass.  The frozen `validation/1D/` source specs are not edited here.
 
 Common numerical path:
-- Time integrator: `FIVE_EQ_IMEX_TIME_INTEGRATOR=imex_ad`.
+- Time integrator: `FIVE_EQ_IMEX_TIME_INTEGRATOR=imex_ssp3`.
 - Uniform periodic remap disabled: `FIVE_EQ_IMEX_UNIFORM_PERIODIC_REMAP=0`.
-- Alpha interface capturing: `FIVE_EQ_IMEX_ALPHA_SCHEME=thinc_bvd`.
+- Alpha interface capturing: `FIVE_EQ_IMEX_ALPHA_SCHEME=adaptive_bvd`.
+  The topology selector uses alpha pure-cell structure, not validation case id:
+  both pure phases present -> MSTACS compressive NVD; one pure side present ->
+  STACS/SUPERBEE NVD transport; no pure phase -> THINC-BVD smooth-mixture
+  transport.  This keeps 02/07/13/14/16 sharp, preserves 17 Gaussian amplitude
+  better than plain van-Leer, and suppresses 18 smooth alpha/rho wiggle with one
+  consistent alpha method.
 - Primitive reconstruction: `FIVE_EQ_IMEX_PRIMITIVE_SCHEME=tmlpu` with
   `FIVE_EQ_IMEX_TMLPU_TVD=superbee`.
 - Material/advection flux: `FIVE_EQ_IMEX_MATERIAL_FLUX=slau2`.
@@ -488,7 +494,12 @@ Common numerical path:
 - Mixture rho-alpha preservation default is `auto`: preserve scalar-TVD mixture
   rho/Y near pure or immiscible faces, but disable preservation on homogeneous
   mixture faces.
-- Kapila alpha source default in `imex_ad` is `mixed_path`: path-conservative
+- Pressure closure default is `regime_auto`.  For stiff-to-soft material
+  pressure jumps, the auto selector now uses `compressive_recovery` instead of
+  the fully global final-pressure momentum/energy path.  This keeps the
+  conservative pressure recovery on resolved compression waves while avoiding
+  over-coupling of the post-contact density plateau in 14_E.
+- Kapila alpha source default in the current IMEX path is `mixed_path`: path-conservative
   source is used only on resolved homogeneous-mixture stencils; immiscible
   interface and pure-material stencils keep the hybrid source path.  This fixes
   the case-24 homogeneous-mixture shock rho plateau without shifting the
@@ -498,28 +509,77 @@ Acceptance adjustments retained:
 - `02_A`: N=100, `dt_fixed=0.01`, `t_end=1.0`; pressure/velocity tolerances are
   strict and alpha/rho contact preservation now also requires range ratio,
   correlation, and normalized L1 checks.
-- `07_B`: Air-Water uses `N=400` by default because the large impedance jump made
-  the transmitted/reflected acoustic peaks visibly under-resolved and diffusive
-  at `N=200`.  Helium-Air and Argon-Air remain at `N=200` unless
-  `FIVE_EQ_CASE07_N` overrides all 07 subcases.  Air-Water can be overridden
-  independently with `FIVE_EQ_CASE07_N_AIR_WATER`.
+- `05_B`: default grid is `N=400`.  NASG water acoustic wave peak amplitude is a strict PASS quantity.
+  The centered `rho`, `u`, and `p` wave peak amplitudes must each remain within
+  `[0.98, 1.02]` of the linear-acoustic exact amplitude.  Matching only phase,
+  wavelength, or correlation is not sufficient if numerical diffusion lowers
+  the peak below 98% or overshoot raises it above 102%.
+- `07_B`: all subcases use `N=400` by default under the tightened
+  low-diffusion/peak-amplitude gate.  Air-Water was already under-resolved at
+  `N=200`; the same tightened peak-amplitude and local symmetry criteria also
+  make Helium-Air marginal at `N=200`.  `FIVE_EQ_CASE07_N` can still override
+  all 07 subcases, and `FIVE_EQ_CASE07_N_AIR_WATER` can override Air-Water
+  independently.
+- Primitive acoustic LMP default is `FIVE_EQ_IMEX_PRIMITIVE_LMP=auto`.  The
+  a-posteriori LED/LMP filter is retained when the old-time pressure stencil
+  contains a discontinuity-sized pressure jump, using the existing
+  machine-epsilon based `eps**0.25` relative-jump criterion.  It is disabled
+  for pressure-equilibrium and small-amplitude linear acoustic transport, where
+  LED was clipping smooth extrema and causing excessive 07-B numerical
+  diffusion.  This is a physics/regime consistency switch, not a case-specific
+  coefficient.
 - `07_B`: peak location remains strict within 3 cells and high-frequency
-  oscillation/checkerboard rejection remains active.  Finite-grid diffusion is
-  allowed in the global Linf profile only; Air-Water uses `Lip < 0.98` while the
-  other subcases use `Linf < 1.00`.  L2, L1, correlation, fraction-in-band, peak,
-  and HF guards must still pass.  In addition, each significant local acoustic
+  oscillation/checkerboard rejection remains active.  The exact-profile gate is
+  tightened to reject excessive acoustic diffusion: `L2p,L2u < 0.20`, normalized
+  `Linf < 0.75` for gas-gas and `< 0.70` for Air-Water, normalized `L1 < 0.60`,
+  fraction-in-band >= `0.80`, and correlation > `0.90`.  Location-only peak
+  matching is not sufficient: the absolute p and u peak amplitudes must also
+  remain within `[0.85, 1.15]` of the exact peak.  In addition, each significant
+  local acoustic
   wave in `p` and `u` must remain approximately left/right symmetric about its
   numerical peak: the exact local wave envelope defines the support, and the
-  normalized left-right asymmetry must remain <= `0.36`.  The `0.36` limit is
-  the minimal finite-grid relaxation needed for Argon-Air under the retained
-  acoustic WAF + van Leer limiter while preserving the stricter peak-location
-  and HF guards.
+  normalized left-right asymmetry must remain <= `0.36` for all 07 subcases,
+  including Air-Water.  Small finite-volume broadening is allowed, but peak
+  attenuation is now a PASS failure rather than only a visual diagnostic.
+- `18_T`: alpha/rho smooth-wave wiggle is now judged by stricter local maximum
+  guards, not only integral diffusion/error.  The case fails if alpha local HF
+  error exceeds `4e-3`, rho local HF error exceeds `8e-3`, alpha local TV excess
+  exceeds `9e-3`, or rho local TV excess exceeds `1.8e-2`.
 - `13_E`: smooth-region exact errors for rho/p/u are checked with shock/contact
   exclusion windows; contact-region nonphysical rho peak is rejected; u shock
-  location must match the exact shock within 3 cells.
+  location must match the exact shock within 3 cells.  In addition, u and p
+  must be essentially free of smooth-region wiggle: normalized smooth
+  second-difference residual for each of u and p must be <= `8e-3`.  Local
+  slope-reversal counts are used only while the second-difference amplitude is
+  above that accepted HF threshold; once the amplitude itself is below the
+  threshold, additional tiny sign changes are below the visible wiggle level and
+  are not a standalone failure.  The default grid is `N=800`, because the
+  retained second-order scheme shows grid convergence of the p/u HF residual:
+  at `N=400` the amplitude is slightly above the tightened guard, while at
+  `N=800` p/u HF amplitudes are below `8e-3` and the shock location remains
+  within tolerance.
 - `14_E`: the close pair of discontinuities in `x=0.8..0.9` must be resolved by
   the numerical profile, and the u shock location must match the exact shock
-  within 3 cells.
+  within 3 cells.  The density profile around the close discontinuity region
+  near `x ~= 0.85 m` must not form a nonphysical peak or dip: the envelope guard
+  now checks both positive overshoot and negative undershoot outside the local
+  exact density envelope, with limit `1e-3` of the local jump.  In addition, the
+  `x=0.85..0.89 m` band is treated as an exact-jump-aware rho plateau/ringing
+  guard.  The analytic exact contains a genuine close density discontinuity in
+  this band, so the L-infinity plateau mismatch is evaluated only outside a
+  `3*dx` neighborhood of exact density jumps and must be <= `3e-2` of the local
+  density scale.  Full-band envelope excursion <= `1e-2`, local TV excess <=
+  `2.5e-2`, and residual slope reversals <= 1 are still enforced to reject
+  nonphysical undershoot-then-overshoot ringing.  The default grid is `N=800`; at this
+  resolution the two discontinuities remain split, the u shock is within one
+  cell of exact, and the former rho peak near `x ~= 0.85` has zero positive
+  overshoot.  The right-tail guard is consistent with that shock-location
+  tolerance: a smeared tail is acceptable only if it is monotone, returns to the
+  far quiescent state, and its plateau does not exceed the physical shocked
+  velocity amplitude (`u_tail_ratio <= 1.0`).  The older `0.90` cutoff was
+  stricter than the permitted 3-cell shock offset and could reject a physically
+  bounded, monotone finite-volume shock solely because it was still inside the
+  allowed location tolerance.
 - `16_T` / `17_T`: the plotted scalar temperature is the volume-fraction
   weighted diagnostic `T_mixture = alpha1*T_liquid + (1-alpha1)*T_gas`, not a
   separate thermodynamic unknown.  The two-temperature model still validates
@@ -529,27 +589,57 @@ Acceptance adjustments retained:
   `T_mixture` contains a sharp material-temperature contact (`16_T`), pointwise
   Linf at the smeared finite-volume contact is not used; instead the mixture
   temperature must remain bounded by the exact extrema.  Smooth `T_mixture`
-  cases such as `17_T` also require `Tmix_linf_ratio < 2.5e-1`.
-- `18_T`: fixed `dt=0.0005`, no Co=1 shortcut.  Visible wiggle in
+  cases such as `17_T` also require `Tmix_linf_ratio < 2.5e-1`.  The default
+  grid is `N=100` for `16_T` with fixed `dt=0.0005` (`Co=0.5`), and `N=190`
+  for `17_T` with the same fixed `dt=0.0005` (`Co=0.95`).  This keeps the
+  sharp 16_T material-temperature block aligned to cell faces and gives 17_T
+  enough resolution to satisfy the strict Gaussian amplitude guard without
+  using the forbidden Co=1 exact-remap path.  For `17_T`, alpha, rho, and
+  T_mixture peak/extrema are now a
+  PASS quantity, not only a visual diagnostic: max/min extrema error ratio must
+  be < `8e-2`, and each field's range ratio must remain within `[0.90, 1.08]`.
+  Additionally, the rho Gaussian peak amplitude must remain within `[0.98,
+  1.02]` of the exact peak amplitude.  Since exact `u` and `p` are constant
+  pressure-equilibrium fields in 17_T, their physical peak amplitudes are zero;
+  any non-negligible newly generated u/p peak is rejected by the p/u PE and
+  checkerboard guards.
+- `18_T`: fixed `dt=1/11000`, no Co=1 shortcut.  Visible wiggle in
   `alpha1`, `rho`, `T_liquid`, and `T_gas` is a failure even if the mean error
   is acceptable.  The max local high-frequency / TV-excess guards are tightened
   to `T_ACTIVE_HF_MAX_TOL=2.0e-2`, `T_ACTIVE_TV_EXCESS_MAX_TOL=3.0e-2`,
-  `SMOOTH_HF_MAX_TOL=1.2e-2`, and `SMOOTH_TV_EXCESS_MAX_TOL=2.0e-2`.  Since this
+  `THERMAL_ALPHA_SMOOTH_HF_MAX_TOL=4.0e-3`,
+  `THERMAL_RHO_SMOOTH_HF_MAX_TOL=8.0e-3`,
+  `THERMAL_ALPHA_SMOOTH_TV_EXCESS_MAX_TOL=9.0e-3`, and
+  `THERMAL_RHO_SMOOTH_TV_EXCESS_MAX_TOL=1.8e-2`.  Since this
   is a TVD finite-volume advection test at finite `N`, small numerical diffusion
-  in smooth `alpha1`/`rho` amplitude is accepted: thermal-wave alpha/rho L1
-  tolerance is `3.8e-2` and the amplitude range ratio must remain > `0.89`.
-- `24_H`: the homogeneous-mixture Kapila shock uses `FIVE_EQ_CASE24_CFL=0.20`
+  in smooth `alpha1` amplitude is accepted through the thermal-wave L1/range
+  guards, but `rho` is stricter because it is one of the requested amplitude
+  observables: thermal-wave alpha/rho L1 tolerance is `3.8e-2`, alpha range
+  ratio must remain > `0.89`, and rho peak/range amplitude must remain within
+  `[0.98, 1.02]`.
+  The rho smooth-wave peak amplitude is now also strict: it must remain within
+  `[0.98, 1.02]` of the exact peak amplitude.  Exact `u` and `p` are constant
+  pressure-equilibrium fields in 18_T, so their physical peak amplitudes are
+  zero; any non-negligible newly generated u/p peak is rejected.
+  The default grid is `N=550`, which gives `Co=0.5` at the fixed
+  `dt=1/11000` and `t_end=0.1` (1100 steps).  This is a resolved finite-volume
+  transport setup, not an exact cell-transit shortcut; Co=1 remains forbidden.
+- `24_H`: the homogeneous-mixture Kapila shock uses `FIVE_EQ_CASE24_CFL=0.10`
   by default.  This is a time-centering requirement for the retained
   second-order source/flux update, not a case-fit coefficient: CFL `0.35`
-  leaves a finite-step shock-location/rho-plateau bias in the mixture path.
+  and the previous CFL `0.20` leave a finite-step shock-location/rho-plateau
+  bias in the mixture path.
   The default grid resolution is `FIVE_EQ_CASE24_N=400`; this is the
   publication/selected-gate setting for `24_H`.  `N=100` is allowed only as a
   fast smoke-test override and is not the acceptance default.  The
   `psi_water=0.25`, `0.5`, and `0.75` post-shock rho plateau must match the
-  exact plateau from both sides: sudden dip below exact <= `5.0e-2`, hump above
-  exact <= `5.0e-2`, and post-shock L2 ratio <= `5.0e-2`.  The transmitted
-  shock location must match exact within `3` cells, and profile correlation
-  must remain >= `0.91`.
+  exact plateau from both sides: sudden dip below exact <= `2.0e-2`, hump above
+  exact <= `1.0e-2`, and post-shock L2 ratio <= `1.5e-2`.  Across all 24_H
+  subcases the full rho profile must satisfy `rho_profile_l2 <= 2.5e-2` and
+  `rho_corr >= 0.99`; this is stricter than the p/u profile correlation guard
+  because the target failure mode is a visibly wrong density plateau.  The
+  transmitted shock location must match exact within `3` cells, and p/u profile
+  correlation must remain >= `0.91`.
 - Kapila alpha source default is `mixed_path`: path-conservative source is used
   only on resolved homogeneous-mixture stencils; pure-material and immiscible
   interface stencils keep the existing hybrid source so 13/14 shock timing is
@@ -562,35 +652,46 @@ Verification evidence:
 
 ```bash
 FIVE_EQ_IMEX_UNIFORM_PERIODIC_REMAP=0 \
-FIVE_EQ_IMEX_TIME_INTEGRATOR=imex_ad \
-FIVE_EQ_IMEX_ALPHA_SCHEME=thinc_bvd \
+FIVE_EQ_IMEX_TIME_INTEGRATOR=imex_ssp3 \
+FIVE_EQ_IMEX_ALPHA_SCHEME=adaptive_bvd \
+FIVE_EQ_IMEX_ALPHA_TVD=auto \
 FIVE_EQ_IMEX_PRIMITIVE_SCHEME=tmlpu \
 FIVE_EQ_IMEX_TMLPU_TVD=superbee \
-FIVE_EQ_IMEX_ACOUSTIC_TVD=vanleer \
+FIVE_EQ_IMEX_ACOUSTIC_TVD=superbee \
 FIVE_EQ_IMEX_ACOUSTIC_WAF=1 \
+FIVE_EQ_IMEX_PRIMITIVE_LMP=auto \
 FIVE_EQ_IMEX_MATERIAL_FLUX=slau2 \
+FIVE_EQ_IMEX_PRESSURE_CLOSURE=regime_auto \
 FIVE_EQ_IMEX_MIXTURE_HANCOCK=1 \
 FIVE_EQ_IMEX_PRIMITIVE_FCT=1 \
 FIVE_EQ_IMEX_DENSITY_TVD=minmod \
 MPLCONFIGDIR=/tmp/mpl \
 python3 .codex-loop/verify_selected_10_acceptance.py \
   --cases 01,02,04,05,07,13,14,15,24,25
-# SELECTED_ACCEPTANCE_JSON failures=0, goal_reached=true
+# Under the tightened 2026-05-06 criteria, 01/02/04/05/07/13/14/15/24/25 pass
+# with the current auto-LMP/N=400 acoustic setup, N=800 shock-interface
+# resolution for 13/14, and 24_H CFL=0.10 time resolution.
 
 FIVE_EQ_IMEX_UNIFORM_PERIODIC_REMAP=0 \
-FIVE_EQ_IMEX_TIME_INTEGRATOR=imex_ad \
-FIVE_EQ_IMEX_ALPHA_SCHEME=thinc_bvd \
+FIVE_EQ_IMEX_TIME_INTEGRATOR=imex_ssp3 \
+FIVE_EQ_IMEX_ALPHA_SCHEME=adaptive_bvd \
+FIVE_EQ_IMEX_ALPHA_TVD=auto \
 FIVE_EQ_IMEX_PRIMITIVE_SCHEME=tmlpu \
 FIVE_EQ_IMEX_TMLPU_TVD=superbee \
-FIVE_EQ_IMEX_ACOUSTIC_TVD=vanleer \
+FIVE_EQ_IMEX_ACOUSTIC_TVD=superbee \
 FIVE_EQ_IMEX_ACOUSTIC_WAF=1 \
+FIVE_EQ_IMEX_PRIMITIVE_LMP=auto \
 FIVE_EQ_IMEX_MATERIAL_FLUX=slau2 \
+FIVE_EQ_IMEX_PRESSURE_CLOSURE=regime_auto \
 FIVE_EQ_IMEX_MIXTURE_HANCOCK=1 \
 FIVE_EQ_IMEX_PRIMITIVE_FCT=1 \
 FIVE_EQ_IMEX_DENSITY_TVD=minmod \
 MPLCONFIGDIR=/tmp/mpl \
 python3 .codex-loop/verify_16_19_temperature.py --case mandatory
-# SUMMARY_JSON failures=0 for mandatory 16/17/18.
+# Under the tightened 2026-05-06 criteria, 16_T(N=100,Co=0.5),
+# 17_T(N=190,Co=0.95), and 18_T(N=550,dt=1/11000,Co=0.5) pass.  18_T
+# satisfies the stricter alpha/rho smooth wiggle and 98% rho-amplitude guards
+# without using the forbidden Co=1 path.
 ```
 
 All generated plots are overwritten at `results/1D/{case_name}/diff_vs_exact.png`.

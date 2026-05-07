@@ -1,0 +1,5 @@
+Round 96: use_mmacm_ex=False, use_compression=False
+02-A 100step: ep=9.791e-10 eu=7.186e-09 PASS
+07 air-water  : L2p=0.362 Lip=1.462 L2u=0.098 Liu=0.732 fin=True wall=30.8s FAIL
+07 helium-air : L2p=0.167 Lip=0.955 L2u=0.096 Liu=0.393 fin=True wall=20.8s FAIL
+07 argon-air  : L2p=0.137 Lip=0.519 L2u=0.185 Liu=0.695 fin=True wall=9.9s FAIL

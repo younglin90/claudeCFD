@@ -1,0 +1,196 @@
+/home/younglin90/work/claude_code/claudeCFD/solver/He2024/explicit_mmacm_ex.py:988: RuntimeWarning: invalid value encountered in divide
+  nd = np.where(np.abs(dAU) > _eps, (aD - aU) / dAU, 0.5)
+/home/younglin90/work/claude_code/claudeCFD/solver/He2024/eos_general.py:196: RuntimeWarning: divide by zero encountered in divide
+  return (e - self.pinf / np.maximum(rho, 1e-30)) / self.kv
+/home/younglin90/work/claude_code/claudeCFD/solver/He2024/explicit_mmacm_ex.py:1205: RuntimeWarning: invalid value encountered in subtract
+  cross = arCp1 * arCp2 * (zeta2 - zeta1) ** 2 / np.maximum(T_safe * sum_arCp, _EPS)
+/home/younglin90/work/claude_code/claudeCFD/solver/He2024/explicit_mmacm_ex.py:1205: RuntimeWarning: invalid value encountered in multiply
+  cross = arCp1 * arCp2 * (zeta2 - zeta1) ** 2 / np.maximum(T_safe * sum_arCp, _EPS)
+/home/younglin90/work/claude_code/claudeCFD/solver/He2024/explicit_mmacm_ex.py:6186: RuntimeWarning: invalid value encountered in multiply
+  T_cell = (w1 * T1 + w2 * T2) / np.maximum(w1 + w2, _EPS)
+
+======================================================================
+Case 07: Air-Water
+======================================================================
+  Left: Air (ρ=1.2, c=347.8, Z=402.4)
+  Right: Water_SG (ρ=998.0, c=1344.6, Z=1.34e+06)
+  Grid: N=400, Δx=3.75e-03 m, L=1.5 m
+  t_end=1.630 ms
+  Running solve_IMEX with time_integrator='ssp222'...
+  step=  100  t=1.1256e-04  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  200  t=2.2511e-04  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  300  t=3.3767e-04  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  400  t=4.5022e-04  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  500  t=5.6278e-04  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  600  t=6.7533e-04  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  700  t=7.8789e-04  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  800  t=9.0044e-04  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  900  t=1.0130e-03  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step= 1000  t=1.1256e-03  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step= 1100  t=1.2381e-03  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step= 1200  t=1.3507e-03  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step= 1300  t=1.4632e-03  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step= 1400  t=1.5758e-03  dt=1.126e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+Done: 1449 steps, t=1.6300e-03
+  Completed in 29.96s, t_final=1.63e-03s
+
+  Metrics Summary:
+    1_finite: ✓
+    2_osc_07: ✓
+    3_L2_p: ✗
+    4_L2_u: ✗
+    5_Linf_p: ✗
+    6_Linf_u: ✗
+    7_frac_p: ✗
+    8_frac_u: ✓
+    9_L1_p: ✗
+    10_L1_u: ✗
+    11_corr: ✗
+
+  Values:
+    L2_p/A = 9014.9380 (< 0.30)
+    L2_u/A = 0.6581 (< 0.30)
+    L∞_p/A = 12426.4430 (< 0.50)
+    L∞_u/A = 1.9994 (< 0.50)
+    frac_p = 0.345 (>= 0.70)
+    frac_u = 0.800 (>= 0.70)
+    corr_p = 0.963 (> 0.50)
+    corr_u = -0.079 (> 0.50)
+
+  RESULT: FAIL ✗
+    Plot saved: results/case_07/case_07_air-water_ssp2_r2.png
+
+======================================================================
+Case 07: Helium-Air
+======================================================================
+  Left: Helium (ρ=0.2, c=1008.2, Z=165.3)
+  Right: Air (ρ=1.2, c=347.8, Z=4.02e+02)
+  Grid: N=400, Δx=3.75e-03 m, L=1.5 m
+  t_end=1.513 ms
+  Running solve_IMEX with time_integrator='ssp222'...
+  step=  100  t=1.4878e-04  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  200  t=2.9755e-04  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  300  t=4.4633e-04  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  400  t=5.9511e-04  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  500  t=7.4389e-04  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  600  t=8.9266e-04  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  700  t=1.0414e-03  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  800  t=1.1902e-03  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  900  t=1.3390e-03  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step= 1000  t=1.4878e-03  dt=1.488e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+Done: 1017 steps, t=1.5130e-03
+  Completed in 24.77s, t_final=1.51e-03s
+
+  Metrics Summary:
+    1_finite: ✓
+    2_osc_07: ✓
+    3_L2_p: ✗
+    4_L2_u: ✗
+    5_Linf_p: ✗
+    6_Linf_u: ✗
+    7_frac_p: ✗
+    8_frac_u: ✓
+    9_L1_p: ✗
+    10_L1_u: ✗
+    11_corr: ✗
+
+  Values:
+    L2_p/A = 30266.9843 (< 0.30)
+    L2_u/A = 0.3487 (< 0.30)
+    L∞_p/A = 30248.4514 (< 0.50)
+    L∞_u/A = 1.4173 (< 0.50)
+    frac_p = 0.282 (>= 0.70)
+    frac_u = 0.880 (>= 0.70)
+    corr_p = 1.000 (> 0.50)
+    corr_u = 0.156 (> 0.50)
+
+  RESULT: FAIL ✗
+    Plot saved: results/case_07/case_07_helium-air_ssp2_r2.png
+
+======================================================================
+Case 07: Argon-Air
+======================================================================
+  Left: Argon (ρ=1.7, c=308.2, Z=538.7)
+  Right: Air (ρ=1.2, c=347.8, Z=4.02e+02)
+  Grid: N=400, Δx=3.75e-03 m, L=1.5 m
+  t_end=2.020 ms
+  Running solve_IMEX with time_integrator='ssp222'...
+  step=  100  t=4.3122e-04  dt=4.312e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  200  t=8.6243e-04  dt=4.312e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  300  t=1.2936e-03  dt=4.312e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+  step=  400  t=1.7249e-03  dt=4.312e-06  p=[1.00e+05,1.00e+05]  u_max=0.0200  dE=0.00e+00  M=0.000
+Done: 469 steps, t=2.0200e-03
+  Completed in 10.47s, t_final=2.02e-03s
+
+  Metrics Summary:
+    1_finite: ✓
+    2_osc_07: ✓
+    3_L2_p: ✗
+    4_L2_u: ✗
+    5_Linf_p: ✗
+    6_Linf_u: ✗
+    7_frac_p: ✗
+    8_frac_u: ✓
+    9_L1_p: ✗
+    10_L1_u: ✗
+    11_corr: ✗
+
+  Values:
+    L2_p/A = 6554.8565 (< 0.30)
+    L2_u/A = 0.3527 (< 0.30)
+    L∞_p/A = 9281.6039 (< 0.50)
+    L∞_u/A = 0.9999 (< 0.50)
+    frac_p = 0.598 (>= 0.70)
+    frac_u = 0.840 (>= 0.70)
+    corr_p = -1.000 (> 0.50)
+    corr_u = -0.087 (> 0.50)
+
+  RESULT: FAIL ✗
+    Plot saved: results/case_07/case_07_argon-air_ssp2_r2.png
+
+======================================================================
+REGRESSION: Phase 1 (case 02-A, default strang)
+======================================================================
+Done: 1 steps, t=nan
+  wall=0.0s, err_p=2.21e-07, err_u=0.00e+00
+  FAIL ✗
+
+======================================================================
+REGRESSION: Phase 2-2 (HP Water/LP Air, default strang)
+======================================================================
+  step=   10  t=1.5076e-05  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=   20  t=3.0151e-05  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=   30  t=4.5227e-05  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=   40  t=6.0302e-05  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=   50  t=7.5378e-05  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=   60  t=9.0453e-05  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=   70  t=1.0553e-04  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=   80  t=1.2060e-04  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=   90  t=1.3568e-04  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=  100  t=1.5076e-04  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=  110  t=1.6583e-04  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=  120  t=1.8091e-04  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=  130  t=1.9598e-04  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=  140  t=2.1106e-04  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+  step=  150  t=2.2613e-04  dt=1.508e-06  p=[1.00e+05,1.00e+09]  u_max=0.0000  dE=0.00e+00  M=0.000
+Done: 152 steps, t=2.2900e-04
+  wall=1.0s, u_max=0.0 (ref ~486)
+  FAIL ✗
+
+======================================================================
+ROUND 2 SUMMARY
+======================================================================
+
+Case 07 Sub-cases:
+  Air-Water      : FAIL ✗ (30.0s)
+  Helium-Air     : FAIL ✗ (24.8s)
+  Argon-Air      : FAIL ✗ (10.5s)
+
+Regressions:
+  Phase 1: FAIL ✗
+  Phase 2-2: FAIL ✗
+
+======================================================================
+OVERALL RESULT: SOME FAIL ✗
+======================================================================
+

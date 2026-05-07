@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Improve"
+  short_description: "Convert one research idea into a bounded implementation sprint."
+  default_prompt: "Select one validated research idea, write a sprint contract, implement minimally, and run validation."

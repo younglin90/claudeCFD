@@ -1,0 +1,4 @@
+02-A: t=1.0000 ep=2.897e-13 eu=0.000e+00 fin=True PASS wall=0.24s
+07 air-water  : L2p=0.375 Lip=1.513 L2u=0.104 Liu=0.785 fin=True FAIL wall=14.5s
+07 helium-air : L2p=0.111 Lip=0.724 L2u=0.066 Liu=0.305 fin=True FAIL wall=1.2s
+07 argon-air  : L2p=0.093 Lip=0.402 L2u=0.122 Liu=0.555 fin=True FAIL wall=0.5s

@@ -93,9 +93,20 @@ class NASGEOS:
 
     def pressure_from_rho_e(self, rho: float, e: float) -> float:
         """
-        p = (gamma-1) * rho * (e - q) / (1 - b*rho) - p_inf
+        Invert internal_energy(rho, T) = c_v*T + q + p_inf*(1-b*rho)/((gamma-1)*rho)
+        combined with pressure(rho, T) = (gamma-1)*c_v*rho*T/(1-b*rho) - p_inf.
+
+        Eliminating T:
+            c_v*T = e - q - p_inf*(1-b*rho)/((gamma-1)*rho)
+            p + p_inf = (gamma-1)*rho*c_v*T/(1-b*rho)
+                      = (gamma-1)*rho*(e-q)/(1-b*rho) - p_inf
+        Hence:
+            p = (gamma-1)*rho*(e-q)/(1-b*rho) - 2*p_inf
         """
-        return (self.gamma - 1.0) * rho * (e - self.q) / (1.0 - self.b * rho) - self.p_inf
+        denominator = 1.0 - self.b * rho
+        if abs(denominator) < 1e-300:
+            return -self.p_inf  # fallback
+        return (self.gamma - 1.0) * rho * (e - self.q) / denominator - 2.0 * self.p_inf
 
     def sound_speed(self, rho: float, T: float) -> float:
         """

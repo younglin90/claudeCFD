@@ -21,6 +21,7 @@ flux limiters (Rusanov, blending, positivity) can compute exact `ΔU = U_R − U
 dissipation terms without re-extending the ghost arrays.
 """
 from __future__ import annotations
+import os
 import numpy as np
 
 from .boundary import extend_W
@@ -58,6 +59,8 @@ def face_state(W, eos1, eos2, bc_l, bc_r, *,
                primitive_scheme='upwind',
                u_p_scheme='central',
                face_thermo='acid',
+               dt=None,
+               dx=None,
                u_inlet=None, p_inlet=None,
                T1_inlet=None, T2_inlet=None, alpha_inlet=None):
     """Build the face state dictionary with L/R cache.
@@ -146,6 +149,24 @@ def face_state(W, eos1, eos2, bc_l, bc_r, *,
         a_f = np.where(upw, a_left, a_right)
     elif alpha_scheme == 'central':
         a_f = 0.5 * (a_L + a_R)
+    elif alpha_scheme in (
+            'cicsam', 'mstacs', 'stacs', 'superbee',
+            'vanleer', 'tvd_vanleer', 'thinc', 'thinc_bvd', 'thinc-bvd',
+            'adaptive_bvd', 'adaptive-alpha-bvd', 'adaptive_alpha_bvd',
+            'bvd_adaptive'):
+        if dt is None or dx is None:
+            raise ValueError(
+                f"alpha_scheme='{alpha_scheme}' requires dt and dx.")
+        from .explicit import _alpha_face
+        alpha_tvd_mode = (
+            os.environ.get("FIVE_EQ_IMEX_ALPHA_TVD")
+            or os.environ.get("FIVE_EQ_IMEX_TMLPU_TVD")
+            or "vanleer"
+        )
+        if str(alpha_tvd_mode).strip().lower() in {"auto", "default", ""}:
+            alpha_tvd_mode = "vanleer"
+        a_f = _alpha_face(
+            a_e, u_f, dt, dx, alpha_scheme, tvd_kind=alpha_tvd_mode)
     else:
         raise ValueError(f"Unknown alpha_scheme='{alpha_scheme}'.")
     a_f = np.clip(a_f, 1e-12, 1.0 - 1e-12)

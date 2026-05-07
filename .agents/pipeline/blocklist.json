@@ -1,0 +1,26 @@
+[
+  {
+    "date": "2026-04-28",
+    "scope": "solver/five_eq_IMEX 07-B Air-Water acoustic_riemann",
+    "idea": "Near-pure acoustic impedance replacement in the implicit acoustic Riemann face state",
+    "reason": "02-A remained PASS, but 07-B Air-Water pressure L2 slightly worsened from 0.3927 to 0.3946 and corr_p decreased from 0.66 to 0.65. Not retained."
+  },
+  {
+    "date": "2026-04-28",
+    "scope": "solver/five_eq_IMEX 07-B Air-Water acoustic_riemann",
+    "idea": "Apply acoustic smoothing only near alpha-jump interface faces",
+    "reason": "Water-side pressure ringing grew strongly: L2p=1.183, Lip=9.94, corr_p=0.06. Not retained."
+  },
+  {
+    "date": "2026-04-28",
+    "scope": "solver/five_eq_IMEX 07-B Air-Water acoustic_riemann",
+    "idea": "Smooth pressure faces but leave acoustic Riemann velocity faces unsmoothed",
+    "reason": "Strong pressure ringing remained: L2p=1.160, Lip=9.09, corr_p=0.07. Not retained."
+  },
+  {
+    "date": "2026-04-28",
+    "scope": "solver/five_eq_IMEX 07-B Air-Water acoustic_riemann",
+    "idea": "Smooth all acoustic faces except the direct alpha-jump face",
+    "reason": "Pressure profile still failed: L2p=0.784, Lip=4.656, corr_p=0.08. Not retained."
+  }
+]

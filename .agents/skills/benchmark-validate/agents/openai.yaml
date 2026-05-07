@@ -1,0 +1,4 @@
+interface:
+  display_name: "Benchmark Validate"
+  short_description: "Run claudeCFD regression gates and summarize pass/fail deltas."
+  default_prompt: "Run the configured regression gates and write a validation report."

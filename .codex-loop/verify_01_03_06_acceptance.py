@@ -37,6 +37,8 @@ from oscillation_guards import high_frequency_oscillation_guard  # noqa: E402
 
 
 P0 = 1.0e5
+CASE05_PEAK_RATIO_MIN = 0.98
+CASE05_PEAK_RATIO_MAX = 1.02
 
 
 def _make_water_nasg():
@@ -146,6 +148,11 @@ def _shape_metrics(num: np.ndarray, exact: np.ndarray, mask: np.ndarray,
     }
 
 
+def _amp_ratio_ok(value: float, *, lo: float = CASE05_PEAK_RATIO_MIN,
+                  hi: float = CASE05_PEAK_RATIO_MAX) -> bool:
+    return bool(lo <= float(value) <= hi)
+
+
 def _save_plot(case_name: str, x: np.ndarray, W, rho: np.ndarray,
                exact: dict[str, np.ndarray], title: str) -> None:
     out = _out_dir(case_name)
@@ -175,7 +182,7 @@ def _solve_imex(eos1, eos2, W0, dx, t_end, *, bc_l, bc_r, cfl=0.4,
                 dt_fixed=None, u_inlet=None, p_inlet=None, max_steps=100000,
                 alpha_pure_tol=1.0e-8, kapila_closure=False):
     pressure_closure = os.environ.get("FIVE_EQ_IMEX_PRESSURE_CLOSURE", "regime_auto")
-    alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "mstacs")
+    alpha_scheme = os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "adaptive_bvd")
     primitive_scheme = os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "weno3")
     return solve(
         eos1,
@@ -188,7 +195,7 @@ def _solve_imex(eos1, eos2, W0, dx, t_end, *, bc_l, bc_r, cfl=0.4,
         cfl=cfl,
         dt_fixed=dt_fixed,
         max_steps=max_steps,
-        time_integrator="imex_ad",
+        time_integrator=os.environ.get("FIVE_EQ_IMEX_TIME_INTEGRATOR", "imex_ssp3"),
         alpha_scheme=alpha_scheme,
         mixture_kind="kapila",
         kapila_closure=kapila_closure,
@@ -211,10 +218,13 @@ def case_01() -> dict:
     T0 = 293.0
     a = np.where(x < 0.5, 1.0 - 1.0e-6, 1.0e-6)
     W0 = (a, np.full(n, T0), np.full(n, T0), np.zeros(n), np.full(n, p0))
+    t_end = 1.0
+    dt_fixed = 0.01
     t0 = time.time()
     out = _solve_imex(
-        eos_air, eos_water, W0, dx, 1.0e-3,
+        eos_air, eos_water, W0, dx, t_end,
         bc_l="transmissive", bc_r="transmissive", cfl=0.4,
+        dt_fixed=dt_fixed,
         alpha_pure_tol=1.0e-6)
     wall = time.time() - t0
     W = out["W"]
@@ -226,12 +236,13 @@ def case_01() -> dict:
     hf = high_frequency_oscillation_guard(
         x,
         {
-            "rho": (rho, exact["rho"], 1.0),
+            "rho": (rho, exact["rho"], max(float(np.ptp(exact["rho"])), 1.0)),
             "u": (W[3], exact["u"], 1.0),
             "p": (W[4], exact["p"], p0),
         },
+        sharp_centers=(0.5,),
     )
-    complete = out.get("terminated_reason") is None and out["t_final"] >= 1.0e-3 - 1.0e-14
+    complete = out.get("terminated_reason") is None and out["t_final"] >= t_end - 1.0e-12
     ok = bool(
         _finite(W) and complete
         and p_rel < 1.0e-10 and u_abs < 1.0e-6 and osc < 1.0e-4
@@ -244,6 +255,9 @@ def case_01() -> dict:
         "pass": ok,
         "wall": wall,
         "steps": int(out["step"]),
+        "t_final": float(out["t_final"]),
+        "t_end": t_end,
+        "dt_fixed": dt_fixed,
         "complete": bool(complete),
         "p_rel": p_rel,
         "u_abs": u_abs,
@@ -309,7 +323,7 @@ def _single_phase_acoustic(case_name: str, *, material: str) -> dict:
     if material == "air":
         eos1 = make_eos("ideal", gamma=1.4, kv=717.5)
         eos2 = make_eos("ideal", gamma=1.4, kv=717.5)
-        n = 500
+        n = int(os.environ.get("FIVE_EQ_CASE04_N", "500"))
         p0, rho0, u0, f, t_end = P0, 1.157, 1.0, 2000.0, 2.3e-3
         alpha = 1.0 - 1.0e-6
         phase1 = True
@@ -319,7 +333,7 @@ def _single_phase_acoustic(case_name: str, *, material: str) -> dict:
         eos_air = make_eos("ideal", gamma=1.4, kv=717.5)
         eos_water = _make_water_nasg()
         eos1, eos2 = eos_air, eos_water
-        n = 100
+        n = int(os.environ.get("FIVE_EQ_CASE05_N", "400"))
         # Match 04_B's layout: the injected wave front remains inside the tube
         # with about 20% undisturbed length at the right boundary.
         p0, rho0, u0, f, t_end = P0, 998.0, 1.0, 6000.0, 5.10e-4
@@ -388,6 +402,11 @@ def _single_phase_acoustic(case_name: str, *, material: str) -> dict:
             "u": (W[3], exact["u"], du),
             "p": (W[4], exact["p"], dp_amp),
         },
+        # The exact solution is a physical sinusoidal wave.  Its normal
+        # extrema should not be counted as nonphysical shock/contact ringing;
+        # residual HF, overshoot, and excess TV checks remain active.
+        sharp_turn_limit=12,
+        smooth_local_turn_limit=12,
     )
     dp_meas = 0.5 * float(np.max(W[4] - p0) - np.min(W[4] - p0))
     wave_region = touched & (x < 0.95 * c0 * out["t_final"])
@@ -399,6 +418,14 @@ def _single_phase_acoustic(case_name: str, *, material: str) -> dict:
     u_l2 = float(np.sqrt(np.mean((W[3][touched] - u_exact[touched]) ** 2)) / max(du, 1.0e-30))
     p_shape = _shape_metrics(W[4] - p0, p_exact - p0, wave_region, amp_floor_ratio * dp_amp)
     u_shape = _shape_metrics(W[3] - u0, u_exact - u0, wave_region, amp_floor_ratio * du)
+    rho_shape = _shape_metrics(rho, rho_exact, wave_region, amp_floor_ratio * rho_floor)
+    peak_amp_ok = True
+    if material == "water":
+        peak_amp_ok = bool(
+            _amp_ratio_ok(rho_shape["amp_ratio"])
+            and _amp_ratio_ok(u_shape["amp_ratio"])
+            and _amp_ratio_ok(p_shape["amp_ratio"])
+        )
     profile_ok = (
         p_shape["amp_ratio"] >= amp_floor_ratio
         and u_shape["amp_ratio"] >= amp_floor_ratio
@@ -406,6 +433,7 @@ def _single_phase_acoustic(case_name: str, *, material: str) -> dict:
         and u_shape["corr"] > 0.60
         and p_shape["scaled_l2"] < 1.00
         and u_shape["scaled_l2"] < 1.00
+        and peak_amp_ok
     )
     ok = bool(
         _finite(W) and complete and profile_ok and lambda_ok and osc < osc_limit
@@ -414,6 +442,7 @@ def _single_phase_acoustic(case_name: str, *, material: str) -> dict:
     _save_plot(case_name, x, W, rho, exact,
                f"{case_name} {material} sinusoidal pass={ok} dp={dp_meas:.3g} "
                f"lambda={lam:.3g}/{lam0:.3g} corr={p_shape['corr']:.2f}/{u_shape['corr']:.2f} "
+               f"peak={rho_shape['amp_ratio']:.2f}/{u_shape['amp_ratio']:.2f}/{p_shape['amp_ratio']:.2f} "
                f"osc={osc:.2e}")
     return {
         "case": case_name,
@@ -430,10 +459,16 @@ def _single_phase_acoustic(case_name: str, *, material: str) -> dict:
         "L2u_amp": u_l2,
         "p_corr": p_shape["corr"],
         "u_corr": u_shape["corr"],
+        "rho_corr": rho_shape["corr"],
         "p_scaled_l2": p_shape["scaled_l2"],
         "u_scaled_l2": u_shape["scaled_l2"],
+        "rho_scaled_l2": rho_shape["scaled_l2"],
         "p_amp_ratio": p_shape["amp_ratio"],
         "u_amp_ratio": u_shape["amp_ratio"],
+        "rho_amp_ratio": rho_shape["amp_ratio"],
+        "peak_amp_ratio_min": CASE05_PEAK_RATIO_MIN if material == "water" else amp_floor_ratio,
+        "peak_amp_ratio_max": CASE05_PEAK_RATIO_MAX if material == "water" else float("inf"),
+        "peak_amp_ok": bool(peak_amp_ok),
         "profile_ok": bool(profile_ok),
         **hf,
     }

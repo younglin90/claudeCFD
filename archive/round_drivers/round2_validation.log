@@ -1,0 +1,58 @@
+Traceback (most recent call last):
+  File "/home/younglin90/work/claude_code/claudeCFD/results/tmp_test_07_ssp2_r2.py", line 273, in run_case
+    sol = solve_IMEX(
+          ^^^^^^^^^^^
+TypeError: solve_IMEX() got an unexpected keyword argument 'eos'
+Traceback (most recent call last):
+  File "/home/younglin90/work/claude_code/claudeCFD/results/tmp_test_07_ssp2_r2.py", line 273, in run_case
+    sol = solve_IMEX(
+          ^^^^^^^^^^^
+TypeError: solve_IMEX() got an unexpected keyword argument 'eos'
+Traceback (most recent call last):
+  File "/home/younglin90/work/claude_code/claudeCFD/results/tmp_test_07_ssp2_r2.py", line 273, in run_case
+    sol = solve_IMEX(
+          ^^^^^^^^^^^
+TypeError: solve_IMEX() got an unexpected keyword argument 'eos'
+
+======================================================================
+Case 07 Sub-case: Air-Water
+======================================================================
+  Left phase: Air, c=20.5 m/s, Z=23.7
+  Right phase: Water_SG, c=42473.5 m/s, Z=42388588.6
+  Interface: x=0.50 m, t_end=1.630 ms
+  Running solver: N=400, max_steps=5000...
+  ERROR: solve_IMEX() got an unexpected keyword argument 'eos'
+
+======================================================================
+Case 07 Sub-case: Helium-Air
+======================================================================
+  Left phase: Helium, c=22.4 m/s, Z=3.7
+  Right phase: Air, c=20.5 m/s, Z=23.7
+  Interface: x=1.00 m, t_end=1.513 ms
+  Running solver: N=400, max_steps=5000...
+  ERROR: solve_IMEX() got an unexpected keyword argument 'eos'
+
+======================================================================
+Case 07 Sub-case: Argon-Air
+======================================================================
+  Left phase: Argon, c=22.3 m/s, Z=39.0
+  Right phase: Air, c=20.5 m/s, Z=23.7
+  Interface: x=0.50 m, t_end=2.020 ms
+  Running solver: N=400, max_steps=5000...
+  ERROR: solve_IMEX() got an unexpected keyword argument 'eos'
+
+======================================================================
+REGRESSION TESTS (Phase 1 & Phase 2-2 with default 'strang' integrator)
+======================================================================
+
+======================================================================
+REGRESSION: Phase 1 (case 02-A, default strang integrator)
+======================================================================
+Traceback (most recent call last):
+  File "/home/younglin90/work/claude_code/claudeCFD/results/tmp_test_07_ssp2_r2.py", line 556, in <module>
+    reg1_pass = regression_test_phase1()
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/younglin90/work/claude_code/claudeCFD/results/tmp_test_07_ssp2_r2.py", line 410, in regression_test_phase1
+    'Water': NASGEOS(gamma=7.15, P_inf=3.1e8, n=7.15, beta=0.0, kv=0.0),
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: NASGEOS.__init__() got an unexpected keyword argument 'P_inf'

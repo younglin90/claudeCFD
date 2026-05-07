@@ -77,6 +77,7 @@ def run(case_params):
     output_path  = case_params.get('output_path', None)
 
     cfg = {
+        'cfl_type':   case_params.get('cfl_type', 'acoustic'),  # 'acoustic' or 'convective'
         'max_outer':  case_params.get('max_outer',  case_params.get('max_picard_iter', 5)),
         'max_inner':  case_params.get('max_inner',  10),
         'inner_tol':  case_params.get('inner_tol',  case_params.get('picard_tol', 1e-6)),
@@ -91,6 +92,28 @@ def run(case_params):
         # legacy aliases kept for backward compat
         'max_picard_iter': case_params.get('max_picard_iter', 5),
         'picard_tol':      case_params.get('picard_tol',      1e-6),
+        # Newton solver options
+        'max_newton':    case_params.get('max_newton', 50),
+        'newton_tol':    case_params.get('newton_tol', 1e-6),
+        'newton_omega':  case_params.get('newton_omega', 1.0),
+        'use_barotropic': case_params.get('use_barotropic', False),
+        'use_jfnk':       case_params.get('use_jfnk', True),
+        'max_gmres':      case_params.get('max_gmres', 100),
+        'gmres_tol':      case_params.get('gmres_tol', 1e-3),
+        'solver_mode':    case_params.get('solver_mode', 'delta'),
+        'use_acid':       case_params.get('use_acid', True),
+        'acid_temporal':  case_params.get('acid_temporal', False),
+        'third_var':      case_params.get('third_var', 'T'),
+        # 5-equation conservative Newton mode
+        'five_eq':        case_params.get('five_eq', False),
+        # 5-equation conservative Newton + FD Jacobian mode
+        'five_eq_cons':   case_params.get('five_eq_cons', False),
+        # 5-equation autograd-Jacobian Newton mode (primitive variables)
+        'five_eq_ad':     case_params.get('five_eq_ad', False),
+        # 5-equation conservative autograd-Jacobian Newton (algebraic p/T)
+        'five_eq_cons_ad': case_params.get('five_eq_cons_ad', False),
+        'use_autograd':   case_params.get('use_autograd', True),
+        'verbose_newton': case_params.get('verbose_newton', False),
     }
     # backward compat: phases 없으면 [ph1, ph2]로 설정
     if cfg['phases'] is None:
@@ -172,9 +195,11 @@ def run(case_params):
         # Compute dt
         if dt_fixed is not None:
             dt = dt_fixed
+        elif cfg.get('cfl_type', 'acoustic') == 'convective':
+            # Convective CFL: dt = CFL * dx / max|u|  (implicit solver, pure advection)
+            dt = compute_dt(state['u'], dx, CFL)
         else:
-            # Acoustic CFL: dt = CFL * dx / max(|u| + c)
-            # Required for shock tubes and wave propagation problems.
+            # Acoustic CFL: dt = CFL * dx / max(|u| + c)  (shock capturing, default)
             c_mix = compute_mixture_props(
                 state['p'], state['u'], state['T'],
                 np.clip(state['psi'], 0.01, 0.99), ph1, ph2)['c_mix']
@@ -230,8 +255,8 @@ def run(case_params):
             diverge_reason = (f'Pressure out of range: min={np.min(p_now):.3e}'
                               f'  max={np.max(p_now):.3e}  (ref={p0_ref:.3e})')
 
-        # 3. Temperature non-physical (near-zero or > 1000× initial)
-        elif np.min(T_now) <= 1e-3 or np.max(T_now) > 1e3 * max(T0_ref, 1.0):
+        # 3. Temperature non-physical (negative or > 1000× initial)
+        elif np.min(T_now) < 0.0 or np.max(T_now) > 1e3 * max(T0_ref, 1.0):
             diverged = True
             diverge_reason = (f'Temperature non-physical: min={np.min(T_now):.3e}'
                               f'  max={np.max(T_now):.3e}  (ref={T0_ref:.3e})')

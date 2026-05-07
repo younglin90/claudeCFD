@@ -1,0 +1,5 @@
+Phase1: t=1.0000 ep=nan eu=nan fin=False FAIL wall=0.35s
+02-A: t=1.0000 ep=2.897e-13 eu=0.000e+00 fin=True PASS wall=0.23s
+07 air-water  : L2p=79.844 Lip=373.056 L2u=15.979 Liu=96.838 fin=True FAIL wall=16.0s
+07 helium-air : L2p=0.275 Lip=1.659 L2u=0.199 Liu=0.698 fin=True FAIL wall=11.2s
+07 argon-air  : L2p=0.129 Lip=0.599 L2u=0.170 Liu=0.802 fin=True FAIL wall=0.4s

@@ -36,10 +36,8 @@ from solver.five_eq_IMEX.main import solve  # noqa: E402
 P0 = 1.0e5
 U0 = 10.0
 L = 1.0
-N = int(os.environ.get("FIVE_EQ_IMEX_TEMP_N", "100"))
-DX = L / N
 T_END = 0.1
-DT_FIXED = float(os.environ.get("FIVE_EQ_IMEX_TEMP_DT", "0.0005"))
+DT_FIXED_DEFAULT = float(os.environ.get("FIVE_EQ_IMEX_TEMP_DT", "0.0005"))
 ALPHA_FLOOR = 1.0e-6
 MANDATORY_CASES = ["16", "17", "18"]
 OPTIONAL_CASES = ["19"]
@@ -56,16 +54,59 @@ SMOOTH_HF_TOL = 8.0e-3
 SMOOTH_TV_EXCESS_TOL = 8.0e-3
 SMOOTH_HF_MAX_TOL = 1.2e-2
 SMOOTH_TV_EXCESS_MAX_TOL = 2.0e-2
-THERMAL_SMOOTH_HF_MAX_TOL = 1.6e-2
-THERMAL_SMOOTH_TV_EXCESS_MAX_TOL = 3.5e-2
+# 18_T has smooth alpha/rho profiles; visible local wiggle should fail even
+# when the integral diffusion/error is acceptable.  Use separate alpha/rho
+# limits because density is EOS-amplified while alpha is bounded in [0, 1].
+THERMAL_ALPHA_SMOOTH_HF_MAX_TOL = 4.0e-3
+THERMAL_RHO_SMOOTH_HF_MAX_TOL = 8.0e-3
+THERMAL_ALPHA_SMOOTH_TV_EXCESS_MAX_TOL = 9.0e-3
+THERMAL_RHO_SMOOTH_TV_EXCESS_MAX_TOL = 1.8e-2
 ALPHA_RHO_GENERAL_L1_TOL = 2.0e-1
 ALPHA_RHO_TRANSPORT_L1_TOL = 7.5e-2
 ALPHA_RHO_TRANSPORT_RANGE_MIN = 0.88
+CASE17_EXTREMA_ERROR_TOL = 8.0e-2
+CASE17_RANGE_RATIO_MIN = 0.90
+CASE17_RANGE_RATIO_MAX = 1.08
+RHO_PEAK_RATIO_MIN = 0.98
+RHO_PEAK_RATIO_MAX = 1.02
 # 18_T is a smooth periodic thermal-wave advection problem.  The HF/TV guards
 # below reject nonphysical wiggle/checkerboard modes, while this pair allows a
 # small, resolution-consistent amplitude loss in alpha/rho from TVD diffusion.
 ALPHA_RHO_THERMAL_L1_TOL = 3.8e-2
 ALPHA_RHO_THERMAL_RANGE_MIN = 0.89
+
+
+def _case_n(case):
+    """Return the validation grid size without changing the numerical method.
+
+    16_T has a sharp block contact aligned to N=100 cell faces.  18_T is a
+    smooth thermal wave with stricter alpha/rho wiggle and amplitude guards.
+    It therefore uses a higher default resolution while keeping Co<1 and a
+    fixed dt.  A global FIVE_EQ_IMEX_TEMP_N override is still available for
+    controlled grid studies.
+    """
+    specific = os.environ.get(f"FIVE_EQ_IMEX_TEMP_N_{case}")
+    if specific is not None:
+        return int(specific)
+    common = os.environ.get("FIVE_EQ_IMEX_TEMP_N")
+    if common is not None:
+        return int(common)
+    if case == "17":
+        return 190
+    if case == "18":
+        return 550
+    return 100
+
+
+def _case_dt(case):
+    specific = os.environ.get(f"FIVE_EQ_IMEX_TEMP_DT_{case}")
+    if specific is not None:
+        return float(specific)
+    if case == "18" and "FIVE_EQ_IMEX_TEMP_DT" not in os.environ:
+        # Co=0.5 for the default N=550, intentionally below the forbidden
+        # Co=1 exact-remap shortcut while keeping temporal diffusion bounded.
+        return 1.0 / 11000.0
+    return DT_FIXED_DEFAULT
 
 
 def _make_water_nasg():
@@ -141,17 +182,19 @@ def _thermal_T(x):
 
 
 def _initial(case):
-    x = (np.arange(N) + 0.5) * DX
+    n = _case_n(case)
+    dx = L / n
+    x = (np.arange(n) + 0.5) * dx
     if case == "16":
         a = _block_alpha(x)
-        T1 = np.full(N, 300.0)
-        T2 = np.full(N, 1200.0)
+        T1 = np.full(n, 300.0)
+        T2 = np.full(n, 1200.0)
         folder = "16_T"
         title = "16_T hot-gas/cold-liquid material-interface advection"
     elif case == "17":
         a = _gaussian_alpha(x)
-        T1 = np.full(N, 300.0)
-        T2 = np.full(N, 1200.0)
+        T1 = np.full(n, 300.0)
+        T2 = np.full(n, 1200.0)
         folder = "17_T"
         title = "17_T smooth-alpha Gaussian hot-gas advection"
     elif case == "18":
@@ -172,9 +215,9 @@ def _initial(case):
         title = "19_T interface thermal-wave advection"
     else:
         raise ValueError(case)
-    u = np.full(N, U0)
-    p = np.full(N, P0)
-    return x, (a, T1, T2, u, p), folder, title
+    u = np.full(n, U0)
+    p = np.full(n, P0)
+    return x, (a, T1, T2, u, p), folder, title, dx, n
 
 
 def _rel_linf(num, exact, floor):
@@ -200,6 +243,18 @@ def _range_ratio(num, exact, floor=1.0):
         (np.max(num) - np.min(num))
         / max(float(np.max(exact) - np.min(exact)), float(floor))
     )
+
+
+def _extrema_match_metrics(num, exact, scale):
+    num = np.asarray(num, dtype=float)
+    exact = np.asarray(exact, dtype=float)
+    scale = max(abs(float(scale)), 1.0e-300)
+    exact_range = max(float(np.max(exact) - np.min(exact)), 1.0e-300)
+    return {
+        "max_error_ratio": float(abs(float(np.max(num)) - float(np.max(exact))) / scale),
+        "min_error_ratio": float(abs(float(np.min(num)) - float(np.min(exact))) / scale),
+        "range_ratio": float((float(np.max(num)) - float(np.min(num))) / exact_range),
+    }
 
 
 def _has_sharp_jump(exact, scale, fraction=0.5):
@@ -314,20 +369,22 @@ def _masked_local_tv_excess_max(num, exact, scale, mask=None):
 def _solve_case(case):
     eos1 = _make_water_nasg()
     eos2 = _make_air_ideal()
-    x, W0, folder, title = _initial(case)
+    x, W0, folder, title, dx, n = _initial(case)
+    dt_fixed = _case_dt(case)
+    max_steps = int(math.ceil(T_END / max(dt_fixed, 1.0e-300))) + 5
     start = time.time()
     out = solve(
         eos1,
         eos2,
         W0,
-        DX,
+        dx,
         T_END,
         bc_l="periodic",
         bc_r="periodic",
-        dt_fixed=DT_FIXED,
-        max_steps=1000,
+        dt_fixed=dt_fixed,
+        max_steps=max_steps,
         time_integrator=os.environ.get("FIVE_EQ_IMEX_TIME_INTEGRATOR", "imex_ad"),
-        alpha_scheme=os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "thinc_bvd"),
+        alpha_scheme=os.environ.get("FIVE_EQ_IMEX_ALPHA_SCHEME", "adaptive_bvd"),
         primitive_scheme=os.environ.get("FIVE_EQ_IMEX_PRIMITIVE_SCHEME", "tmlpu"),
         mixture_kind="kapila",
         kapila_closure=True,
@@ -376,7 +433,10 @@ def _solve_case(case):
         "terminated_reason": out.get("terminated_reason"),
         "steps": int(out["step"]),
         "t_final": float(out["t_final"]),
-        "dt_fixed": DT_FIXED,
+        "dt_fixed": dt_fixed,
+        "N": int(n),
+        "dx": float(dx),
+        "courant": float(abs(U0) * dt_fixed / dx),
         "wall": wall,
         "alpha_min": float(np.min(W[0])),
         "alpha_max": float(np.max(W[0])),
@@ -425,6 +485,42 @@ def _solve_case(case):
     )
     metrics["Tmix_has_sharp_jump"] = bool(tmix_has_sharp_jump)
     metrics["Tmix_bounded"] = bool(tmix_bounded)
+    case17_peak_ok = True
+    if case == "17":
+        alpha_extrema = _extrema_match_metrics(W[0], Wex[0], 1.0)
+        rho_extrema = _extrema_match_metrics(rho, rho_ex, rho_scale)
+        tmix_extrema = _extrema_match_metrics(T_mix, T_mix_ex, Tmix_scale)
+        metrics.update({
+            "case17_alpha_peak_error_ratio": alpha_extrema["max_error_ratio"],
+            "case17_alpha_floor_error_ratio": alpha_extrema["min_error_ratio"],
+            "case17_alpha_peak_range_ratio": alpha_extrema["range_ratio"],
+            "case17_rho_peak_error_ratio": rho_extrema["max_error_ratio"],
+            "case17_rho_floor_error_ratio": rho_extrema["min_error_ratio"],
+            "case17_rho_peak_range_ratio": rho_extrema["range_ratio"],
+            "case17_rho_peak_amp_ratio_min": RHO_PEAK_RATIO_MIN,
+            "case17_rho_peak_amp_ratio_max": RHO_PEAK_RATIO_MAX,
+            "case17_Tmix_peak_error_ratio": tmix_extrema["max_error_ratio"],
+            "case17_Tmix_valley_error_ratio": tmix_extrema["min_error_ratio"],
+            "case17_Tmix_peak_range_ratio": tmix_extrema["range_ratio"],
+            "case17_extrema_error_limit": CASE17_EXTREMA_ERROR_TOL,
+            "case17_range_ratio_min": CASE17_RANGE_RATIO_MIN,
+            "case17_range_ratio_max": CASE17_RANGE_RATIO_MAX,
+        })
+        case17_peak_ok = bool(
+            alpha_extrema["max_error_ratio"] < CASE17_EXTREMA_ERROR_TOL
+            and alpha_extrema["min_error_ratio"] < CASE17_EXTREMA_ERROR_TOL
+            and rho_extrema["max_error_ratio"] < CASE17_EXTREMA_ERROR_TOL
+            and rho_extrema["min_error_ratio"] < CASE17_EXTREMA_ERROR_TOL
+            and tmix_extrema["max_error_ratio"] < CASE17_EXTREMA_ERROR_TOL
+            and tmix_extrema["min_error_ratio"] < CASE17_EXTREMA_ERROR_TOL
+            and alpha_extrema["range_ratio"] > CASE17_RANGE_RATIO_MIN
+            and rho_extrema["range_ratio"] > RHO_PEAK_RATIO_MIN
+            and tmix_extrema["range_ratio"] > CASE17_RANGE_RATIO_MIN
+            and alpha_extrema["range_ratio"] < CASE17_RANGE_RATIO_MAX
+            and rho_extrema["range_ratio"] < RHO_PEAK_RATIO_MAX
+            and tmix_extrema["range_ratio"] < CASE17_RANGE_RATIO_MAX
+        )
+    metrics["case17_peak_ok"] = bool(case17_peak_ok)
     alpha_rho_ok = (
         alpha_l1 < ALPHA_RHO_GENERAL_L1_TOL
         and rho_l1 < ALPHA_RHO_GENERAL_L1_TOL
@@ -463,15 +559,21 @@ def _solve_case(case):
     metrics["tmix_transport_ok"] = bool(tmix_transport_ok)
     case18_wiggle_ok = True
     if case == "18":
+        metrics["case18_rho_peak_amp_ratio"] = float(rho_range_ratio)
+        metrics["case18_rho_peak_amp_ratio_min"] = float(RHO_PEAK_RATIO_MIN)
+        metrics["case18_rho_peak_amp_ratio_max"] = float(RHO_PEAK_RATIO_MAX)
+        metrics["case18_rho_peak_ok"] = bool(
+            RHO_PEAK_RATIO_MIN <= rho_range_ratio <= RHO_PEAK_RATIO_MAX
+        )
         case18_wiggle_ok = bool(
             metrics["T1_active_hf_max_error"] < T_ACTIVE_HF_MAX_TOL
             and metrics["T2_active_hf_max_error"] < T_ACTIVE_HF_MAX_TOL
             and metrics["T1_active_tv_excess_max"] < T_ACTIVE_TV_EXCESS_MAX_TOL
             and metrics["T2_active_tv_excess_max"] < T_ACTIVE_TV_EXCESS_MAX_TOL
-            and metrics["alpha_smooth_hf_max_error"] < THERMAL_SMOOTH_HF_MAX_TOL
-            and metrics["rho_smooth_hf_max_error"] < THERMAL_SMOOTH_HF_MAX_TOL
-            and metrics["alpha_smooth_tv_excess_max"] < THERMAL_SMOOTH_TV_EXCESS_MAX_TOL
-            and metrics["rho_smooth_tv_excess_max"] < THERMAL_SMOOTH_TV_EXCESS_MAX_TOL
+            and metrics["alpha_smooth_hf_max_error"] < THERMAL_ALPHA_SMOOTH_HF_MAX_TOL
+            and metrics["rho_smooth_hf_max_error"] < THERMAL_RHO_SMOOTH_HF_MAX_TOL
+            and metrics["alpha_smooth_tv_excess_max"] < THERMAL_ALPHA_SMOOTH_TV_EXCESS_MAX_TOL
+            and metrics["rho_smooth_tv_excess_max"] < THERMAL_RHO_SMOOTH_TV_EXCESS_MAX_TOL
         )
     metrics["case18_wiggle_ok"] = bool(case18_wiggle_ok)
     ok = bool(
@@ -494,7 +596,9 @@ def _solve_case(case):
         and metrics["alpha_smooth_tv_excess"] < SMOOTH_TV_EXCESS_TOL
         and metrics["rho_smooth_tv_excess"] < SMOOTH_TV_EXCESS_TOL
         and tmix_transport_ok
+        and case17_peak_ok
         and case18_wiggle_ok
+        and (case != "18" or metrics.get("case18_rho_peak_ok", False))
         and metrics["T1_min"] > 0.0
         and metrics["T2_min"] > 0.0
     )

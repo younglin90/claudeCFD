@@ -1,0 +1,4 @@
+Round 95: strang+none+tvd+acid+thinc_bvd_alpha+CFL=0.4
+07 air-water  : L2p=0.362 Lip=1.462 L2u=0.098 Liu=0.732 fin=True wall=31.6s FAIL
+07 helium-air : L2p=0.167 Lip=0.955 L2u=0.096 Liu=0.393 fin=True wall=22.6s FAIL
+07 argon-air  : L2p=0.137 Lip=0.519 L2u=0.185 Liu=0.695 fin=True wall=10.2s FAIL

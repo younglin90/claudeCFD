@@ -1,0 +1,4 @@
+Round 97: strang_richardson=True
+07 air-water  : L2p=0.341 Lip=1.382 L2u=0.096 Liu=0.706 fin=True wall=87.1s FAIL
+07 helium-air : L2p=0.164 Lip=0.901 L2u=0.094 Liu=0.371 fin=True wall=59.3s FAIL
+07 argon-air  : L2p=0.135 Lip=0.485 L2u=0.183 Liu=0.650 fin=True wall=24.2s FAIL

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "paper_search_server": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/home/younglin90/work/claude_code/claudeCFD/.agents/tools/paper-search-mcp",
+        "-m",
+        "paper_search_mcp.server"
+      ],
+      "env": {
+        "UV_CACHE_DIR": "/tmp/uv-cache",
+        "PAPER_SEARCH_MCP_UNPAYWALL_EMAIL": ""
+      }
+    }
+  }
+}

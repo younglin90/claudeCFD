@@ -307,13 +307,15 @@ def assemble_newton_3N(
             b[rh_row]     += (rho_old[i] * h_old[i] / dt
                               - p_old[i] / dt
                               + zeta_i * h_i * p_k[i] / dt)
-            # Convective + ACID (cell-centre values for enthalpy consistency)
+            # Convective + ACID: use upwind (p,T,u) consistent with rfR/rfL
+            # For volume fraction mixing, H_acid(p,T,u,ψ) ≡ rfR·h_up when same (p,T)
+            # → acid_corr = 0 in single-phase regions (eliminates spurious oscillation)
             if mixing_type == 'mass':
-                H_R_acid = _acid_rh_Y(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
-                H_L_acid = _acid_rh_Y(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+                H_R_acid = _acid_rh_Y(p_fR, T_fR, u_up_R, psi_i)
+                H_L_acid = _acid_rh_Y(p_fL, T_fL, u_up_L, psi_i)
             else:
-                H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
-                H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+                H_R_acid = _acid_rh(p_fR, T_fR, u_up_R, psi_i)
+                H_L_acid = _acid_rh(p_fL, T_fL, u_up_L, psi_i)
             h_up_R = h_k[i]   if mR >= 0.0 else h_k[iR]
             h_up_L = h_k[iL]  if mL >= 0.0 else h_k[i]
             if mR >= 0.0: A[rh_row, ch]   += mR / dx
@@ -350,6 +352,13 @@ def assemble_newton_3N(
             # Full eq: d(ρh)/dT·T + d(ρh)/dp·p + d(ρh)/du·u − dp/dt
             #        = ρ^n·h^n + [d(ρh)/dT·T_k + d(ρh)/dp·p_k + d(ρh)/du·u_k − ρ_k·h_k] − p^n/dt
             drhdt = rho_i * cp_i + h_i * phi_i
+            # Regularization: when d(ρh)/dT ≈ 0 (ideal gas, stiffened gas with q=0),
+            # the T-diagonal vanishes and the matrix becomes ill-conditioned.
+            # Add a small ε·ρ·cp term to prevent zero diagonal.
+            # This is equivalent to adding ε·ρ·cp·(T-T_k)/dt to the energy equation,
+            # which vanishes at convergence (T=T_k) and doesn't affect the solution.
+            if abs(drhdt) < 1e-3 * rho_i * (abs(cp_i) + 1e-300):
+                drhdt = 1e-3 * rho_i * cp_i
             drhdp = rho_i * bm_i + h_i * zeta_i
             drhdu = rho_i * u_i
 
@@ -365,12 +374,12 @@ def assemble_newton_3N(
             # Split H_acid = rfR·(cp_i·T + rest). Implicit: cp_i·T; deferred: rest.
             # At uniform (p,T,u): both faces give same H_acid → net flux = 0 ✓
             if mixing_type == 'mass':
-                H_R_acid = _acid_rh_Y(p_fR, T_fR, float(u_k[i]) if tR >= 0 else float(u_k[iR]), psi_i)
-                H_L_acid = _acid_rh_Y(p_fL, T_fL, float(u_k[iL]) if tL >= 0 else float(u_k[i]), psi_i)
+                H_R_acid = _acid_rh_Y(p_fR, T_fR, u_up_R, psi_i)
+                H_L_acid = _acid_rh_Y(p_fL, T_fL, u_up_L, psi_i)
                 cp_i_acid = _acid_cp_Y(float(p_k[i]), float(T_k[i]), psi_i)
             else:
-                H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
-                H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
+                H_R_acid = _acid_rh(p_fR, T_fR, u_up_R, psi_i)
+                H_L_acid = _acid_rh(p_fL, T_fL, u_up_L, psi_i)
                 cp_i_acid = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
             # Full ACID flux deferred to b:
             b[rh_row] -= (H_R_acid * tR - H_L_acid * tL) / dx
@@ -400,10 +409,20 @@ def assemble_newton_4N(
     mixing_type='volume',
     use_compress=False,
     C_k=None, n_hat_k=None, u_face_vof=None,
+    # Newton-CICSAM Jacobian data (optional; if None, fallback to Picard)
+    psi_face=None,
+    jac_D=None, jac_A=None, jac_UU=None,
+    idx_D=None, idx_A=None, idx_UU=None,
+    third_var='T',   # 'T' = (p,u,T,φ) mode (default), 'h' = (p,u,h,φ) mode
+    scale_continuity=False,  # optional: scale continuity rows to balance p vs Y columns
+    picard_advection=False,  # Picard advection: skip spatial ACID Y-Jacobian (dRho_R/L terms)
+    use_acid=True,   # True: ACID face density (cell-i ψ); False: upwind Y consistent flux
 ):
     """
-    Fully coupled Newton-linearised (p, u, T, φ) 4N system.
-    Block ordering: [p_0..p_{N-1}, u_0..u_{N-1}, T_0..T_{N-1}, phi_0..phi_{N-1}]
+    Fully coupled Newton-linearised (p, u, T/h, φ) 4N system.
+    Block ordering: [p_0..p_{N-1}, u_0..u_{N-1}, T_0(or h_0)..T_{N-1}, phi_0..phi_{N-1}]
+    third_var='T': energy unknown is temperature T (default, backward-compatible).
+    third_var='h': energy unknown is specific total enthalpy h (Denner 2018 h-mode).
     Returns A (csr), b (ndarray).
     """
     size = 4 * N
@@ -507,25 +526,61 @@ def assemble_newton_4N(
         dR  = d_hat[f_R]
         dL  = d_hat[f_L]
 
-        # ACID face density
-        if mixing_type == 'mass':
-            rfR = _acid_rho_Y(float(p_k[iR]), float(T_k[iR]), psi_i)
-            rfL = _acid_rho_Y(float(p_k[iL]), float(T_k[iL]), psi_i)
+        # Face density: ACID (cell-i ψ) or upwind-Y consistent flux
+        if use_acid:
+            # ACID: cell i의 ψ로 face density 계산 (PE 보장, 기존 동작)
+            Y_upR = psi_i
+            Y_upL = psi_i
         else:
-            rfR = _acid_rho(float(p_k[iR]), float(T_k[iR]), psi_i)
-            rfL = _acid_rho(float(p_k[iL]), float(T_k[iL]), psi_i)
+            # Non-ACID: upwind cell의 Y로 face density 계산 (Jacobian Y-sensitivity 확보)
+            Y_upR = psi_i if (tR >= 0) else float(phi_k[iR])
+            Y_upL = float(phi_k[iL]) if (tL >= 0) else psi_i
+
+        if mixing_type == 'mass':
+            rfR = _acid_rho_Y(float(p_k[iR]), float(T_k[iR]), Y_upR)
+            rfL = _acid_rho_Y(float(p_k[iL]), float(T_k[iL]), Y_upL)
+        else:
+            rfR = _acid_rho(float(p_k[iR]), float(T_k[iR]), Y_upR)
+            rfL = _acid_rho(float(p_k[iL]), float(T_k[iL]), Y_upL)
 
         mR = rfR * tR
         mL = rfL * tL
+
+        # Spatial Jacobian: ∂ρ̃_f/∂ψ_i
+        # Pre-compute EOS values at face neighbors (always needed)
+        r1R = eos1.rho(float(p_k[iR]), float(T_k[iR]))
+        r2R = eos2.rho(float(p_k[iR]), float(T_k[iR]))
+        r1L = eos1.rho(float(p_k[iL]), float(T_k[iL]))
+        r2L = eos2.rho(float(p_k[iL]), float(T_k[iL]))
+
+        if use_acid:
+            # ACID Jacobian: ∂ρ̃_f/∂ψ_i — always nonzero (cell i's ψ used for all faces)
+            if mixing_type != 'mass':
+                dRho_R = r1R - r2R
+                dRho_L = r1L - r2L
+            else:
+                dRho_R = rfR * rfR * (1.0/(r2R+1e-300) - 1.0/(r1R+1e-300))
+                dRho_L = rfL * rfL * (1.0/(r2L+1e-300) - 1.0/(r1L+1e-300))
+        else:
+            # Non-ACID Jacobian: ∂ρ_f/∂Y_i nonzero only when cell i is upwind
+            if mixing_type != 'mass':
+                # Right face: cell i is upwind when tR >= 0
+                dRho_R = (r1R - r2R) if (tR >= 0) else 0.0
+                # Left face: cell i is downwind when tL >= 0 (upwind = iL)
+                dRho_L = 0.0 if (tL >= 0) else (r1L - r2L)
+            else:
+                # Harmonic mixing: ∂ρ_harm/∂Y = ρ²·(1/ρ₂ - 1/ρ₁)
+                dRho_R = (rfR * rfR * (1.0/(r2R+1e-300) - 1.0/(r1R+1e-300))) if (tR >= 0) else 0.0
+                dRho_L = 0.0 if (tL >= 0) else (rfL * rfL * (1.0/(r2L+1e-300) - 1.0/(r1L+1e-300)))
 
         # -----------------------------------------------------------
         # CONTINUITY (block 0) — extended with φ coupling
         # -----------------------------------------------------------
         A[rp, cp]   += zeta_i / dt
         b[rp]       += zeta_i * p_old[i] / dt
-        # φ coupling: α·φ/dt
+        # α·dψ/dt: temporal ψ-density coupling
         A[rp, cv]   += alpha_i / dt
-        b[rp]       += alpha_i * phi_old[i] / dt
+        b[rp]       += alpha_i * float(phi_old[i]) / dt
         # MWI right face
         A[rp, cu]   += rfR / (2.0 * dx)
         A[rp, cu_R] += rfR / (2.0 * dx)
@@ -536,14 +591,21 @@ def assemble_newton_4N(
         A[rp, cu]   -= rfL / (2.0 * dx)
         A[rp, cp]   += rfL * dL / (dx * dx)
         A[rp, cp_L] -= rfL * dL / (dx * dx)
+        # Spatial ACID ψ Jacobian: ∂(ρ̃_f·θ_f)/∂ψ_i = Δρ_f · θ_f
+        # picard_advection=True: skip (deferred — already in residual, temporal coupling retained)
+        if not picard_advection:
+            A[rp, cv] += dRho_R * tR / dx
+            A[rp, cv] -= dRho_L * tL / dx
 
         # -----------------------------------------------------------
         # MOMENTUM (block 1) — extended with φ coupling
         # -----------------------------------------------------------
         A[ru, cu] += rho_i / dt
         A[ru, cp] += zeta_i * u_i / dt
+        # α·u_k·dψ/dt: temporal ψ-density coupling for momentum
         A[ru, cv] += alpha_i * u_i / dt
-        b[ru]     += rho_old[i] * u_old[i] / dt + zeta_i * u_i * p_k[i] / dt + alpha_i * u_i * phi_k[i] / dt
+        b[ru]     += (rho_old[i] * u_old[i] / dt + zeta_i * u_i * p_k[i] / dt
+                      + alpha_i * u_i * float(phi_old[i]) / dt)
 
         # Convective right face
         if mR >= 0.0:
@@ -562,97 +624,224 @@ def assemble_newton_4N(
         # Pressure gradient
         A[ru, cp_R] += 1.0 / (2.0 * dx)
         A[ru, cp_L] -= 1.0 / (2.0 * dx)
+        # Spatial ACID ψ Jacobian: ∂(ρ̃_f·θ_f·ũ_f)/∂ψ_i
+        u_up_R = float(u_k[i]) if mR >= 0.0 else float(u_k[iR])
+        u_up_L = float(u_k[iL]) if mL >= 0.0 else float(u_k[i])
+        # picard_advection=True: skip (deferred — temporal coupling retained)
+        if not picard_advection:
+            A[ru, cv] += dRho_R * tR * u_up_R / dx
+            A[ru, cv] -= dRho_L * tL * u_up_L / dx
 
         # -----------------------------------------------------------
-        # ENERGY (block 2) — T-mode with φ coupling
-        # From assemble_newton_3N T-mode (L257-316), extended with φ column
+        # ENERGY (block 2) — h-mode or T-mode with φ coupling
         # -----------------------------------------------------------
-        if mixing_type == 'mass':
-            cp_i    = _acid_cp_Y(float(p_k[i]), float(T_k[i]), psi_i)
-            bm_i    = _acid_bm_Y(float(p_k[i]), float(T_k[i]), psi_i)
+        if third_var == 'h':
+            # --- h-mode: Denner 2018 enthalpy equation ---
+            # (ρ^{n+1}h^{n+1} - ρ^n·h^n)/dt + div(ρ̃ϑh) = (p^{n+1}-p^n)/dt
+            # Newton: ρ_k/dt·h + (ζ·h_k - 1)/dt·p = ρ^n·h^n/dt - p^n/dt + ζ·h_k·p_k/dt
+            A[rT, cT] += rho_i / dt
+            A[rT, cp] += (zeta_i * h_i - 1.0) / dt
+            # d(ρh)/dψ temporal coupling
+            A[rT, cv] += drh_dphi_i / dt
+            b[rT]     += (rho_old[i] * h_old[i] / dt
+                          - p_old[i] / dt
+                          + zeta_i * h_i * float(p_k[i]) / dt
+                          + drh_dphi_i * float(phi_old[i]) / dt)
+            # Convective + ACID/consistent (h-mode): upwind (p,T,u) face enthalpy
+            h_up_R = h_k[i]  if mR >= 0.0 else h_k[iR]
+            h_up_L = h_k[iL] if mL >= 0.0 else h_k[i]
+            if mR >= 0.0: A[rT, cT]   += mR / dx
+            else:         A[rT, cT_R] += mR / dx
+            if mL >= 0.0: A[rT, cT_L] -= mL / dx
+            else:         A[rT, cT]   -= mL / dx
+            if use_acid:
+                # ACID: face enthalpy evaluated with cell-i ψ (PE-preserving)
+                if mixing_type == 'mass':
+                    H_R_acid = _acid_rh_Y(float(p_k[iR]), float(T_k[iR]), u_up_R, psi_i)
+                    H_L_acid = _acid_rh_Y(float(p_k[iL]), float(T_k[iL]), u_up_L, psi_i)
+                else:
+                    H_R_acid = _acid_rh(float(p_k[iR]), float(T_k[iR]), u_up_R, psi_i)
+                    H_L_acid = _acid_rh(float(p_k[iL]), float(T_k[iL]), u_up_L, psi_i)
+                acid_corr_R = (H_R_acid - rfR * h_up_R) * tR / dx
+                acid_corr_L = (H_L_acid - rfL * h_up_L) * tL / dx
+                b[rT] -= (acid_corr_R - acid_corr_L)
+            else:
+                # Non-ACID: consistent flux with upwind Y — H evaluated with same Y_up as rfR/rfL
+                if mixing_type == 'mass':
+                    H_R_consistent = _acid_rh_Y(float(p_k[iR]), float(T_k[iR]), u_up_R, Y_upR)
+                    H_L_consistent = _acid_rh_Y(float(p_k[iL]), float(T_k[iL]), u_up_L, Y_upL)
+                else:
+                    H_R_consistent = _acid_rh(float(p_k[iR]), float(T_k[iR]), u_up_R, Y_upR)
+                    H_L_consistent = _acid_rh(float(p_k[iL]), float(T_k[iL]), u_up_L, Y_upL)
+                # correction: H_consistent - rfR·h_up_R accounts for species-mixture h difference
+                acid_corr_R = (H_R_consistent - rfR * h_up_R) * tR / dx
+                acid_corr_L = (H_L_consistent - rfL * h_up_L) * tL / dx
+                b[rT] -= (acid_corr_R - acid_corr_L)
+            # Spatial ψ Jacobian: ∂(H̃_f·θ_f)/∂ψ_i
+            # picard_advection=True: skip (deferred — temporal coupling retained)
+            if not picard_advection:
+                if mixing_type != 'mass':
+                    h1R_e = eos1.h(float(p_k[iR]), float(T_k[iR])) + 0.5*float(u_k[iR])**2
+                    h2R_e = eos2.h(float(p_k[iR]), float(T_k[iR])) + 0.5*float(u_k[iR])**2
+                    dH_R_full = r1R * h1R_e - r2R * h2R_e
+                    h1L_e = eos1.h(float(p_k[iL]), float(T_k[iL])) + 0.5*float(u_k[iL])**2
+                    h2L_e = eos2.h(float(p_k[iL]), float(T_k[iL])) + 0.5*float(u_k[iL])**2
+                    dH_L_full = r1L * h1L_e - r2L * h2L_e
+                    if use_acid:
+                        dH_R = dH_R_full
+                        dH_L = dH_L_full
+                    else:
+                        # Non-ACID: ∂H_f/∂Y_i nonzero only when cell i is upwind
+                        dH_R = dH_R_full if (tR >= 0) else 0.0
+                        dH_L = 0.0 if (tL >= 0) else dH_L_full
+                else:
+                    dH_R = 0.0
+                    dH_L = 0.0
+                A[rT, cv] += dH_R * tR / dx
+                A[rT, cv] -= dH_L * tL / dx
         else:
-            cp_i    = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
-            bm_i    = _acid_bm(float(p_k[i]), float(T_k[i]), psi_i)
+            # --- T-mode (default): From assemble_newton_3N T-mode, extended with φ column ---
+            if mixing_type == 'mass':
+                cp_i    = _acid_cp_Y(float(p_k[i]), float(T_k[i]), psi_i)
+                bm_i    = _acid_bm_Y(float(p_k[i]), float(T_k[i]), psi_i)
+            else:
+                cp_i    = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
+                bm_i    = _acid_bm(float(p_k[i]), float(T_k[i]), psi_i)
 
-        drhdt = rho_i * cp_i + h_i * phi_T_i
-        drhdp = rho_i * bm_i + h_i * zeta_i
-        drhdu = rho_i * u_i
+            drhdt = rho_i * cp_i + h_i * phi_T_i
+            drhdp = rho_i * bm_i + h_i * zeta_i
+            drhdu = rho_i * u_i
 
-        A[rT, cT] += drhdt / dt
-        A[rT, cu] += drhdu / dt
-        A[rT, cp] += (drhdp - 1.0) / dt
-        # φ coupling for energy: d(ρh)/dφ
-        A[rT, cv] += drh_dphi_i / dt
-        b[rT]     += (rho_old[i] * h_old[i] / dt
-                      - p_old[i] / dt
-                      + (drhdt * T_i + drhdp * p_k[i] + drhdu * u_i
-                         - rho_i * h_i + drh_dphi_i * phi_k[i]) / dt)
+            A[rT, cT] += drhdt / dt
+            A[rT, cu] += drhdu / dt
+            A[rT, cp] += (drhdp - 1.0) / dt
+            # d(ρh)/dψ temporal coupling
+            A[rT, cv] += drh_dphi_i / dt
+            b[rT]     += (rho_old[i] * h_old[i] / dt
+                          - p_old[i] / dt
+                          + (drhdt * T_i + drhdp * p_k[i] + drhdu * u_i
+                             + drh_dphi_i * psi_i
+                             - rho_i * h_i) / dt)
 
-        # Convective for T-mode: ACID face enthalpy
-        if mixing_type == 'mass':
-            H_R_acid    = _acid_rh_Y(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
-            H_L_acid    = _acid_rh_Y(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
-            cp_i_acid   = _acid_cp_Y(float(p_k[i]), float(T_k[i]), psi_i)
-        else:
-            H_R_acid    = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), psi_i)
-            H_L_acid    = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), psi_i)
-            cp_i_acid   = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
-        b[rT] -= (H_R_acid * tR - H_L_acid * tL) / dx
-        if mR >= 0.0: A[rT, cT]   += mR * cp_i_acid / dx
-        else:         A[rT, cT_R] += mR * cp_i_acid / dx
-        if mL >= 0.0: A[rT, cT_L] -= mL * cp_i_acid / dx
-        else:         A[rT, cT]   -= mL * cp_i_acid / dx
-        T_up_R = T_k[i]  if mR >= 0.0 else T_k[iR]
-        T_up_L = T_k[iL] if mL >= 0.0 else T_k[i]
-        b[rT] += (mR * cp_i_acid * T_up_R - mL * cp_i_acid * T_up_L) / dx
+            # Convective for T-mode: ACID or consistent face enthalpy
+            if use_acid:
+                Y_face_R = psi_i
+                Y_face_L = psi_i
+            else:
+                Y_face_R = Y_upR
+                Y_face_L = Y_upL
+            if mixing_type == 'mass':
+                H_R_acid    = _acid_rh_Y(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), Y_face_R)
+                H_L_acid    = _acid_rh_Y(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), Y_face_L)
+                cp_i_acid   = _acid_cp_Y(float(p_k[i]), float(T_k[i]), psi_i)
+            else:
+                H_R_acid    = _acid_rh(float(p_k[iR]), float(T_k[iR]), float(u_k[iR]), Y_face_R)
+                H_L_acid    = _acid_rh(float(p_k[iL]), float(T_k[iL]), float(u_k[iL]), Y_face_L)
+                cp_i_acid   = _acid_cp(float(p_k[i]), float(T_k[i]), psi_i)
+            b[rT] -= (H_R_acid * tR - H_L_acid * tL) / dx
+            if mR >= 0.0: A[rT, cT]   += mR * cp_i_acid / dx
+            else:         A[rT, cT_R] += mR * cp_i_acid / dx
+            if mL >= 0.0: A[rT, cT_L] -= mL * cp_i_acid / dx
+            else:         A[rT, cT]   -= mL * cp_i_acid / dx
+            T_up_R = T_k[i]  if mR >= 0.0 else T_k[iR]
+            T_up_L = T_k[iL] if mL >= 0.0 else T_k[i]
+            b[rT] += (mR * cp_i_acid * T_up_R - mL * cp_i_acid * T_up_L) / dx
+            # Spatial ψ Jacobian: ∂(H̃_f·θ_f)/∂ψ_i
+            # picard_advection=True: skip (deferred — temporal coupling retained)
+            if not picard_advection:
+                if mixing_type != 'mass':
+                    h1R_e = eos1.h(float(p_k[iR]), float(T_k[iR])) + 0.5*float(u_k[iR])**2
+                    h2R_e = eos2.h(float(p_k[iR]), float(T_k[iR])) + 0.5*float(u_k[iR])**2
+                    dH_R_full = r1R * h1R_e - r2R * h2R_e
+                    h1L_e = eos1.h(float(p_k[iL]), float(T_k[iL])) + 0.5*float(u_k[iL])**2
+                    h2L_e = eos2.h(float(p_k[iL]), float(T_k[iL])) + 0.5*float(u_k[iL])**2
+                    dH_L_full = r1L * h1L_e - r2L * h2L_e
+                    if use_acid:
+                        dH_R = dH_R_full
+                        dH_L = dH_L_full
+                    else:
+                        # Non-ACID: ∂H_f/∂Y_i nonzero only when cell i is upwind
+                        dH_R = dH_R_full if (tR >= 0) else 0.0
+                        dH_L = 0.0 if (tL >= 0) else dH_L_full
+                else:
+                    dH_R = 0.0
+                    dH_L = 0.0
+                A[rT, cv] += dH_R * tR / dx
+                A[rT, cv] -= dH_L * tL / dx
 
         # -----------------------------------------------------------
         # VOF / SPECIES TRANSPORT (block 3)
-        # Picard linearization with implicit volume flux
-        # (Janodet, van Wachem & Denner, JCP 2025, Eq. 53)
-        #
-        # ψ^{n+1}/dt + [ψ̃_R·θ_R^{n+1} - ψ̃_L·θ_L^{n+1}]/dx
-        #            - ψ^(n)·[θ_R^{n+1} - θ_L^{n+1}]/dx = ψ^old/dt
-        #
-        # ψ̃ = CICSAM face value (deferred at iterate n)
-        # θ = MWI face velocity (implicit in u, p)
-        # ψ^(n) = iterate (deferred for source term)
         # -----------------------------------------------------------
         # Temporal: ψ^{n+1}/dt
         A[rv, cv] += 1.0 / dt
         b[rv]     += phi_old[i] / dt
 
-        # Compute deferred CICSAM face values from beta
-        beta_R = float(beta_k[f_R])
-        beta_L = float(beta_k[f_L])
-        if tR >= 0:
-            psi_face_R = (1.0 - beta_R) * psi_i + beta_R * float(phi_k[iR])
+        if psi_face is not None and jac_D is not None:
+            # --- Newton-CICSAM: exact Jacobian for ψ̃_f ---
+            psi_fR = float(psi_face[f_R])
+            psi_fL = float(psi_face[f_L])
+
+            # (u,p) columns: (ψ̃_f^k - ψ_i^k)·θ_f^{n+1} implicit
+            coeff_R = (psi_fR - psi_i) / dx
+            coeff_L = -(psi_fL - psi_i) / dx
+            A[rv, cu]   += coeff_R * 0.5
+            A[rv, cu_R] += coeff_R * 0.5
+            A[rv, cp]   += coeff_R * dR / dx
+            A[rv, cp_R] -= coeff_R * dR / dx
+            A[rv, cu_L] += coeff_L * 0.5
+            A[rv, cu]   += coeff_L * 0.5
+            A[rv, cp_L] += coeff_L * dL / dx
+            A[rv, cp]   -= coeff_L * dL / dx
+
+            # ψ columns: θ_f^k · Σ J_s · ψ_s^{n+1} (advection Newton Jacobian)
+            A[rv, _ci(3, int(idx_D[f_R]), N)]  += float(jac_D[f_R]) * tR / dx
+            A[rv, _ci(3, int(idx_A[f_R]), N)]  += float(jac_A[f_R]) * tR / dx
+            A[rv, _ci(3, int(idx_UU[f_R]), N)] += float(jac_UU[f_R]) * tR / dx
+            A[rv, _ci(3, int(idx_D[f_L]), N)]  -= float(jac_D[f_L]) * tL / dx
+            A[rv, _ci(3, int(idx_A[f_L]), N)]  -= float(jac_A[f_L]) * tL / dx
+            A[rv, _ci(3, int(idx_UU[f_L]), N)] -= float(jac_UU[f_L]) * tL / dx
+            # Source: -ψ_i · div(θ)
+            A[rv, cv] -= (tR - tL) / dx
         else:
-            psi_face_R = (1.0 - beta_R) * float(phi_k[iR]) + beta_R * psi_i
-        if tL >= 0:
-            psi_face_L = (1.0 - beta_L) * float(phi_k[iL]) + beta_L * psi_i
-        else:
-            psi_face_L = (1.0 - beta_L) * psi_i + beta_L * float(phi_k[iL])
+            # --- Picard fallback: deferred CICSAM beta ---
+            beta_R = float(beta_k[f_R])
+            beta_L = float(beta_k[f_L])
+            if tR >= 0:
+                psi_face_R = (1.0 - beta_R) * psi_i + beta_R * float(phi_k[iR])
+            else:
+                psi_face_R = (1.0 - beta_R) * float(phi_k[iR]) + beta_R * psi_i
+            if tL >= 0:
+                psi_face_L = (1.0 - beta_L) * float(phi_k[iL]) + beta_L * psi_i
+            else:
+                psi_face_L = (1.0 - beta_L) * psi_i + beta_L * float(phi_k[iL])
+            coeff_R = (psi_face_R - psi_i) / dx
+            coeff_L = -(psi_face_L - psi_i) / dx
+            A[rv, cu]   += coeff_R * 0.5
+            A[rv, cu_R] += coeff_R * 0.5
+            A[rv, cp]   += coeff_R * dR / dx
+            A[rv, cp_R] -= coeff_R * dR / dx
+            A[rv, cu_L] += coeff_L * 0.5
+            A[rv, cu]   += coeff_L * 0.5
+            A[rv, cp_L] += coeff_L * dL / dx
+            A[rv, cp]   -= coeff_L * dL / dx
 
-        # Combined coefficient: (ψ̃_f - ψ^(n)_i) for advection+source
-        coeff_R = (psi_face_R - psi_i) / dx
-        coeff_L = -(psi_face_L - psi_i) / dx
+    # --- Optional: equation scaling for continuity rows ---
+    # Scale continuity rows so that zeta (dρ/dp) and alpha (dρ/dφ) coefficients
+    # are balanced, improving conditioning when alpha/zeta >> 1.
+    if scale_continuity and alpha_k is not None and zeta_k is not None:
+        A_lil = A.tolil()
+        for ii in range(N):
+            row_i = _ci(0, ii, N)
+            alpha_i_abs = abs(float(alpha_k[ii])) + 1e-300
+            zeta_i_abs  = abs(float(zeta_k[ii]))  + 1e-300
+            scale_factor = zeta_i_abs / alpha_i_abs
+            A_lil[row_i, :] = A_lil[row_i, :] * scale_factor
+            b[row_i]        *= scale_factor
+        A = A_lil.tocsr()
+    else:
+        A = A.tocsr()
 
-        # θ_f = 0.5*(u_L + u_R) - d̂_f*(p_R - p_L)/dx  (MWI)
-        # ∂θ_R/∂u_i = 0.5, ∂θ_R/∂u_iR = 0.5
-        # ∂θ_R/∂p_i = d̂_R/dx, ∂θ_R/∂p_iR = -d̂_R/dx
-        # Right face:
-        A[rv, cu]   += coeff_R * 0.5
-        A[rv, cu_R] += coeff_R * 0.5
-        A[rv, cp]   += coeff_R * dR / dx
-        A[rv, cp_R] -= coeff_R * dR / dx
-        # Left face:
-        A[rv, cu_L] += coeff_L * 0.5
-        A[rv, cu]   += coeff_L * 0.5
-        A[rv, cp_L] += coeff_L * dL / dx
-        A[rv, cp]   -= coeff_L * dL / dx
-
-    return A.tocsr(), b
+    return A, b
 
 
 def assemble_newton_Ns(
@@ -955,16 +1144,145 @@ def assemble_newton_Ns(
     return A.tocsr(), b
 
 
+def solve_schur_4N(A_4N, b_4N, N, p_ref=1.0e5, u_ref=1.0, h_ref=3.0e5):
+    """Solve 4N system via Schur complement block elimination of ψ.
+
+    Partitions:
+        [A_ff(3N×3N)  A_fψ(3N×N)] [x_f ]   [b_f ]
+        [A_ψf(N×3N)  A_ψψ(N×N) ] [x_ψ ] = [b_ψ ]
+
+    1. Factor A_ψψ (N×N, well-conditioned)
+    2. Schur complement: S = A_ff − A_fψ · A_ψψ⁻¹ · A_ψf  (3N×3N)
+    3. Solve S · x_f = b_f − A_fψ · A_ψψ⁻¹ · b_ψ
+    4. Back-substitute: x_ψ = A_ψψ⁻¹ · (b_ψ − A_ψf · x_f)
+    """
+    import scipy.sparse.linalg as spla
+
+    n3 = 3 * N
+    n4 = 4 * N
+
+    # Extract blocks
+    A_ff   = A_4N[:n3, :n3]     # 3N×3N
+    A_fpsi = A_4N[:n3, n3:n4]   # 3N×N
+    A_psif = A_4N[n3:n4, :n3]   # N×3N
+    A_psipsi = A_4N[n3:n4, n3:n4]  # N×N
+    b_f   = b_4N[:n3].copy()
+    b_psi = b_4N[n3:n4].copy()
+
+    # Step 1: Factor A_ψψ
+    try:
+        psi_lu = spla.splu(A_psipsi.tocsc())
+    except Exception:
+        # If factorization fails, fall back to full 4N direct solve
+        return solve_linear_system(A_4N, b_4N, p_ref=p_ref, u_ref=u_ref,
+                                   h_ref=h_ref, phi_ref=1.0, n_blocks=4)
+
+    # Step 2: Compute A_ψψ⁻¹ · A_ψf  (N×3N) and A_ψψ⁻¹ · b_ψ (N,)
+    # Solve column by column: A_ψψ · X = A_ψf
+    A_psif_dense = A_psif.toarray()  # N×3N
+    inv_psif = np.zeros((N, n3))
+    for j in range(n3):
+        col = A_psif_dense[:, j]
+        if np.any(col != 0):
+            inv_psif[:, j] = psi_lu.solve(col)
+    inv_b_psi = psi_lu.solve(b_psi)
+
+    # Step 3: Schur complement S = A_ff - A_fψ · inv_psif
+    A_fpsi_dense = A_fpsi.toarray()  # 3N×N
+    correction = A_fpsi_dense @ inv_psif  # 3N×3N
+    S = A_ff.toarray() - correction
+    S_sparse = sp.csr_matrix(S)
+
+    b_s = b_f - A_fpsi_dense @ inv_b_psi
+
+    # Step 4: Solve S · x_f = b_s (3N system — reuse existing solver)
+    x_f = solve_linear_system(S_sparse, b_s, p_ref=p_ref, u_ref=u_ref,
+                              h_ref=h_ref, n_blocks=3)
+
+    # Step 5: Back-substitute ψ = A_ψψ⁻¹ · (b_ψ - A_ψf · x_f)
+    x_psi = psi_lu.solve(b_psi - A_psif.dot(x_f))
+
+    return np.concatenate([x_f, x_psi])
+
+
+def solve_block_schur_4N(A, b, N, p_ref=1e5, u_ref=1.0, h_ref=3e5):
+    """Block Schur preconditioned solver for 4N coupled system.
+
+    Partitions 4N system into flow (3N: p,u,T/h) and species (N: Y/ψ) blocks.
+    Uses lower-triangular block factorization as preconditioner for BiCGSTAB.
+    Falls back to direct solve on failure.
+
+    Block layout (same as assemble_newton_4N):
+        [J_FF (3N×3N)  J_FY (3N×N)] [x_F]   [b_F]
+        [J_YF (N×3N)   J_YY (N×N) ] [x_Y] = [b_Y]
+    """
+    import scipy.sparse.linalg as spla
+
+    n3, n4 = 3 * N, 4 * N
+    A_csc = A.tocsc()
+
+    # Extract blocks
+    J_FF = A_csc[:n3, :n3]     # 3N x 3N (flow)
+    J_FY = A_csc[:n3, n3:n4]   # 3N x N  (flow <- species)
+    J_YF = A_csc[n3:n4, :n3]   # N x 3N  (species <- flow)
+    J_YY = A_csc[n3:n4, n3:n4] # N x N   (species)
+
+    try:
+        YY_lu = spla.splu(J_YY)
+        FF_lu = spla.splu(J_FF)
+    except Exception:
+        # Singular block — fall back to full direct solve
+        try:
+            return spla.spsolve(A_csc, b)
+        except Exception:
+            return np.zeros_like(b)
+
+    def precond_matvec(r):
+        r_F = r[:n3]
+        r_Y = r[n3:n4]
+        # 1. Solve species block
+        z_Y = YY_lu.solve(r_Y)
+        # 2. Modify flow RHS with species contribution
+        r_F_mod = r_F - J_FY.dot(z_Y)
+        # 3. Solve flow block
+        z_F = FF_lu.solve(r_F_mod)
+        return np.concatenate([z_F, z_Y])
+
+    M = spla.LinearOperator((n4, n4), matvec=precond_matvec)
+
+    # Try BiCGSTAB with block preconditioner
+    x, info = spla.bicgstab(A_csc, b, M=M, rtol=1e-8, maxiter=500)
+    if info != 0 or not np.all(np.isfinite(x)):
+        # BiCGSTAB failed — try GMRES
+        x, info = spla.gmres(A_csc, b, M=M, rtol=1e-8, maxiter=500)
+    if info != 0 or not np.all(np.isfinite(x)):
+        # All iterative solvers failed — direct solve
+        try:
+            x = spla.spsolve(A_csc, b)
+            if not np.all(np.isfinite(x)):
+                x = np.zeros_like(b)
+        except Exception:
+            x = np.zeros_like(b)
+    return x
+
+
 def solve_linear_system(A, b, p_ref=1.0e5, u_ref=1.0, h_ref=3.0e5, phi_ref=None,
                         n_blocks=None):
-    """Solve A @ x = b with column + row equilibration."""
+    """Solve A @ x = b with GMRES + ILU preconditioner (most robust default).
+
+    Column + row equilibration is applied for scaling.
+    Primary solver: GMRES with ILU(0) preconditioner.
+    Fallback 1: BiCGSTAB with Block-Jacobi preconditioner (Denner 2018 §6).
+    Fallback 2: direct sparse solver (spsolve).
+    Fallback 3: LSMR (robust for ill-conditioned / near-singular).
+    """
     import scipy.sparse.linalg as spla
 
     size = len(b)
 
+    # --- Column scaling ---
     col_scale = np.ones(size)
     if n_blocks is not None:
-        # N_s-species general case: n_blocks = 2 + N_s
         NB = size // n_blocks
         col_scale[:NB]       = max(abs(p_ref), 1.0)
         col_scale[NB:2*NB]   = max(abs(u_ref), 1e-6)
@@ -984,6 +1302,7 @@ def solve_linear_system(A, b, p_ref=1.0e5, u_ref=1.0, h_ref=3.0e5, phi_ref=None,
         col_scale[2*N3:]    = max(abs(h_ref), 1.0)
     A_cs = A.dot(sp.diags(col_scale, format='csr'))
 
+    # --- Row scaling ---
     abs_A = np.abs(A_cs)
     row_max_r = abs_A.max(axis=1)
     if sp.issparse(row_max_r):
@@ -997,27 +1316,59 @@ def solve_linear_system(A, b, p_ref=1.0e5, u_ref=1.0, h_ref=3.0e5, phi_ref=None,
 
     x_hat = None
 
-    # --- Strategy 1: Direct sparse solver (spsolve) ---
+    # --- GMRES + ILU(0) preconditioner (most robust default) ---
     try:
-        x_hat = spla.spsolve(As, bs)
-        if not np.all(np.isfinite(x_hat)):
+        ilu = spla.spilu(As.tocsc(), drop_tol=1e-4, fill_factor=10)
+        M = spla.LinearOperator(As.shape, ilu.solve)
+        x_hat, info = spla.gmres(As, bs, M=M, rtol=1e-6, maxiter=200, restart=50)
+        if info != 0 or not np.all(np.isfinite(x_hat)):
             x_hat = None
-        else:
-            # Verify solve quality: check residual
-            r_check = bs - As.dot(x_hat)
-            if np.max(np.abs(r_check)) > 0.1 * np.max(np.abs(bs) + 1e-300):
-                x_hat = None  # poor quality, try dense
     except Exception:
         pass
 
-    # --- Strategy 2: Dense solver (handles ill-conditioned systems) ---
+    # --- Fallback 1: BiCGSTAB + Block-Jacobi preconditioner (Denner 2018 §6) ---
+    # Block-Jacobi: invert each diagonal block (N×N) independently.
+    # For 3N system (p,u,T): M^{-1} = diag(App^{-1}, Auu^{-1}, ATT^{-1})
     if x_hat is None:
         try:
-            x_hat = np.linalg.solve(As.toarray(), bs)
+            N_blk = n_blocks if n_blocks is not None else (4 if phi_ref is not None else 3)
+            NB = size // N_blk
+            block_solvers = []
+            for k in range(N_blk):
+                diag_block = As[k*NB:(k+1)*NB, k*NB:(k+1)*NB].tocsc()
+                block_solvers.append(spla.splu(diag_block))
+
+            def block_jacobi_solve(r):
+                x_out = np.empty_like(r)
+                for k in range(N_blk):
+                    x_out[k*NB:(k+1)*NB] = block_solvers[k].solve(r[k*NB:(k+1)*NB])
+                return x_out
+
+            M_bj = spla.LinearOperator(As.shape, block_jacobi_solve)
+            x_hat, info = spla.bicgstab(As, bs, M=M_bj, rtol=1e-6, maxiter=200)
+            if info != 0 or not np.all(np.isfinite(x_hat)):
+                x_hat = None
+        except Exception:
+            pass
+
+    # --- Fallback 2: direct sparse solver ---
+    if x_hat is None:
+        try:
+            x_hat = spla.spsolve(As.tocsc(), bs)
             if not np.all(np.isfinite(x_hat)):
                 x_hat = None
         except Exception:
-            x_hat = None
+            pass
+
+    # --- Fallback 3: LSMR (robust for ill-conditioned / near-singular) ---
+    if x_hat is None:
+        try:
+            result = spla.lsmr(As, bs, atol=1e-8, btol=1e-8, maxiter=1000)
+            x_hat = result[0]
+            if not np.all(np.isfinite(x_hat)):
+                x_hat = None
+        except Exception:
+            pass
 
     if x_hat is None:
         x_hat = np.zeros_like(bs)
@@ -1028,3 +1379,307 @@ def solve_linear_system(A, b, p_ref=1.0e5, u_ref=1.0, h_ref=3.0e5, phi_ref=None,
         x_hat = np.asarray(x_hat).ravel()
 
     return col_scale * x_hat
+
+
+def residual_4N(x_4N, N, dx, dt,
+                rho_old, u_old, h_old, p_old, phi_old,
+                ph1, ph2, bc_l, bc_r,
+                theta_old=None, u_bar_old=None, rho_star_old=None,
+                mixing_type='volume', use_K=False, use_acid=True,
+                acid_temporal=False):
+    """Compute conservative residual R(x) for the fully-coupled 4N system.
+
+    x_4N = [p_0..p_{N-1}, u_0..u_{N-1}, T_0..T_{N-1}, ψ_0..ψ_{N-1}]
+
+    Returns R (4N vector):
+      R[0:N]     = mass:     (ρ_new − ρ_old)/dt + div(ρ̃·θ)
+      R[N:2N]    = momentum: (ρu_new − ρu_old)/dt + div(ρ̃·θ·u) + ∂p/∂x
+      R[2N:3N]   = energy:   (ρE_new − ρE_old)/dt + div((ρE+p)·θ)
+      R[3N:4N]   = VOF:      (ψ_new − ψ_old)/dt + div(ψ·θ) + (ψ+K)·∇·u
+    """
+    from .eos.base import compute_mixture_props, compute_mixture_props_Y
+    from .flux.mwi import acid_face_density, harmonic_face_density, mwi_face_coeff_denner
+    from .boundary import apply_ghost, apply_ghost_velocity
+    from .interface.cicsam import cicsam_face_beta
+
+    p_k = x_4N[0:N]
+    u_k = x_4N[N:2*N]
+    T_k = x_4N[2*N:3*N]
+    phi_k = np.clip(x_4N[3*N:4*N], 0.0, 1.0)
+
+    is_per_l = (bc_l == 'periodic')
+    is_per_r = (bc_r == 'periodic')
+
+    # Mixture properties at current state
+    if mixing_type == 'mass':
+        props = compute_mixture_props_Y(p_k, u_k, T_k, phi_k, ph1, ph2)
+    else:
+        props = compute_mixture_props(p_k, u_k, T_k, phi_k, ph1, ph2)
+    rho_k = props['rho']
+    E_k = props['E_total']  # ρE per cell
+
+    # ACID face density at current (p_k, T_k, ψ_k)
+    rho_face = acid_face_density(rho_k, props['c_mix'], phi_k, bc_l, bc_r)
+
+    # MWI face velocity
+    rho_star = harmonic_face_density(rho_k, bc_l, bc_r)
+    e_diag = rho_k / dt  # momentum diagonal ≈ ρ/dt
+    from .flux.mwi import mwi_face_coeff_denner as _mwi
+    d_hat = _mwi(e_diag, rho_star, dx, dt, bc_l, bc_r)
+
+    ng = 2
+    u_ext = apply_ghost_velocity(u_k, bc_l, bc_r, ng)
+    p_ext = apply_ghost(p_k, bc_l, bc_r, ng)
+
+    theta = np.empty(N + 1)
+    for f in range(N + 1):
+        iL_g = ng + f - 1
+        iR_g = ng + f
+        ub = 0.5 * (u_ext[iL_g] + u_ext[iR_g])
+        dp_dx = (p_ext[iR_g] - p_ext[iL_g]) / dx
+        theta[f] = ub - d_hat[f] * dp_dx
+    # Transient correction
+    if theta_old is not None and u_bar_old is not None and rho_star_old is not None:
+        theta += d_hat * (rho_star_old / dt) * (theta_old - u_bar_old)
+
+    # CICSAM face VOF (upwind for now — simple and robust)
+    phi_ext = apply_ghost(phi_k, bc_l, bc_r, ng)
+    psi_face = np.empty(N + 1)
+    for f in range(N + 1):
+        iL_g = ng + f - 1
+        iR_g = ng + f
+        if theta[f] >= 0:
+            psi_face[f] = phi_ext[iL_g]
+        else:
+            psi_face[f] = phi_ext[iR_g]
+
+    # EOS objects for ACID face enthalpy
+    eos1 = create_eos(ph1)
+    eos2 = create_eos(ph2)
+
+    # K factor (compressibility correction for VOF)
+    if use_K:
+        c1_arr = np.array([eos1.c(float(p_k[i]), float(T_k[i])) for i in range(N)])
+        c2_arr = np.array([eos2.c(float(p_k[i]), float(T_k[i])) for i in range(N)])
+        r1_arr = np.array([eos1.rho(float(p_k[i]), float(T_k[i])) for i in range(N)])
+        r2_arr = np.array([eos2.rho(float(p_k[i]), float(T_k[i])) for i in range(N)])
+        rc1 = r1_arr * c1_arr**2
+        rc2 = r2_arr * c2_arr**2
+        rc_mix = phi_k * rc1 + (1 - phi_k) * rc2 + 1e-300
+        K_arr = phi_k * (rc1 / rc_mix - 1.0)
+    else:
+        K_arr = np.zeros(N)
+
+    # Old-time references for temporal terms
+    rho_old_use = rho_old
+    h_old_use = h_old
+
+    # Compute fluxes and residual
+    R = np.zeros(4 * N)
+
+    # Pressure ghost for gradient
+    T_ext = apply_ghost(T_k, bc_l, bc_r, ng)
+
+    def face_lr(f):
+        iL = f - 1
+        iR = f
+        iL = (N - 1 if is_per_l else 0) if iL < 0 else iL
+        iR = (0 if is_per_r else N - 1) if iR >= N else iR
+        return iL, iR
+
+    for i in range(N):
+        f_R = i + 1
+        f_L = i
+        iL, _ = face_lr(f_L)
+        _, iR = face_lr(f_R)
+
+        tR = theta[f_R]
+        tL = theta[f_L]
+
+        # Face density and enthalpy
+        psi_i = float(phi_k[i])
+        psi_iR = float(phi_k[iR])
+        psi_iL = float(phi_k[iL])
+
+        if use_acid:
+            # ACID: ρ̃(p_neighbor, T_neighbor, ψ_i) — cell i's ψ for both faces
+            psi_fR = psi_i
+            psi_fL = psi_i
+        else:
+            # Non-ACID: upwind ψ at face — face density responds to ψ changes
+            if tR >= 0:
+                psi_fR = psi_i
+            else:
+                psi_fR = psi_iR
+            if tL >= 0:
+                psi_fL = psi_iL
+            else:
+                psi_fL = psi_i
+
+        if mixing_type == 'mass':
+            rfR = 1.0 / (psi_fR / (eos1.rho(float(p_k[iR]), float(T_k[iR])) + 1e-300) +
+                         (1 - psi_fR) / (eos2.rho(float(p_k[iR]), float(T_k[iR])) + 1e-300) + 1e-300)
+            rfL = 1.0 / (psi_fL / (eos1.rho(float(p_k[iL]), float(T_k[iL])) + 1e-300) +
+                         (1 - psi_fL) / (eos2.rho(float(p_k[iL]), float(T_k[iL])) + 1e-300) + 1e-300)
+        else:
+            rfR = psi_fR * eos1.rho(float(p_k[iR]), float(T_k[iR])) + (1 - psi_fR) * eos2.rho(float(p_k[iR]), float(T_k[iR]))
+            rfL = psi_fL * eos1.rho(float(p_k[iL]), float(T_k[iL])) + (1 - psi_fL) * eos2.rho(float(p_k[iL]), float(T_k[iL]))
+
+        mR = rfR * tR
+        mL = rfL * tL
+
+        # Face enthalpy (total): H̃ = ρ̃·h̃_total
+        if mixing_type == 'mass':
+            h1R = eos1.h(float(p_k[iR]), float(T_k[iR]))
+            h2R = eos2.h(float(p_k[iR]), float(T_k[iR]))
+            HR = rfR * (psi_fR * h1R + (1 - psi_fR) * h2R + 0.5 * float(u_k[iR])**2)
+            h1L = eos1.h(float(p_k[iL]), float(T_k[iL]))
+            h2L = eos2.h(float(p_k[iL]), float(T_k[iL]))
+            HL = rfL * (psi_fL * h1L + (1 - psi_fL) * h2L + 0.5 * float(u_k[iL])**2)
+        else:
+            r1R_v = eos1.rho(float(p_k[iR]), float(T_k[iR]))
+            r2R_v = eos2.rho(float(p_k[iR]), float(T_k[iR]))
+            h1R = eos1.h(float(p_k[iR]), float(T_k[iR])) + 0.5 * float(u_k[iR])**2
+            h2R = eos2.h(float(p_k[iR]), float(T_k[iR])) + 0.5 * float(u_k[iR])**2
+            HR = psi_fR * r1R_v * h1R + (1 - psi_fR) * r2R_v * h2R
+            r1L_v = eos1.rho(float(p_k[iL]), float(T_k[iL]))
+            r2L_v = eos2.rho(float(p_k[iL]), float(T_k[iL]))
+            h1L = eos1.h(float(p_k[iL]), float(T_k[iL])) + 0.5 * float(u_k[iL])**2
+            h2L = eos2.h(float(p_k[iL]), float(T_k[iL])) + 0.5 * float(u_k[iL])**2
+            HL = psi_fL * r1L_v * h1L + (1 - psi_fL) * r2L_v * h2L
+
+        # Upwind velocity for momentum convection
+        u_up_R = float(u_k[i]) if mR >= 0 else float(u_k[iR])
+        u_up_L = float(u_k[iL]) if mL >= 0 else float(u_k[i])
+
+        # --- Mass residual ---
+        R[i] = (rho_k[i] - rho_old_use[i]) / dt + (mR - mL) / dx
+
+        # --- Momentum residual ---
+        R[N + i] = ((rho_k[i] * u_k[i] - rho_old_use[i] * u_old[i]) / dt
+                    + (mR * u_up_R - mL * u_up_L) / dx
+                    + (p_k[iR] - p_k[iL]) / (2 * dx))
+
+        # --- Energy residual ---
+        E_old_i = rho_old_use[i] * h_old_use[i] - p_old[i]
+        flux_E_R = HR * tR
+        flux_E_L = HL * tL
+        R[2*N + i] = ((E_k[i] - E_old_i) / dt
+                      + (flux_E_R - flux_E_L) / dx)
+
+        # --- VOF residual ---
+        psi_fR = float(psi_face[f_R])
+        psi_fL = float(psi_face[f_L])
+        div_theta = (tR - tL) / dx
+        R[3*N + i] = ((phi_k[i] - phi_old[i]) / dt
+                      + (psi_fR * tR - psi_fL * tL) / dx
+                      + (psi_i + K_arr[i]) * div_theta
+                      - psi_i * div_theta)
+        # Simplified: ∂ψ/∂t + div(ψ_face·θ) + K·div(θ) = 0
+        # = (ψ_new - ψ_old)/dt + (ψ_fR·θR - ψ_fL·θL)/dx + K·div(θ)
+        # Actually: ∂ψ/∂t + ∇·(ψu) + (ψ+K)∇·u = 0
+        #         = ∂ψ/∂t + div(ψ_face·θ) + K·div(θ) = 0
+        R[3*N + i] = ((phi_k[i] - phi_old[i]) / dt
+                      + (psi_fR * tR - psi_fL * tL) / dx
+                      + K_arr[i] * div_theta)
+
+    return R
+
+
+def solve_jfnk_4N(residual_fn, x0, N,
+                   max_newton=50, newton_tol=1e-6,
+                   max_gmres=100, gmres_tol=1e-3,
+                   omega=1.0, verbose=False,
+                   precond_fn=None):  # NEW: optional ILU preconditioner factory
+    """JFNK solver for 4N fully-coupled system.
+
+    Parameters
+    ----------
+    residual_fn : callable  x (4N,) → R (4N,)
+    x0 : ndarray (4N,) initial guess [p, u, T, ψ]
+    N  : int  number of cells
+
+    Returns
+    -------
+    x_converged, info_dict
+    """
+    import scipy.sparse.linalg as spla
+
+    x_k = x0.copy()
+    size = 4 * N
+    info = {'converged': False, 'outer_iters': 0, 'residuals': []}
+
+    # Reference scales for convergence check
+    p_ref = max(np.mean(np.abs(x_k[:N])), 1.0)
+    u_ref = max(np.mean(np.abs(x_k[N:2*N])), 1.0)
+    T_ref = max(np.mean(np.abs(x_k[2*N:3*N])), 1.0)
+
+    for k in range(max_newton):
+        R_k = residual_fn(x_k)
+        r_norm = np.linalg.norm(R_k)
+        info['residuals'].append(r_norm)
+
+        # Convergence check: scaled residual
+        scale = np.ones(size)
+        scale[:N] = max(p_ref * 1e-7, 1e-10)  # mass: ρ scale / dt
+        scale[N:2*N] = max(p_ref * u_ref * 1e-7, 1e-10)  # momentum
+        scale[2*N:3*N] = max(p_ref * 1e-3, 1e-10)  # energy
+        scale[3*N:] = 1.0  # VOF
+        res_scaled = np.max(np.abs(R_k) / (np.abs(scale) + 1e-300))
+
+        if verbose and (k < 5 or k % 10 == 0):
+            print(f"    JFNK {k:3d}: |R|={r_norm:.3e}  scaled={res_scaled:.3e}")
+
+        if r_norm < newton_tol * max(r_norm if k == 0 else info['residuals'][0], 1e-10):
+            info['converged'] = True
+            info['outer_iters'] = k + 1
+            break
+        if k == 0:
+            r0_norm = r_norm
+
+        # --- GMRES for J·δx = -R_k ---
+        # J·v ≈ [R(x_k + ε·v) - R_k] / ε
+        x_norm = np.linalg.norm(x_k)
+        eps_base = np.sqrt(np.finfo(float).eps) * max(x_norm, 1.0)
+
+        def jvp(v):
+            eps = eps_base / (np.linalg.norm(v) + 1e-300)
+            return (residual_fn(x_k + eps * v) - R_k) / eps
+
+        J_op = spla.LinearOperator((size, size), matvec=jvp)
+
+        # Build ILU preconditioner from approximate Jacobian (if provided)
+        M_op = None
+        if precond_fn is not None:
+            try:
+                J_approx = precond_fn(x_k)
+                ilu = spla.spilu(J_approx.tocsc(), drop_tol=1e-4)
+                M_op = spla.LinearOperator((size, size), matvec=ilu.solve)
+            except Exception:
+                M_op = None
+
+        # Solve J·δx = -R_k with GMRES
+        dx, gmres_info = spla.gmres(J_op, -R_k,
+                                     maxiter=max_gmres,
+                                     rtol=gmres_tol,
+                                     M=M_op)
+        if not np.all(np.isfinite(dx)):
+            dx = np.zeros(size)
+
+        # Line search with damping
+        dp = dx[0:N]; du = dx[N:2*N]
+        dT = dx[2*N:3*N]; dphi = dx[3*N:4*N]
+
+        omega_k = omega * min(1.0,
+            0.5 * p_ref / (np.max(np.abs(dp)) + 1e-300),
+            500.0 / (np.max(np.abs(du)) + 1e-300),
+            0.5 * T_ref / (np.max(np.abs(dT)) + 1e-300))
+
+        x_k[:N] = np.maximum(x_k[:N] + omega_k * dp, 1.0)  # p floor
+        x_k[N:2*N] += omega_k * du
+        x_k[2*N:3*N] = np.maximum(x_k[2*N:3*N] + omega_k * dT, 1e-3)  # T floor
+        x_k[3*N:] = np.clip(x_k[3*N:] + omega_k * dphi, 0.0, 1.0)
+
+        info['outer_iters'] = k + 1
+
+    return x_k, info

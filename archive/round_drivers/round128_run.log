@@ -1,0 +1,8 @@
+[R120] Lagrangian-acoustic HLLC ACTIVE
+Done: 100 steps, t=1.0000e+00
+Plot saved: results/1D/phase1/round128_phase1.png
+Phase1: t=1.0000 ep=nan eu=nan fin=False FAIL wall=0.33s
+Done: 100 steps, t=1.0000e+00
+Plot saved: results/1D/02_A/round128_diff_vs_exact.png
+02-A: t=1.0000 ep=2.897e-13 eu=0.000e+00 fin=True PASS wall=0.24s
+[R128] Defect-Correction IM1 ACTIVE

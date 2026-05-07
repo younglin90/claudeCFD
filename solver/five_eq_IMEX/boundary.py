@@ -87,6 +87,7 @@ def extend(arr, bc_l, bc_r, ng=1, *,
 
 def extend_W(W, bc_l, bc_r, ng=1, *,
              u_inlet_l=None, p_inlet_l=None,
+             p_inlet_r=None,
              T1_inlet_l=None, T2_inlet_l=None, alpha_inlet_l=None,
              eos1=None, eos2=None):
     """Extend each component of W with the right reflection symmetry.
@@ -179,5 +180,7 @@ def extend_W(W, bc_l, bc_r, ng=1, *,
     T1_ext = extend(T1, bc_l, bc_r, ng, odd=False, dirichlet_l=T1_inlet_l)
     T2_ext = extend(T2, bc_l, bc_r, ng, odd=False, dirichlet_l=T2_inlet_l)
     u_ext = extend(u, bc_l, bc_r, ng, odd=True, dirichlet_l=u_inlet_l)
-    p_ext = extend(p, bc_l, bc_r, ng, odd=False, dirichlet_l=p_inlet_l)
+    p_ext = extend(
+        p, bc_l, bc_r, ng, odd=False,
+        dirichlet_l=p_inlet_l, dirichlet_r=p_inlet_r)
     return a_ext, T1_ext, T2_ext, u_ext, p_ext

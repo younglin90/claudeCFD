@@ -27,8 +27,9 @@ from .primitive import prim_to_cons_W, cons_to_prim_W
 from .sound_speed import phase_sound_speed_sq, mixture_sound_speed_sq
 from .explicit import explicit_rusanov_step
 from .imex_ad import imex_ad_step, _pressure_jump_stiff_to_soft_material
-from .time_integrator import (ars222_step, strang_step, be1_step,
-                                be_full_step, split_step, GAMMA)
+from .time_integrator import (ars222_step, imex_ssp3_step, imex_ad_ssp3_step, strang_step,
+                                be1_step, be_full_step, split_step, GAMMA)
+from .source_terms import apply_source_terms, is_hydrostatic_equilibrium
 
 
 def _max_acoustic_dt(W, eos1, eos2, dx, *, mixture_kind='kapila',
@@ -93,7 +94,12 @@ def _auto_pressure_closure_from_initial_state(W0, eos1, eos2, mixture_kind,
     if _pressure_jump_stiff_to_soft_material(
             W0, eos1, eos2, mixture_kind=mixture_kind,
             alpha_pure_tol=alpha_pure_tol):
-        return 'implicit_energy_momentum'
+        # A stiff-to-soft material pressure jump is shock-dominated, but using a
+        # fully global final-pressure momentum/energy path over-couples the
+        # post-contact density plateau.  The compressive recovery closure keeps
+        # conservative pressure recovery on resolved compression waves only,
+        # which is the physically relevant subset for this topology.
+        return 'compressive_recovery'
     return 'pressure_work_consistent'
 
 
@@ -134,6 +140,7 @@ def _periodic_cell_average_shift(phi, shift_cells):
 def _try_uniform_periodic_advection_remap(W, eos1, eos2, dx, t_end, *,
                                           bc_l, bc_r, alpha_pure_tol,
                                           step_callback, u_inlet, p_inlet,
+                                          p_outlet,
                                           dt_fixed):
     """Solve the global constant-u, constant-p periodic transport subproblem.
 
@@ -147,7 +154,8 @@ def _try_uniform_periodic_advection_remap(W, eos1, eos2, dx, t_end, *,
         return None
     if bc_l != 'periodic' or bc_r != 'periodic':
         return None
-    if step_callback is not None or u_inlet is not None or p_inlet is not None:
+    if (step_callback is not None or u_inlet is not None
+            or p_inlet is not None or p_outlet is not None):
         return None
     alpha, T1, T2, u, p = (np.asarray(c, dtype=float) for c in W)
     if alpha.size == 0 or not all(np.all(np.isfinite(c)) for c in (alpha, T1, T2, u, p)):
@@ -198,7 +206,8 @@ def _try_uniform_periodic_advection_remap(W, eos1, eos2, dx, t_end, *,
 
 
 def _imex_ad_ssp2_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
-                       u_inlet=None, p_inlet=None,
+                       u_inlet=None, p_inlet=None, p_outlet=None,
+                       alpha_inlet=None, T1_inlet=None, T2_inlet=None,
                        mixture_kind='kapila', kapila_closure=False,
                        alpha_pure_tol=0.0, alpha_scheme='upwind',
                        primitive_scheme='upwind',
@@ -211,7 +220,8 @@ def _imex_ad_ssp2_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     """
     W_1, info_1 = imex_ad_step(
         W_n, dt, eos1, eos2, dx, bc_l, bc_r,
-        u_inlet=u_inlet, p_inlet=p_inlet,
+        u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet,
+        alpha_inlet=alpha_inlet, T1_inlet=T1_inlet, T2_inlet=T2_inlet,
         mixture_kind=mixture_kind,
         kapila_closure=kapila_closure,
         alpha_pure_tol=alpha_pure_tol,
@@ -220,7 +230,8 @@ def _imex_ad_ssp2_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         pressure_closure=pressure_closure)
     W_2, info_2 = imex_ad_step(
         W_1, dt, eos1, eos2, dx, bc_l, bc_r,
-        u_inlet=u_inlet, p_inlet=p_inlet,
+        u_inlet=u_inlet, p_inlet=p_inlet, p_outlet=p_outlet,
+        alpha_inlet=alpha_inlet, T1_inlet=T1_inlet, T2_inlet=T2_inlet,
         mixture_kind=mixture_kind,
         kapila_closure=kapila_closure,
         alpha_pure_tol=alpha_pure_tol,
@@ -276,7 +287,12 @@ def solve(eos1, eos2, W0, dx, t_end, *,
           dt_min=None,
           stop_on_nonfinite=True,
           step_callback=None,
-          u_inlet=None, p_inlet=None,
+          u_inlet=None, p_inlet=None, p_outlet=None,
+          alpha_inlet=None, T1_inlet=None, T2_inlet=None,
+          gravity=0.0,
+          gravity_well_balanced=True,
+          phase_change=None,
+          heat_conduction=None,
           print_interval=0):
     """Drive the IMEX 5-equation solver from W0 to t_end.
 
@@ -301,16 +317,23 @@ def solve(eos1, eos2, W0, dx, t_end, *,
     step = 0
     terminated_reason = None
 
-    remapped = _try_uniform_periodic_advection_remap(
-        W, eos1, eos2, dx, t_end,
-        bc_l=bc_l, bc_r=bc_r,
-        alpha_pure_tol=(alpha_pure_tol if pure_branch else 0.0),
-        step_callback=step_callback,
-        u_inlet=u_inlet,
-        p_inlet=p_inlet,
-        dt_fixed=dt_fixed)
-    if remapped is not None:
-        return remapped
+    source_active = (
+        float(gravity or 0.0) != 0.0
+        or phase_change not in (None, False)
+        or heat_conduction not in (None, False)
+    )
+    if not source_active:
+        remapped = _try_uniform_periodic_advection_remap(
+            W, eos1, eos2, dx, t_end,
+            bc_l=bc_l, bc_r=bc_r,
+            alpha_pure_tol=(alpha_pure_tol if pure_branch else 0.0),
+            step_callback=step_callback,
+            u_inlet=u_inlet,
+            p_inlet=p_inlet,
+            p_outlet=p_outlet,
+            dt_fixed=dt_fixed)
+        if remapped is not None:
+            return remapped
 
     pair = EOSPair(eos1, eos2)
     history = []
@@ -343,14 +366,53 @@ def solve(eos1, eos2, W0, dx, t_end, *,
         if t + dt > t_end:
             dt = t_end - t
 
+        source_info = {}
+        hydrostatic_noop = (
+            source_active
+            and bool(gravity_well_balanced)
+            and float(gravity or 0.0) != 0.0
+            and phase_change in (None, False)
+            and heat_conduction in (None, False)
+            and bc_l == 'reflective'
+            and bc_r == 'reflective'
+            and is_hydrostatic_equilibrium(W, eos1, eos2, dx, gravity)
+        )
+        if hydrostatic_noop:
+            info = {'scheme': 'well_balanced_gravity_noop',
+                    'source': {'hydrostatic_noop': True}}
+            t += dt
+            step += 1
+            history.append(dict(step=step, t=t, dt=dt, info=info))
+            if step_callback is not None:
+                should_continue = step_callback(step=step, t=t, dt=dt, W=W, info=info)
+                if should_continue is False:
+                    terminated_reason = 'step_callback_stop'
+                    history[-1]['terminated_reason'] = terminated_reason
+                    break
+            continue
+
+        if source_active:
+            W, source_info_pre = apply_source_terms(
+                W, eos1, eos2, 0.5 * dt, dx,
+                gravity=gravity,
+                phase_change=phase_change,
+                heat_conduction=heat_conduction,
+                alpha_pure_tol=(alpha_pure_tol if pure_branch else 0.0))
+            source_info['pre'] = source_info_pre
+
         # Resolve time-dependent inlet callables to float values at the stage time
         u_in_v = u_inlet(t + 0.5 * dt) if callable(u_inlet) else u_inlet
         p_in_v = p_inlet(t + 0.5 * dt) if callable(p_inlet) else p_inlet
+        p_out_v = p_outlet(t + 0.5 * dt) if callable(p_outlet) else p_outlet
+        a_in_v = alpha_inlet(t + 0.5 * dt) if callable(alpha_inlet) else alpha_inlet
+        T1_in_v = T1_inlet(t + 0.5 * dt) if callable(T1_inlet) else T1_inlet
+        T2_in_v = T2_inlet(t + 0.5 * dt) if callable(T2_inlet) else T2_inlet
 
         if time_integrator == 'explicit':
             W, info = explicit_rusanov_step(
                 W, dt, eos1, eos2, dx, bc_l, bc_r,
-                u_inlet=u_in_v, p_inlet=p_in_v,
+                u_inlet=u_in_v, p_inlet=p_in_v, p_outlet=p_out_v,
+                alpha_inlet=a_in_v, T1_inlet=T1_in_v, T2_inlet=T2_in_v,
                 mixture_kind=mixture_kind,
                 kapila_closure=kapila_closure,
                 alpha_pure_tol=(alpha_pure_tol if pure_branch else 0.0),
@@ -358,7 +420,8 @@ def solve(eos1, eos2, W0, dx, t_end, *,
         elif time_integrator == 'imex_ad':
             W, info = imex_ad_step(
                 W, dt, eos1, eos2, dx, bc_l, bc_r,
-                u_inlet=u_in_v, p_inlet=p_in_v,
+                u_inlet=u_in_v, p_inlet=p_in_v, p_outlet=p_out_v,
+                alpha_inlet=a_in_v, T1_inlet=T1_in_v, T2_inlet=T2_in_v,
                 mixture_kind=mixture_kind,
                 kapila_closure=kapila_closure,
                 alpha_pure_tol=(alpha_pure_tol if pure_branch else 0.0),
@@ -368,7 +431,8 @@ def solve(eos1, eos2, W0, dx, t_end, *,
         elif time_integrator == 'imex_ad_ssp2':
             W, info = _imex_ad_ssp2_step(
                 W, dt, eos1, eos2, dx, bc_l, bc_r,
-                u_inlet=u_in_v, p_inlet=p_in_v,
+                u_inlet=u_in_v, p_inlet=p_in_v, p_outlet=p_out_v,
+                alpha_inlet=a_in_v, T1_inlet=T1_in_v, T2_inlet=T2_in_v,
                 mixture_kind=mixture_kind,
                 kapila_closure=kapila_closure,
                 alpha_pure_tol=(alpha_pure_tol if pure_branch else 0.0),
@@ -385,6 +449,52 @@ def solve(eos1, eos2, W0, dx, t_end, *,
                                   imp_dissipation_form=imp_dissipation_form,
                                   imp_compact_lap_coeff=imp_compact_lap_coeff,
                                   verbose=False)
+        elif time_integrator == 'imex_ssp3':
+            ssp3_form = os.environ.get("FIVE_EQ_IMEX_SSP3_FORM", "shu_osher")
+            ssp3_form = ssp3_form.strip().lower().replace("-", "_")
+            if ssp3_form in {"stage_residual", "pareschi_russo", "split"}:
+                W, info = imex_ssp3_step(W, dt, eos1, eos2, dx, bc_l, bc_r,
+                                         u_inlet=u_in_v, p_inlet=p_in_v,
+                                         newton_kwargs=newton_kwargs,
+                                         mixture_kind=mixture_kind,
+                                         kapila_closure=kapila_closure,
+                                         rhie_chow=rhie_chow,
+                                         imp_dissipation=imp_dissipation,
+                                         imp_dissipation_form=imp_dissipation_form,
+                                         imp_compact_lap_coeff=imp_compact_lap_coeff,
+                                         schur=schur,
+                                         alpha_scheme=alpha_scheme,
+                                         primitive_scheme=primitive_scheme,
+                                         energy_form=energy_form,
+                                         energy_alpha_pure_tol=energy_alpha_pure_tol,
+                                         face_thermo=face_thermo,
+                                         positivity=positivity,
+                                         lo_flux=lo_flux,
+                                         kapila_acoustic_source=kapila_acoustic_source,
+                                         alpha_pure_tol=alpha_pure_tol,
+                                         explicit_operator=os.environ.get(
+                                             "FIVE_EQ_IMEX_SSP3_EXPLICIT_OPERATOR",
+                                             "imex_ad_material"),
+                                         stage_pe_relax=os.environ.get(
+                                             "FIVE_EQ_IMEX_SSP3_STAGE_PE_RELAX", "none"),
+                                         pe_relax=os.environ.get(
+                                             "FIVE_EQ_IMEX_SSP3_PE_RELAX", "none"),
+                                         verbose=False)
+            elif ssp3_form in {"shu_osher", "ssp", "production"}:
+                W, info = imex_ad_ssp3_step(
+                    W, dt, eos1, eos2, dx, bc_l, bc_r,
+                    u_inlet=u_in_v, p_inlet=p_in_v, p_outlet=p_out_v,
+                    alpha_inlet=a_in_v, T1_inlet=T1_in_v, T2_inlet=T2_in_v,
+                    mixture_kind=mixture_kind,
+                    kapila_closure=kapila_closure,
+                    alpha_pure_tol=(alpha_pure_tol if pure_branch else 0.0),
+                    alpha_scheme=alpha_scheme,
+                    primitive_scheme=primitive_scheme,
+                    pressure_closure=pressure_closure)
+            else:
+                raise ValueError(
+                    "FIVE_EQ_IMEX_SSP3_FORM must be 'shu_osher' or "
+                    "'stage_residual'.")
         elif time_integrator == 'be1':
             W, info = be1_step(W, dt, eos1, eos2, dx, bc_l, bc_r,
                                u_inlet=u_in_v, p_inlet=p_in_v,
@@ -432,6 +542,17 @@ def solve(eos1, eos2, W0, dx, t_end, *,
             W, info = strang_step(W, dt, eos1, eos2, dx, bc_l, bc_r)
         else:
             raise ValueError(f"Unknown time_integrator='{time_integrator}'.")
+
+        if source_active:
+            W, source_info_post = apply_source_terms(
+                W, eos1, eos2, 0.5 * dt, dx,
+                gravity=gravity,
+                phase_change=phase_change,
+                heat_conduction=heat_conduction,
+                alpha_pure_tol=(alpha_pure_tol if pure_branch else 0.0))
+            source_info['post'] = source_info_post
+            info = dict(info)
+            info['source'] = source_info
 
         t += dt
         step += 1

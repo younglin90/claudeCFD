@@ -2,3 +2,4 @@ iter	change	metric	delta	verdict	notes
 0	N=100 baseline (carry-over from N=50: TVB M=16, IDW p=6)	0.02835	0	keep	Case A=0.02835, Case B=0.04881, Case C=0.06797 (oscillating)
 1	TVB M=16 -> M=32	0.02819	-0.56%	keep	cone peak 0.9686 -> 0.9723 sharper
 2	TVB M=32 -> M=64	0.02809	-0.36%	keep	cone peak 0.972 -> 0.975, undershoot -0.0005 -> -0.0016
+3	TVB M=64 -> M=128	0.02813	+0.14%	revert	M=64 sweet spot at N=100. Peak 0.975 -> 0.980 sharper, but cone L1 regressed.

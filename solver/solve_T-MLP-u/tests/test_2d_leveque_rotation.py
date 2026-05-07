@@ -161,7 +161,7 @@ def main():
     # turning the aggressive downwind compression into a monotone scheme.
     case_A = _run(mesh,
                   TMLPU(tvd='downwind', mlp_bound=True,
-                        extremum_relax=True, tvb_M=64.0, **common),
+                        extremum_relax=True, tvb_M=128.0, **common),
                   t_end=1.0, integrator='ssp_rk3', n_face_quad=2,
                   label='A: T-MLP-u + downwind   (vertex, k=2, RK3, 2-pt GQ)')
 

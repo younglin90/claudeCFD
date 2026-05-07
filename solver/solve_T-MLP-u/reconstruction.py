@@ -205,6 +205,7 @@ class TMLPU(Reconstruction):
     mlp_bound: bool = True   # False ⇒ pure TVD limiter (no LMP wrapper)
     extremum_relax: bool = False   # smooth-region LMP relaxation
     vertex_mlp: bool = False    # PYG2010 vertex-projected polynomial bound
+    tvb_M: float = 0.0   # Cockburn-Shu TVB modulus (M·h² LMP tolerance)
     name: str = 't_mlp_u'
 
     def __post_init__(self):
@@ -625,6 +626,15 @@ class TMLPU(Reconstruction):
         if interior.size == 0:
             return W_L, W_R
 
+        # TVB tolerance — allows the LMP bound to be exceeded by M·h² so
+        # smooth extrema retain full design accuracy.  h estimated as
+        # √(median cell volume) (≈ Δx for criss-cross @ N=25 → h ≈ 0.028).
+        if self.mlp_bound and self.tvb_M > 0.0:
+            h_est = float(np.sqrt(np.median(mesh.cell_volumes)))
+            tvb_eps = self.tvb_M * h_est * h_est
+        else:
+            tvb_eps = 0.0
+
         o_idx = owner[interior]
         n_idx = nei[interior]
         valid_o = UU_o_int >= 0
@@ -661,8 +671,8 @@ class TMLPU(Reconstruction):
                                          np.minimum(2.0,
                                                     np.minimum(psi_tvd, psi_v_o)))
                 else:
-                    phi_min = phi_min_cell[v, o_idx]
-                    phi_max = phi_max_cell[v, o_idx]
+                    phi_min = phi_min_cell[v, o_idx] - tvb_eps
+                    phi_max = phi_max_cell[v, o_idx] + tvb_eps
                     safe_pos = np.where(delta >  _EPS,  delta,  _EPS)
                     safe_neg = np.where(delta < -_EPS,  delta, -_EPS)
                     psi_mlp_pos = (phi_max - phi_U) / safe_pos
@@ -708,8 +718,8 @@ class TMLPU(Reconstruction):
                                          np.minimum(2.0,
                                                     np.minimum(psi_tvd, psi_v_n)))
                 else:
-                    phi_min = phi_min_cell[v, n_idx]
-                    phi_max = phi_max_cell[v, n_idx]
+                    phi_min = phi_min_cell[v, n_idx] - tvb_eps
+                    phi_max = phi_max_cell[v, n_idx] + tvb_eps
                     safe_pos = np.where(delta >  _EPS,  delta,  _EPS)
                     safe_neg = np.where(delta < -_EPS,  delta, -_EPS)
                     psi_mlp_pos = (phi_max - phi_U) / safe_pos

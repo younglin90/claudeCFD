@@ -223,34 +223,32 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 24: Hancock courant scan (untried).  Hancock half-step
-    # correction ψ → ψ·(1−Ch).  Default Ch=0.0.  Try 0.1, 0.2.
+    # Iter 25: face Gauss quadrature scan at adaptive 3-tier setup.
+    # iter 7 (downwind) found 2pt=3pt indistinguishable, but the new
+    # 3-tier dispatch may benefit from higher-order face quadrature.
     common3 = dict(tvd='cicsam_co38', tvd_smooth='van_leer',
                    tvd_smooth2='minmod', mlp_bound=True,
                    extremum_relax=True, tvb_M=64.0,
                    smoothness_threshold=0.10,
                    smoothness_threshold2=0.05,
-                   virtual_uu_gradient=True)
+                   virtual_uu_gradient=True, **common)
     case_specs = [
-        dict(case_id='A', N=N,
-             recon=dict(hancock_courant=0.0, **common3, **common),
+        dict(case_id='A', N=N, recon=dict(**common3),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: hancock=0.0 (iter 21 best 0.02008)'),
-        dict(case_id='B', N=N,
-             recon=dict(hancock_courant=0.1, **common3, **common),
-             flux='upwind', integrator='ssp_rk3', n_face_quad=2,
+             label='A: 2-pt face GQ (iter 21 best 0.02008)'),
+        dict(case_id='B', N=N, recon=dict(**common3),
+             flux='upwind', integrator='ssp_rk3', n_face_quad=1,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: hancock=0.1'),
+             label='B: 1-pt midpoint'),
         dict(case_id='C', N=N, recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
              label='C: 1st-order + central flux (reference)'),
-        dict(case_id='D', N=N,
-             recon=dict(hancock_courant=0.2, **common3, **common),
-             flux='upwind', integrator='ssp_rk3', n_face_quad=2,
+        dict(case_id='D', N=N, recon=dict(**common3),
+             flux='upwind', integrator='ssp_rk3', n_face_quad=3,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: hancock=0.2'),
+             label='D: 3-pt face GQ'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

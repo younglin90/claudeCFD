@@ -24,3 +24,4 @@ iter	change	metric	delta	verdict	notes
 22	threshold2 scan (B=0.03 D=0.07 vs A=0.05)	0.02008	0%	keep	t2=0.05 sweet spot. 0.03 too narrow (+2.1%), 0.07 too wide (+1.2%, only hump -3%). Plateau on 6 knobs.
 23	CFL scan (B=0.3 D=0.5 vs A=0.4)	0.02008	0%	keep	cfl=0.4 sweet spot. 0.3 more recon overhead +1.4%. 0.5 less temporal accuracy +0.6%. 7 knobs plateau.
 24	Hancock courant scan (B=0.1 D=0.2 vs A=0.0)	0.02008	0%	keep	Ch=0.0 best. Ch=0.1 +14%, Ch=0.2 +39%. Hancock kills slot. 8-knob plateau FINAL.
+25	face GQ scan (B=1pt D=3pt vs A=2pt)	0.02008	0%	keep	2-pt sweet spot. 1-pt DIVERGES (1e+7) - cubic LSQ + face center extrapolation amplifies curvature past LMP. 3-pt +6.3% (no benefit, +45% wall). FINAL paper config.

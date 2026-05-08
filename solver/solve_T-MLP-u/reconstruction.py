@@ -206,6 +206,13 @@ class TMLPU(Reconstruction):
     extremum_relax: bool = False   # smooth-region LMP relaxation
     vertex_mlp: bool = False    # PYG2010 vertex-projected polynomial bound
     tvb_M: float = 0.0   # Cockburn-Shu TVB modulus (M·h² LMP tolerance)
+    virtual_uu_gradient: bool = False
+    # When True, the slope ratio r = (φ_U − φ_UU)/(φ_D − φ_U) uses a
+    # *virtual* far-upwind value derived from the LSQ gradient at the
+    # upwind cell — Darwish-Moukalled (2003), Jasak (1996).  Avoids the
+    # geometric face-neighbour search and works on any unstructured mesh.
+    #     φ_UU_virt = φ_D − 2·∇φ_U · (x_D − x_U)
+    #     ⇒ φ_U − φ_UU_virt = −Δ⁺ + 2·∇φ_U · d_UD
     name: str = 't_mlp_u'
 
     def __post_init__(self):
@@ -480,6 +487,7 @@ class TMLPU(Reconstruction):
         sqrt_w    = ctx['sqrt_w']       # (N, max_nb) — same √W weighting
         UU_o_int  = ctx['UU_o_int']     # interior faces only
         UU_n_int  = ctx['UU_n_int']
+        d_o_int   = ctx['d_o_int']      # (Nint, 2)  x_neighbour − x_owner
         interior  = ctx['interior']
 
         # Per-call evaluation points (face centres by default; high-order
@@ -657,7 +665,18 @@ class TMLPU(Reconstruction):
             sign_dp = np.where(delta_plus >= 0.0, 1.0, -1.0)
             safe_dp = np.where(np.abs(delta_plus) > _EPS, delta_plus,
                                sign_dp * _EPS)
-            delta_minus = np.where(valid_o, phi_U - phi_UU, 0.0)
+            if self.virtual_uu_gradient:
+                # Darwish-Moukalled: φ_UU = φ_D − 2·∇φ_U · d_UD
+                # ⇒ Δ⁻ = φ_U − φ_UU = −Δ⁺ + 2·∇φ_U · d_UD
+                grad_x_U = coeffs[v, o_idx, 0]
+                grad_y_U = coeffs[v, o_idx, 1]
+                gdotd = grad_x_U * d_o_int[:, 0] + grad_y_U * d_o_int[:, 1]
+                delta_minus = -delta_plus + 2.0 * gdotd
+                # All interior faces become valid (no geometric fallback).
+                valid_o_eff = np.ones_like(valid_o)
+            else:
+                delta_minus = np.where(valid_o, phi_U - phi_UU, 0.0)
+                valid_o_eff = valid_o
             r = delta_minus / safe_dp
             psi_tvd = self._psi_tvd(r)
             psi_tvd = np.where(np.abs(delta_plus) > _EPS, psi_tvd, 2.0)
@@ -693,7 +712,7 @@ class TMLPU(Reconstruction):
                 # Pure-TVD: no LMP wrapper — ψ = ψ_TVD clipped to [0, 2].
                 psi_final = np.maximum(0.0, np.minimum(2.0, psi_tvd))
             recon = phi_U + psi_final * delta
-            W_L[v, interior] = np.where(valid_o, recon, phi_U)
+            W_L[v, interior] = np.where(valid_o_eff, recon, phi_U)
 
             # ---------- Neighbour side ----------
             phi_U  = W_cell[v, n_idx]
@@ -706,7 +725,17 @@ class TMLPU(Reconstruction):
             sign_dp = np.where(delta_plus >= 0.0, 1.0, -1.0)
             safe_dp = np.where(np.abs(delta_plus) > _EPS, delta_plus,
                                sign_dp * _EPS)
-            delta_minus = np.where(valid_n, phi_U - phi_UU, 0.0)
+            if self.virtual_uu_gradient:
+                # Neighbour's d_UD = x_owner − x_neighbour = −d_o_int
+                grad_x_U = coeffs[v, n_idx, 0]
+                grad_y_U = coeffs[v, n_idx, 1]
+                gdotd = -(grad_x_U * d_o_int[:, 0] +
+                          grad_y_U * d_o_int[:, 1])
+                delta_minus = -delta_plus + 2.0 * gdotd
+                valid_n_eff = np.ones_like(valid_n)
+            else:
+                delta_minus = np.where(valid_n, phi_U - phi_UU, 0.0)
+                valid_n_eff = valid_n
             r = delta_minus / safe_dp
             psi_tvd = self._psi_tvd(r)
             psi_tvd = np.where(np.abs(delta_plus) > _EPS, psi_tvd, 2.0)
@@ -739,7 +768,7 @@ class TMLPU(Reconstruction):
             else:
                 psi_final = np.maximum(0.0, np.minimum(2.0, psi_tvd))
             recon = phi_U + psi_final * delta
-            W_R[v, interior] = np.where(valid_n, recon, phi_U)
+            W_R[v, interior] = np.where(valid_n_eff, recon, phi_U)
 
         return W_L, W_R
 
@@ -873,11 +902,15 @@ class TMLPU(Reconstruction):
 
             dx_fo = f_centers[interior] - n_centers[o_idx]
             dx_fn = f_centers[interior] - n_centers[n_idx]
+            # Owner→neighbour displacement, used by the gradient-based
+            # virtual-UU formula (Darwish-Moukalled).  d_n_int = −d_o_int.
+            d_o_int = d_o
         else:
             UU_o_int = np.zeros(0, dtype=int)
             UU_n_int = np.zeros(0, dtype=int)
             dx_fo = np.zeros((0, 2), dtype=float)
             dx_fn = np.zeros((0, 2), dtype=float)
+            d_o_int = np.zeros((0, 2), dtype=float)
 
         # ---- 5) Vertex-MLP supporting structures ------------------------
         # Used only when self.vertex_mlp is True; cheap to build always.
@@ -917,6 +950,7 @@ class TMLPU(Reconstruction):
             A=A, ATA_inv=ATA_inv, nbasis=nbasis, sqrt_w=sqrt_w,
             interior=interior,
             UU_o_int=UU_o_int, UU_n_int=UU_n_int,
+            d_o_int=d_o_int,
             dx_fo=dx_fo, dx_fn=dx_fn,
             order=self.order, stencil=self.stencil,
             cell_node_arr=cell_node_arr,

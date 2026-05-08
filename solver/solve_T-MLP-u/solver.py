@@ -53,6 +53,7 @@ def solve(mesh, eq, U0, *,
           cfl: float = 0.5,
           dt_fixed=None,
           n_face_quad: int = 1,
+          face_velocity_mode: str = 'analytic',
           t_end: float,
           max_steps: int = 200_000,
           history_every: int = 0):
@@ -99,6 +100,28 @@ def solve(mesh, eq, U0, *,
         raise NotImplementedError(
             f"n_face_quad={n_face_quad}: only 1, 2, or 3 supported.")
 
+    # Pre-compute central-averaged face velocity u_f = ½(a(x_o)+a(x_n)) once.
+    # Sampled at owner / neighbour cell centres; boundary faces fall back to
+    # owner cell centre.  Used uniformly across all Gauss-quadrature points
+    # of each face (single value per face), in contrast with the default
+    # `analytic` mode which samples a(x_GP) exactly at every GP.
+    face_velocity_central = None
+    if face_velocity_mode == 'central_avg':
+        if not getattr(eq, 'is_variable_velocity', False):
+            face_velocity_central = None  # constant velocity — no benefit
+        else:
+            cc = mesh.cell_centers
+            owner_cc = cc[owner]                          # (Nf, 2)
+            nei_safe = np.where(nei >= 0, nei, owner)
+            nei_cc = cc[nei_safe]                         # (Nf, 2)
+            v_o = eq.velocity_at(owner_cc)                # (Nf, 2)
+            v_n = eq.velocity_at(nei_cc)                  # (Nf, 2)
+            face_velocity_central = 0.5 * (v_o + v_n)     # (Nf, 2)
+    elif face_velocity_mode != 'analytic':
+        raise ValueError(
+            f"face_velocity_mode must be 'analytic' or 'central_avg', "
+            f"got {face_velocity_mode!r}")
+
     def rhs(U_state):
         """∂t U = − (1/V) Σ_f (∫ F·n dl) — Gauss-quadrature on each face."""
         W = eq.cons_to_prim(U_state)
@@ -107,8 +130,14 @@ def solve(mesh, eq, U0, *,
             GP_k = gqs[:, k, :]                            # (Nf, 2)
             W_L, W_R = recon.reconstruct(mesh, W, eq, eval_points=GP_k)
             W_L, W_R = apply_patch_bcs(mesh, eq, W_L, W_R, bc_spec)
-            # Variable-velocity equations sample the field at the GP itself.
-            F_k = flux_fn(eq, W_L, W_R, normals, points=GP_k)
+            # Variable-velocity equations: sample velocity at GP (analytic)
+            # OR use the pre-computed cell-centre central average (single
+            # value per face, identical for every GP).
+            if face_velocity_central is not None:
+                F_k = flux_fn(eq, W_L, W_R, normals, points=GP_k,
+                              face_velocity=face_velocity_central)
+            else:
+                F_k = flux_fn(eq, W_L, W_R, normals, points=GP_k)
             F_face += gw[k] * F_k                          # (nvar, Nf)
 
         dUdt = np.zeros_like(U_state)

@@ -14,13 +14,22 @@ import numpy as np
 _EPS = 1e-30
 
 
-def upwind_advection(eq, W_L, W_R, normal, points=None):
+def upwind_advection(eq, W_L, W_R, normal, points=None, face_velocity=None):
     """Pure-upwind flux for the linear advection equation.
 
-    Supports variable velocity via `points` (face centres).  For constant
-    velocity `points` is ignored.
+    Velocity sampling priority:
+      1. If `face_velocity` is supplied — use it directly (one vector per
+         face, e.g. ½(a(x_o)+a(x_n)) cell-centre central average).
+      2. Else if eq is variable-velocity and `points` provided — sample
+         a(x_GP) analytically at the Gauss-quadrature point (default).
+      3. Else fall back to constant `eq.velocity`.
+
+    φ_f selection follows the sign of u_f = a·n (upwind upstream cell).
     """
-    if getattr(eq, 'is_variable_velocity', False) and points is not None:
+    if face_velocity is not None:
+        a = face_velocity
+        a_dot_n = np.einsum('...i,...i->...', a, normal)
+    elif getattr(eq, 'is_variable_velocity', False) and points is not None:
         a = eq.velocity_at(points)
         a_dot_n = np.einsum('...i,...i->...', a, normal)
     else:

@@ -77,7 +77,8 @@ def phi0(x, y):
 
 # ─── Run helper ────────────────────────────────────────────────────────────
 def _run(mesh, recon, *, t_end, cfl=0.4, integrator='ssp_rk2',
-         flux='upwind', n_face_quad=1, label=''):
+         flux='upwind', n_face_quad=1, label='',
+         face_velocity_mode='analytic'):
     eq = Advection(velocity=lambda x, y: (-2 * np.pi * (y - 0.5),
                                           2 * np.pi * (x - 0.5)))
     x = mesh.cell_centers[:, 0]
@@ -92,6 +93,7 @@ def _run(mesh, recon, *, t_end, cfl=0.4, integrator='ssp_rk2',
                     reconstruction=recon, flux=flux,
                     integrator=integrator, bc=bc,
                     cfl=cfl, n_face_quad=n_face_quad,
+                    face_velocity_mode=face_velocity_mode,
                     t_end=t_end, max_steps=50_000)
         wall = time.time() - t0
         out = res['U_final'][0]
@@ -160,10 +162,11 @@ def main():
     # T-MLP-u wrapper supplies the LMP bound that suppresses overshoots,
     # turning the aggressive downwind compression into a monotone scheme.
     case_A = _run(mesh,
-                  TMLPU(tvd='downwind', mlp_bound=True, vertex_mlp=True,
-                        extremum_relax=True, tvb_M=64.0, **common),
+                  TMLPU(tvd='downwind', mlp_bound=True,
+                        extremum_relax=True, tvb_M=64.0,
+                        virtual_uu_gradient=True, **common),
                   t_end=1.0, integrator='ssp_rk3', n_face_quad=2,
-                  label='A: T-MLP-u + downwind   (vertex, k=2, RK3, 2-pt GQ)')
+                  label='A: T-MLP-u + downwind   (vertex, k=2, RK3, 2pt GQ, virt-UU)')
 
     # -- Case B: plain van Leer TVD (no T-MLP-u wrapper) -----------------
     # mlp_bound=False makes TMLPU compute ψ = ψ_TVD only — no LMP.  Used

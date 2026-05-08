@@ -25,3 +25,4 @@ iter	change	metric	delta	verdict	notes
 23	CFL scan (B=0.3 D=0.5 vs A=0.4)	0.02008	0%	keep	cfl=0.4 sweet spot. 0.3 more recon overhead +1.4%. 0.5 less temporal accuracy +0.6%. 7 knobs plateau.
 24	Hancock courant scan (B=0.1 D=0.2 vs A=0.0)	0.02008	0%	keep	Ch=0.0 best. Ch=0.1 +14%, Ch=0.2 +39%. Hancock kills slot. 8-knob plateau FINAL.
 25	face GQ scan (B=1pt D=3pt vs A=2pt)	0.02008	0%	keep	2-pt sweet spot. 1-pt DIVERGES (1e+7) - cubic LSQ + face center extrapolation amplifies curvature past LMP. 3-pt +6.3% (no benefit, +45% wall). FINAL paper config.
+26	PAPER-READY 4-case (A=T-MLP-u FINAL B=van_leer C=central D=pure CICSAM)	0.02008	0%	keep	FINAL paper result. T-MLP-u 0.02008 vs van_leer 0.04881 (-59%) vs central 0.06797 (-71%) vs pure CICSAM 0.04544 (-56%). Pure CICSAM range [-0.84, 2.31] 231% overshoot - T-MLP-u LMP wrapper essential.

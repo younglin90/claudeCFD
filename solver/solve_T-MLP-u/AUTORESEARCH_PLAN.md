@@ -101,21 +101,54 @@ Dry-run confirmed on iter 12 output → `0.02098`.
 - BVD (Boundary-Variation-Diminishing)
 - THINC (Tangent of Hyperbolic INterface Capturing)
 
-## History
+## History (full)
 
 | Iter | Change | TOTAL L1 | Δ | Verdict |
 |---|---|---:|---:|---|
-| 0 | N=100 baseline (carry-over from N=50) | 0.02835 | 0% | keep |
-| 1 | TVB M=16 → 32 | 0.02819 | -0.56% | keep |
-| 2 | TVB M=32 → 64 | 0.02809 | -0.36% | keep |
-| 3 | TVB M=64 → 128 | 0.02813 | +0.14% | revert |
-| 4-7 | IDW/smooth/3pt-GQ scan | various | ≥+0.21% | revert |
-| 8 | vertex_mlp=True | 0.04676 | +66% | revert |
-| 9 | virtual_UU 전면 적용 | DIVERGED | ∞ | revert |
-| 10 | parallel + Case D=CICSAM 추가 | 0.02818 | 0% | keep (CICSAM 발견) |
-| 11 | Case A swap: downwind → CICSAM | **0.02098** | **-25.5%** | keep |
+| 0 | N=100 baseline (T-MLP-u + downwind, M=16) | 0.02835 | 0% | keep |
+| 1-7 | TVB M / IDW p / smooth / face GQ scans | 0.02809 best | -0.92% | partial keep |
+| 8 | vertex_mlp=True PYG2010 (cap=1) | 0.04676 | +66% | revert |
+| 9 | virtual_UU 전면 적용 | DIVERGED 1e+23 | ∞ | revert |
+| 10 | parallel 4-case + CICSAM 추가 (Case D) | 0.02818 (Case A) | 0% | CICSAM 발견 |
+| 11 | Case A swap: downwind → CICSAM | 0.02098 | -25.5% | keep |
 | 12 | CICSAM TVB M=128 | 0.02095 | -0.14% | keep |
-| 13 | CICSAM Co (0.3/0.4/0.45) scan | 진행 중 | TBD | TBD |
+| 13 | CICSAM Co scan (0.3/0.4/0.45) | 0.02095 | 0% | keep (per-shape trade-off found) |
+| 14 | CICSAM Co=0.38 fine | 0.02054 | -2.0% | keep |
+| 15 | Full CICSAM (HC+UQ+cos²(2θ) blend) | 0.03028 | +47% | revert (criss-cross artifact) |
+| 16 | **Adaptive limiter (cicsam_co38/van_leer)** | **0.02026** | **-1.4%** | **keep** |
+| 17 | Smooth limiter scan (van_leer/van_albada/mc) | 0.02026 | 0% | keep van_leer |
+| 18 | Smoothness threshold scan (0.07/0.10/0.15) | 0.02026 | 0% | keep 0.10 |
+| 19 | TVB M scan (32/64/128/256) | M=128: 0.02026, M=64: 0.02033 | -0.4% | keep M=64 (4× monotone) |
+| 20 | IDW p scan (5/6/7) | 0.02033 | 0% | keep p=6 |
+| 21 | **3-tier limiter (cicsam_co38/van_leer/minmod)** | **0.02008** | **-1.2%** | **keep** |
+| 22 | threshold2 scan (0.03/0.05/0.07) | 0.02008 | 0% | keep 0.05 |
+| 23 | CFL scan (0.3/0.4/0.5) | 0.02008 | 0% | keep 0.4 |
+| 24 | Hancock courant scan (0.0/0.1/0.2) | 0.02008 | 0% | keep 0.0 |
+| 25 | Face GQ scan (1pt/2pt/3pt) | 0.02008 | 0% | keep 2pt (1pt diverges!) |
+| 26 | **PAPER FINAL — 4-case** | **0.02008** | (vs ref) | **PUBLISHED** |
+
+## FINAL Paper Result (iter 26)
+
+| Case | Scheme | TOTAL L1 | range | drift |
+|---|---|---:|---|---:|
+| **A: T-MLP-u FINAL** ⭐ | 3-tier adaptive | **0.02008** | [-0.005, **1.002**] | 1.2e-8 |
+| B: plain van Leer | no LMP | 0.04881 (×2.43) | [0.0, 0.832] | 7e-5 |
+| C: 1st-order + central | no dissipation | 0.06797 (×3.38) | [-0.73, 1.65] OSC | 5e-3 |
+| D: pure CICSAM | no T-MLP-u | 0.04544 (×2.26) | [-0.84, **2.31**] | 1e-5 |
+
+**Final T-MLP-u config** (paper):
+- TVD limiter: cicsam_co38 (sharp) / van_leer (moderate) / minmod (very-smooth) — **3-tier adaptive**
+- Smoothness criterion: LSQ residual ratio (mesh-independent), threshold 0.10 / 0.05
+- LMP: vertex 1-ring bound + TVB tolerance M=64
+- LSQ: cubic k=3, vertex2 stencil, IDW p=6, virtual UU (Darwish-Moukalled) fallback
+- Time: SSP-RK3, CFL=0.4, Hancock courant 0.0
+- Space: 2-pt Gauss face quadrature (1-pt diverges with cubic LSQ!)
+
+**핵심 메시지**:
+- T-MLP-u 의 LMP wrapper 가 없으면 강한 압축 limiter (Hyper-C/CICSAM) 는 발산 (D: 231% overshoot)
+- 3-tier adaptive 로 sharp(slot) + smooth(cone/hump) 동시 최적화
+- monotonicity ±0.5% 유지 (B 의 0.832 peak 대비 1.002 peak 유지)
+- 누적 −29.2% vs iter 0 (T-MLP-u + downwind, M=16)
 
 ## Stop Conditions
 

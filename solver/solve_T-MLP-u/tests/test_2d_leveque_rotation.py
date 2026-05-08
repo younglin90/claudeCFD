@@ -187,35 +187,58 @@ def main():
                   flux='central', n_face_quad=1,
                   label='C: 1st-order recon + central flux  (RK3, 1-pt midpoint)')
 
+    # -- Case D: CICSAM (Hyper-C arm of Ubbink 1997, Leonard 1991) -------
+    # ψ_HC(r) = 2·min(1, r·(1-Co)/Co); at Co=0.4 the slope (3r) is 50%
+    # steeper than downwind's (2r), making it the most compressive TVD
+    # limiter in the Sweby diagram.  Same T-MLP-u + LMP + virt-UU stack
+    # as Case A — only the inner TVD shape differs.  Used as an
+    # interface-capturing reference: how much further does an extra-
+    # compressive limiter buy us once the LMP cap is the same?
+    case_D = _run(mesh,
+                  TMLPU(tvd='cicsam', mlp_bound=True,
+                        extremum_relax=True, tvb_M=64.0,
+                        virtual_uu_gradient=True, **common),
+                  t_end=1.0, integrator='ssp_rk3', n_face_quad=2,
+                  label='D: T-MLP-u + CICSAM     (vertex, k=2, RK3, 2pt GQ, virt-UU)')
+
     # ── Quantitative metrics ─────────────────────────────────────────────
     masks = _shape_masks(x, y)
     print("\n  ──── L1 error vs analytic (= initial) per shape ────")
     print("  shape       Case A (T-MLP-u+DW)   Case B (van Leer)   "
-          "Case C (central)   B/A    C/A")
+          "Case C (central)   Case D (CICSAM)    B/A   C/A   D/A")
     rows = []
     for name in ('slot', 'cone', 'hump'):
         eA = _l1(case_A, U0_field, V, masks[name])
         eB = _l1(case_B, U0_field, V, masks[name])
         eC = _l1(case_C, U0_field, V, masks[name])
-        rA = eB / max(eA, 1e-30); rC = eC / max(eA, 1e-30)
-        rows.append((name, eA, eB, eC, rA, rC))
+        eD = _l1(case_D, U0_field, V, masks[name])
+        rB = eB / max(eA, 1e-30)
+        rC = eC / max(eA, 1e-30)
+        rD = eD / max(eA, 1e-30)
+        rows.append((name, eA, eB, eC, eD, rB, rC, rD))
         print(f"  {name:8s}    {eA:.5f}             {eB:.5f}             "
-              f"{eC:.5f}            {rA:.2f}   {rC:.2f}")
+              f"{eC:.5f}            {eD:.5f}             "
+              f"{rB:.2f}  {rC:.2f}  {rD:.2f}")
     eA_total = _l1(case_A, U0_field, V)
     eB_total = _l1(case_B, U0_field, V)
     eC_total = _l1(case_C, U0_field, V)
+    eD_total = _l1(case_D, U0_field, V)
     rB_t = eB_total / max(eA_total, 1e-30)
     rC_t = eC_total / max(eA_total, 1e-30)
+    rD_t = eD_total / max(eA_total, 1e-30)
     print(f"  {'TOTAL':8s}    {eA_total:.5f}             {eB_total:.5f}             "
-          f"{eC_total:.5f}            {rB_t:.2f}   {rC_t:.2f}")
-    rows.append(('TOTAL', eA_total, eB_total, eC_total, rB_t, rC_t))
+          f"{eC_total:.5f}            {eD_total:.5f}             "
+          f"{rB_t:.2f}  {rC_t:.2f}  {rD_t:.2f}")
+    rows.append(('TOTAL', eA_total, eB_total, eC_total, eD_total, rB_t, rC_t, rD_t))
 
     over_A = float(np.max(case_A) - init_max);  under_A = float(init_min - np.min(case_A))
     over_B = float(np.max(case_B) - init_max);  under_B = float(init_min - np.min(case_B))
     over_C = float(np.max(case_C) - init_max);  under_C = float(init_min - np.min(case_C))
+    over_D = float(np.max(case_D) - init_max);  under_D = float(init_min - np.min(case_D))
     drift_A = abs(np.sum(case_A * V) - np.sum(U0_field * V)) / np.sum(U0_field * V)
     drift_B = abs(np.sum(case_B * V) - np.sum(U0_field * V)) / np.sum(U0_field * V)
     drift_C = abs(np.sum(case_C * V) - np.sum(U0_field * V)) / np.sum(U0_field * V)
+    drift_D = abs(np.sum(case_D * V) - np.sum(U0_field * V)) / np.sum(U0_field * V)
     print()
     print(f"  range  : Case A φ ∈ [{np.min(case_A):.4f}, {np.max(case_A):.4f}]  "
           f"(over={over_A:+.3e}, under={under_A:+.3e})")
@@ -223,7 +246,10 @@ def main():
           f"(over={over_B:+.3e}, under={under_B:+.3e})")
     print(f"  range  : Case C φ ∈ [{np.min(case_C):.4f}, {np.max(case_C):.4f}]  "
           f"(over={over_C:+.3e}, under={under_C:+.3e})")
-    print(f"  ∫φ drift A = {drift_A:.2e},  B = {drift_B:.2e},  C = {drift_C:.2e}")
+    print(f"  range  : Case D φ ∈ [{np.min(case_D):.4f}, {np.max(case_D):.4f}]  "
+          f"(over={over_D:+.3e}, under={under_D:+.3e})")
+    print(f"  ∫φ drift A = {drift_A:.2e},  B = {drift_B:.2e},  "
+          f"C = {drift_C:.2e},  D = {drift_D:.2e}")
 
     # ── Plots ───────────────────────────────────────────────────────────
     triang = mtri.Triangulation(mesh.nodes[:, 0], mesh.nodes[:, 1],
@@ -251,9 +277,9 @@ def main():
     ax = fig.add_subplot(gs[0, 3]); panel(ax, case_C,
                                           'Case C: 1st-order + central flux\n(no upwind, no limiter)',
                                           vmin=-0.5, vmax=1.5, cmap='RdBu_r')
-    ax = fig.add_subplot(gs[0, 4]); panel(ax, case_B - case_A,
-                                          'B − A',
-                                          vmin=-0.5, vmax=0.5, cmap='RdBu_r')
+    ax = fig.add_subplot(gs[0, 4]); panel(ax, case_D,
+                                          'Case D: T-MLP-u + CICSAM\n(vertex2, k=3, RK3, 2-pt GQ)',
+                                          vmin=0, vmax=1)
 
     # Error fields (vs exact = φ₀)
     ax = fig.add_subplot(gs[1, 1])
@@ -262,6 +288,8 @@ def main():
     panel(ax, case_B - U0_field, 'B − exact', vmin=-0.5, vmax=0.5, cmap='RdBu_r')
     ax = fig.add_subplot(gs[1, 3])
     panel(ax, case_C - U0_field, 'C − exact', vmin=-0.5, vmax=0.5, cmap='RdBu_r')
+    ax = fig.add_subplot(gs[1, 4])
+    panel(ax, case_D - U0_field, 'D − exact', vmin=-0.5, vmax=0.5, cmap='RdBu_r')
 
     # Bar chart of L1 errors per shape
     ax = fig.add_subplot(gs[1, 0])
@@ -269,10 +297,12 @@ def main():
     eA_arr = [r[1] for r in rows[:-1]]
     eB_arr = [r[2] for r in rows[:-1]]
     eC_arr = [r[3] for r in rows[:-1]]
+    eD_arr = [r[4] for r in rows[:-1]]
     xpos = np.arange(len(shapes))
-    ax.bar(xpos - 0.27, eA_arr, 0.27, label='A: T-MLP-u+DW',  color='tab:blue')
-    ax.bar(xpos + 0.00, eB_arr, 0.27, label='B: van Leer',     color='tab:orange')
-    ax.bar(xpos + 0.27, eC_arr, 0.27, label='C: central',      color='tab:red')
+    ax.bar(xpos - 0.30, eA_arr, 0.20, label='A: T-MLP-u+DW',  color='tab:blue')
+    ax.bar(xpos - 0.10, eB_arr, 0.20, label='B: van Leer',     color='tab:orange')
+    ax.bar(xpos + 0.10, eC_arr, 0.20, label='C: central',      color='tab:red')
+    ax.bar(xpos + 0.30, eD_arr, 0.20, label='D: CICSAM',       color='tab:green')
     ax.set_xticks(xpos);  ax.set_xticklabels(shapes)
     ax.set_ylabel('L1 error');  ax.set_title('L1 error per shape', fontsize=10)
     ax.legend(fontsize=7);  ax.grid(alpha=0.3)
@@ -297,6 +327,7 @@ def main():
         ax_slot.plot(ys, case_A   [strip_x][order], 'b-',  lw=1.0, label='A: T-MLP-u+DW')
         ax_slot.plot(ys, case_B   [strip_x][order], 'r-',  lw=1.0, label='B: van Leer')
         ax_slot.plot(ys, case_C   [strip_x][order], 'g--', lw=0.8, alpha=0.6, label='C: central')
+        ax_slot.plot(ys, case_D   [strip_x][order], 'm:',  lw=1.0, label='D: CICSAM')
         ax_slot.set_xlim(0.55, 0.95);  ax_slot.set_ylim(-0.1, 1.2)
         ax_slot.set_title('slotted cylinder slice (x ≈ ½)', fontsize=10)
         ax_slot.set_xlabel('y');  ax_slot.legend(fontsize=8)
@@ -307,6 +338,7 @@ def main():
         ax_cone.plot(ys, case_A   [strip_x][order], 'b-',  lw=1.0, label='A: T-MLP-u+DW')
         ax_cone.plot(ys, case_B   [strip_x][order], 'r-',  lw=1.0, label='B: van Leer')
         ax_cone.plot(ys, case_C   [strip_x][order], 'g--', lw=0.8, alpha=0.6, label='C: central')
+        ax_cone.plot(ys, case_D   [strip_x][order], 'm:',  lw=1.0, label='D: CICSAM')
         ax_cone.set_xlim(0.05, 0.45);  ax_cone.set_ylim(-0.1, 1.2)
         ax_cone.set_title('cone slice (x ≈ ½)', fontsize=10)
         ax_cone.set_xlabel('y');  ax_cone.legend(fontsize=8)
@@ -319,6 +351,7 @@ def main():
         ax_hump.plot(xs, case_A   [strip_y][order], 'b-',  lw=1.0, label='A: T-MLP-u+DW')
         ax_hump.plot(xs, case_B   [strip_y][order], 'r-',  lw=1.0, label='B: van Leer')
         ax_hump.plot(xs, case_C   [strip_y][order], 'g--', lw=0.8, alpha=0.6, label='C: central')
+        ax_hump.plot(xs, case_D   [strip_y][order], 'm:',  lw=1.0, label='D: CICSAM')
         ax_hump.set_xlim(0.05, 0.45);  ax_hump.set_ylim(-0.05, 0.6)
         ax_hump.set_title('cosine-bell slice (y ≈ ½)', fontsize=10)
         ax_hump.set_xlabel('x');  ax_hump.legend(fontsize=8)
@@ -327,16 +360,16 @@ def main():
     # Caption / summary
     ax_caption = fig.add_subplot(gs[2, 3:]);  ax_caption.axis('off')
     txt = (f"N = {N}, mesh = {mesh.n_cells} triangles\n"
-           f"A,B: SSP-RK3, 2-pt GQ, k=3 cubic, vertex2 stencil\n"
+           f"A,B,D: SSP-RK3, 2-pt GQ, k=3 cubic, vertex2 stencil, virt-UU\n"
            f"C: SSP-RK3, 1-pt midpoint, 1st-order recon, central flux\n\n"
-           f"L1 (slot)  A→{rows[0][1]:.4f}, B→{rows[0][2]:.4f}, C→{rows[0][3]:.4f}\n"
-           f"L1 (cone)  A→{rows[1][1]:.4f}, B→{rows[1][2]:.4f}, C→{rows[1][3]:.4f}\n"
-           f"L1 (hump)  A→{rows[2][1]:.4f}, B→{rows[2][2]:.4f}, C→{rows[2][3]:.4f}\n"
-           f"L1 (total) A→{rows[3][1]:.4f}, B→{rows[3][2]:.4f}, C→{rows[3][3]:.4f}\n\n"
+           f"L1 (total) A→{rows[3][1]:.4f}, B→{rows[3][2]:.4f}, "
+           f"C→{rows[3][3]:.4f}, D→{rows[3][4]:.4f}\n\n"
            f"Case A range: [{np.min(case_A):.3f}, {np.max(case_A):.3f}]\n"
            f"Case B range: [{np.min(case_B):.3f}, {np.max(case_B):.3f}]\n"
            f"Case C range: [{np.min(case_C):.3f}, {np.max(case_C):.3f}]\n"
-           f"∫φ drift  A {drift_A:.1e}, B {drift_B:.1e}, C {drift_C:.1e}")
+           f"Case D range: [{np.min(case_D):.3f}, {np.max(case_D):.3f}]\n"
+           f"∫φ drift  A {drift_A:.1e}, B {drift_B:.1e}, "
+           f"C {drift_C:.1e}, D {drift_D:.1e}")
     ax_caption.text(0.0, 0.95, txt, fontsize=9, family='monospace', va='top')
 
     fig.suptitle("LeVeque rigid-rotation benchmark — "

@@ -499,23 +499,32 @@ class TMLPU(Reconstruction):
         dx_fn = eval_points[interior] - mesh.cell_centers[mesh.face_neighbour[interior]]
 
         # 1) phi_min / phi_max per cell over (self ∪ chosen stencil).
-        W_with_self = np.concatenate(
-            [W_cell[:, :, None],
-             np.where(valid_nb[None, :, :], W_cell[:, nb_safe], np.nan)],
-            axis=2)                                          # (nvar, N, 1+max_nb)
-        phi_min_cell = np.nanmin(W_with_self, axis=2)
-        phi_max_cell = np.nanmax(W_with_self, axis=2)
+        # Avoid np.nanmin/nanmax by replacing invalid neighbour slots with
+        # the centre cell's own value (a no-op for min/max).  Much faster
+        # than NaN-propagating reductions and gives identical results.
+        W_self = W_cell[:, :, None]                          # (nvar, N, 1)
+        W_nb_filled = np.where(valid_nb[None, :, :],
+                               W_cell[:, nb_safe], W_self)   # (nvar, N, max_nb)
+        W_with_self = np.concatenate([W_self, W_nb_filled], axis=2)
+        phi_min_cell = W_with_self.min(axis=2)
+        phi_max_cell = W_with_self.max(axis=2)
 
         # 2) LSQ polynomial coefficients per cell, per variable.
         #    coeffs[v, c, :] = ATA_inv[c] · (Aᵀ · ΔW)[c]
+        # Fused einsum: combine the two separate calls into one
+        # (ATA_inv · Aᵀ) · ΔW_w — saves one tensor traversal per variable.
         coeffs = np.empty((nvar, N, nbasis), dtype=float)
         is_smooth_cell = np.zeros((nvar, N), dtype=bool)
         for v in range(nvar):
             delta_W = (W_cell[v, nb_safe] - W_cell[v, :, None]) * valid_nb
             # Weighted RHS: A_basis is already √W·A, multiply ΔW by √W too.
             delta_W_w = delta_W * sqrt_w
-            rhs = np.einsum('cki,ck->ci', A_basis, delta_W_w)      # (N, nbasis)
-            coeffs[v] = np.einsum('cij,cj->ci', ATA_inv, rhs)
+            # rhs[c, i] = Σ_k A_basis[c, k, i] · delta_W_w[c, k]
+            # coeffs[c, i] = Σ_j ATA_inv[c, i, j] · rhs[c, j]
+            # Fused: coeffs[c, i] = Σ_jk ATA_inv[c, i, j] · A_basis[c, k, j] · delta_W_w[c, k]
+            coeffs[v] = np.einsum('cij,ckj,ck->ci',
+                                  ATA_inv, A_basis, delta_W_w,
+                                  optimize=True)
             if self.extremum_relax:
                 # Smoothness indicator: relative LSQ residual norm.  On a
                 # smooth function the k-th-order LSQ polynomial fits
@@ -636,10 +645,13 @@ class TMLPU(Reconstruction):
 
         # TVB tolerance — allows the LMP bound to be exceeded by M·h² so
         # smooth extrema retain full design accuracy.  h estimated as
-        # √(median cell volume) (≈ Δx for criss-cross @ N=25 → h ≈ 0.028).
+        # √(median cell volume); mesh-only quantity, cached on mesh.
         if self.mlp_bound and self.tvb_M > 0.0:
-            h_est = float(np.sqrt(np.median(mesh.cell_volumes)))
-            tvb_eps = self.tvb_M * h_est * h_est
+            h_sq = getattr(mesh, '_tvb_h_sq_cache', None)
+            if h_sq is None:
+                h_sq = float(np.median(mesh.cell_volumes))
+                mesh._tvb_h_sq_cache = h_sq                # already h²
+            tvb_eps = self.tvb_M * h_sq
         else:
             tvb_eps = 0.0
 
@@ -653,6 +665,9 @@ class TMLPU(Reconstruction):
         one_minus_C = (1.0 - self.hancock_courant)
         _EPS = 1e-30
 
+        # Pre-compute side-independent fallback flag once.
+        all_valid_when_virt = self.virtual_uu_gradient
+
         for v in range(nvar):
             # ---------- Owner side ----------
             phi_U  = W_cell[v, o_idx]
@@ -662,57 +677,54 @@ class TMLPU(Reconstruction):
             delta = one_minus_C * delta_unl
 
             delta_plus = phi_D - phi_U
-            sign_dp = np.where(delta_plus >= 0.0, 1.0, -1.0)
-            safe_dp = np.where(np.abs(delta_plus) > _EPS, delta_plus,
-                               sign_dp * _EPS)
+            # Single mask reused for safe_dp + psi_tvd zero-protection.
+            abs_dp = np.abs(delta_plus)
+            is_zero_dp = abs_dp <= _EPS
+            safe_dp = np.where(is_zero_dp,
+                               np.copysign(_EPS, delta_plus), delta_plus)
             if self.virtual_uu_gradient:
-                # Darwish-Moukalled: φ_UU = φ_D − 2·∇φ_U · d_UD
-                # ⇒ Δ⁻ = φ_U − φ_UU = −Δ⁺ + 2·∇φ_U · d_UD
                 grad_x_U = coeffs[v, o_idx, 0]
                 grad_y_U = coeffs[v, o_idx, 1]
                 gdotd = grad_x_U * d_o_int[:, 0] + grad_y_U * d_o_int[:, 1]
-                delta_minus = -delta_plus + 2.0 * gdotd
-                # All interior faces become valid (no geometric fallback).
-                valid_o_eff = np.ones_like(valid_o)
+                delta_minus_virt = -delta_plus + 2.0 * gdotd
+                delta_minus = np.where(valid_o,
+                                       phi_U - phi_UU, delta_minus_virt)
             else:
                 delta_minus = np.where(valid_o, phi_U - phi_UU, 0.0)
-                valid_o_eff = valid_o
             r = delta_minus / safe_dp
             psi_tvd = self._psi_tvd(r)
-            psi_tvd = np.where(np.abs(delta_plus) > _EPS, psi_tvd, 2.0)
+            psi_tvd = np.where(is_zero_dp, 2.0, psi_tvd)
 
             if self.mlp_bound:
                 if psi_vertex_cell is not None:
-                    # PYG2010 vertex-MLP path — ψ already constrains the
-                    # whole polynomial at vertices.  Combine with TVD ψ.
                     psi_v_o = psi_vertex_cell[v, o_idx]
-                    psi_lmp = np.maximum(0.0,
-                                         np.minimum(2.0,
-                                                    np.minimum(psi_tvd, psi_v_o)))
+                    psi_lmp = np.minimum(psi_tvd, psi_v_o)
                 else:
                     phi_min = phi_min_cell[v, o_idx] - tvb_eps
                     phi_max = phi_max_cell[v, o_idx] + tvb_eps
-                    safe_pos = np.where(delta >  _EPS,  delta,  _EPS)
-                    safe_neg = np.where(delta < -_EPS,  delta, -_EPS)
-                    psi_mlp_pos = (phi_max - phi_U) / safe_pos
-                    psi_mlp_neg = (phi_min - phi_U) / safe_neg
+                    # Single-pass NVD bound: clip δ away from 0 (sign-aware).
+                    delta_clip_pos = np.maximum(delta,  _EPS)
+                    delta_clip_neg = np.minimum(delta, -_EPS)
+                    psi_mlp_pos = (phi_max - phi_U) / delta_clip_pos
+                    psi_mlp_neg = (phi_min - phi_U) / delta_clip_neg
                     psi_mlp = np.where(delta >  _EPS, psi_mlp_pos,
-                              np.where(delta < -_EPS, psi_mlp_neg,
-                                       np.full_like(delta, 2.0)))
-                    psi_lmp = np.maximum(0.0,
-                                         np.minimum(2.0,
-                                                    np.minimum(psi_tvd, psi_mlp)))
+                              np.where(delta < -_EPS, psi_mlp_neg, 2.0))
+                    psi_lmp = np.minimum(psi_tvd, psi_mlp)
+                # Final clip [0, 2] outside the inner branches.
+                np.clip(psi_lmp, 0.0, 2.0, out=psi_lmp)
                 if self.extremum_relax:
-                    psi_tvd_only = np.maximum(0.0, np.minimum(2.0, psi_tvd))
+                    psi_tvd_only = np.clip(psi_tvd, 0.0, 2.0)
                     psi_final = np.where(is_smooth_cell[v, o_idx],
                                          psi_tvd_only, psi_lmp)
                 else:
                     psi_final = psi_lmp
             else:
-                # Pure-TVD: no LMP wrapper — ψ = ψ_TVD clipped to [0, 2].
-                psi_final = np.maximum(0.0, np.minimum(2.0, psi_tvd))
+                psi_final = np.clip(psi_tvd, 0.0, 2.0)
             recon = phi_U + psi_final * delta
-            W_L[v, interior] = np.where(valid_o_eff, recon, phi_U)
+            if all_valid_when_virt:
+                W_L[v, interior] = recon       # virt-UU: every face valid
+            else:
+                W_L[v, interior] = np.where(valid_o, recon, phi_U)
 
             # ---------- Neighbour side ----------
             phi_U  = W_cell[v, n_idx]
@@ -722,53 +734,52 @@ class TMLPU(Reconstruction):
             delta = one_minus_C * delta_unl
 
             delta_plus = phi_D - phi_U
-            sign_dp = np.where(delta_plus >= 0.0, 1.0, -1.0)
-            safe_dp = np.where(np.abs(delta_plus) > _EPS, delta_plus,
-                               sign_dp * _EPS)
+            abs_dp = np.abs(delta_plus)
+            is_zero_dp = abs_dp <= _EPS
+            safe_dp = np.where(is_zero_dp,
+                               np.copysign(_EPS, delta_plus), delta_plus)
             if self.virtual_uu_gradient:
-                # Neighbour's d_UD = x_owner − x_neighbour = −d_o_int
                 grad_x_U = coeffs[v, n_idx, 0]
                 grad_y_U = coeffs[v, n_idx, 1]
                 gdotd = -(grad_x_U * d_o_int[:, 0] +
                           grad_y_U * d_o_int[:, 1])
-                delta_minus = -delta_plus + 2.0 * gdotd
-                valid_n_eff = np.ones_like(valid_n)
+                delta_minus_virt = -delta_plus + 2.0 * gdotd
+                delta_minus = np.where(valid_n,
+                                       phi_U - phi_UU, delta_minus_virt)
             else:
                 delta_minus = np.where(valid_n, phi_U - phi_UU, 0.0)
-                valid_n_eff = valid_n
             r = delta_minus / safe_dp
             psi_tvd = self._psi_tvd(r)
-            psi_tvd = np.where(np.abs(delta_plus) > _EPS, psi_tvd, 2.0)
+            psi_tvd = np.where(is_zero_dp, 2.0, psi_tvd)
 
             if self.mlp_bound:
                 if psi_vertex_cell is not None:
                     psi_v_n = psi_vertex_cell[v, n_idx]
-                    psi_lmp = np.maximum(0.0,
-                                         np.minimum(2.0,
-                                                    np.minimum(psi_tvd, psi_v_n)))
+                    psi_lmp = np.minimum(psi_tvd, psi_v_n)
                 else:
                     phi_min = phi_min_cell[v, n_idx] - tvb_eps
                     phi_max = phi_max_cell[v, n_idx] + tvb_eps
-                    safe_pos = np.where(delta >  _EPS,  delta,  _EPS)
-                    safe_neg = np.where(delta < -_EPS,  delta, -_EPS)
-                    psi_mlp_pos = (phi_max - phi_U) / safe_pos
-                    psi_mlp_neg = (phi_min - phi_U) / safe_neg
+                    delta_clip_pos = np.maximum(delta,  _EPS)
+                    delta_clip_neg = np.minimum(delta, -_EPS)
+                    psi_mlp_pos = (phi_max - phi_U) / delta_clip_pos
+                    psi_mlp_neg = (phi_min - phi_U) / delta_clip_neg
                     psi_mlp = np.where(delta >  _EPS, psi_mlp_pos,
-                              np.where(delta < -_EPS, psi_mlp_neg,
-                                       np.full_like(delta, 2.0)))
-                    psi_lmp = np.maximum(0.0,
-                                         np.minimum(2.0,
-                                                    np.minimum(psi_tvd, psi_mlp)))
+                              np.where(delta < -_EPS, psi_mlp_neg, 2.0))
+                    psi_lmp = np.minimum(psi_tvd, psi_mlp)
+                np.clip(psi_lmp, 0.0, 2.0, out=psi_lmp)
                 if self.extremum_relax:
-                    psi_tvd_only = np.maximum(0.0, np.minimum(2.0, psi_tvd))
+                    psi_tvd_only = np.clip(psi_tvd, 0.0, 2.0)
                     psi_final = np.where(is_smooth_cell[v, n_idx],
                                          psi_tvd_only, psi_lmp)
                 else:
                     psi_final = psi_lmp
             else:
-                psi_final = np.maximum(0.0, np.minimum(2.0, psi_tvd))
+                psi_final = np.clip(psi_tvd, 0.0, 2.0)
             recon = phi_U + psi_final * delta
-            W_R[v, interior] = np.where(valid_n_eff, recon, phi_U)
+            if all_valid_when_virt:
+                W_R[v, interior] = recon
+            else:
+                W_R[v, interior] = np.where(valid_n, recon, phi_U)
 
         return W_L, W_R
 

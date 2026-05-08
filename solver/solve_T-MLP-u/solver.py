@@ -88,6 +88,16 @@ def solve(mesh, eq, U0, *,
     areas = mesh.face_areas
     normals = mesh.face_normals
 
+    # Pre-compute scatter masks once (mesh-only) — used every rhs call.
+    nei_mask = nei >= 0
+    nei_int = nei[nei_mask]                                # (Nint,)
+
+    # Pre-compute per-cell characteristic length once (mesh-only).
+    # Stored on mesh so repeated solve() calls share the same array.
+    if not hasattr(mesh, '_cell_length_scale_cache'):
+        mesh._cell_length_scale_cache = _cell_length_scale(mesh)
+    h_cell_min = float(np.min(mesh._cell_length_scale_cache))
+
     # Pre-compute Gauss-quadrature points on each face (mesh-only).
     if n_face_quad == 1:
         gqs = mesh.face_centers[:, None, :]               # (Nf, 1, 2)
@@ -122,30 +132,33 @@ def solve(mesh, eq, U0, *,
             f"face_velocity_mode must be 'analytic' or 'central_avg', "
             f"got {face_velocity_mode!r}")
 
+    # Pre-allocated reusable buffers (closure-shared across rhs calls).
+    _F_face_buf = np.empty((eq.nvar, mesh.n_faces), dtype=float)
+
     def rhs(U_state):
         """∂t U = − (1/V) Σ_f (∫ F·n dl) — Gauss-quadrature on each face."""
         W = eq.cons_to_prim(U_state)
-        F_face = np.zeros((eq.nvar, mesh.n_faces), dtype=float)
+        F_face = _F_face_buf
+        F_face.fill(0.0)
         for k in range(n_face_quad):
             GP_k = gqs[:, k, :]                            # (Nf, 2)
             W_L, W_R = recon.reconstruct(mesh, W, eq, eval_points=GP_k)
             W_L, W_R = apply_patch_bcs(mesh, eq, W_L, W_R, bc_spec)
-            # Variable-velocity equations: sample velocity at GP (analytic)
-            # OR use the pre-computed cell-centre central average (single
-            # value per face, identical for every GP).
             if face_velocity_central is not None:
                 F_k = flux_fn(eq, W_L, W_R, normals, points=GP_k,
                               face_velocity=face_velocity_central)
             else:
                 F_k = flux_fn(eq, W_L, W_R, normals, points=GP_k)
-            F_face += gw[k] * F_k                          # (nvar, Nf)
+            if n_face_quad == 1:
+                F_face[:] = F_k
+            else:
+                F_face += gw[k] * F_k
 
         dUdt = np.zeros_like(U_state)
         AF = F_face * areas                                # (nvar, Nf)
         for v in range(eq.nvar):
             np.add.at(dUdt[v], owner, -AF[v])
-            mask = nei >= 0
-            np.add.at(dUdt[v], nei[mask], AF[v, mask])
+            np.add.at(dUdt[v], nei_int, AF[v, nei_mask])
         return dUdt * inv_vol
 
     n_completed = 0
@@ -163,10 +176,8 @@ def solve(mesh, eq, U0, *,
             if not np.isfinite(wmax) or wmax <= 0.0:
                 raise FloatingPointError(f"non-positive max wave speed at t={t}")
             # Use the smallest "characteristic length" of any cell as a
-            # geometric scale.  For 1D it's dx; for 2D it's V / max_face_area
-            # (dimensionally consistent).
-            h = _cell_length_scale(mesh)
-            dt = cfl * float(np.min(h)) / wmax
+            # geometric scale (cached above — mesh-only quantity).
+            dt = cfl * h_cell_min / wmax
         if t + dt > t_end:
             dt = t_end - t
         if dt <= 0:
@@ -193,18 +204,34 @@ def _cell_length_scale(mesh):
     For 1D structured: equals dx.
     For 2D Cartesian:  V/max(face_area) = dx·dy / max(dx, dy) = min(dx, dy).
     For unstructured:  V / max_face_area is a reasonable inradius proxy.
+
+    Vectorised path: build a padded (N, max_faces_per_cell) array and
+    take a row-wise max over face_areas, then divide.  Falls back to V
+    where max_area ≤ 0.  Returns identical values to the previous
+    Python-loop implementation.
     """
-    h = np.empty(mesh.n_cells, dtype=float)
-    for i in range(mesh.n_cells):
-        faces = mesh.cell_faces[i]
-        if len(faces) == 0:
-            h[i] = mesh.cell_volumes[i]
-            continue
-        max_area = float(np.max(mesh.face_areas[faces]))
-        if max_area <= 0:
-            h[i] = mesh.cell_volumes[i]
-        else:
-            h[i] = mesh.cell_volumes[i] / max_area
+    cf = mesh.cell_faces
+    n_cells = mesh.n_cells
+    if not isinstance(cf, np.ndarray):
+        # cell_faces is typically a list-of-lists.  Pad and vectorise.
+        max_f = max((len(faces) for faces in cf), default=1)
+        max_f = max(max_f, 1)
+        cf_padded = np.full((n_cells, max_f), -1, dtype=int)
+        for i, faces in enumerate(cf):
+            cf_padded[i, :len(faces)] = faces
+    else:
+        cf_padded = cf
+        max_f = cf_padded.shape[1] if cf_padded.ndim > 1 else 1
+
+    valid = cf_padded >= 0
+    safe_idx = np.where(valid, cf_padded, 0)
+    face_a = mesh.face_areas[safe_idx]                       # (N, max_f)
+    face_a = np.where(valid, face_a, -np.inf)
+    max_area = face_a.max(axis=1)
+    vols = mesh.cell_volumes
+    # Where no positive face: fall back to vol itself (matches old code).
+    h = np.where(max_area > 0.0, vols / np.where(max_area > 0.0, max_area, 1.0),
+                 vols)
     return h
 
 

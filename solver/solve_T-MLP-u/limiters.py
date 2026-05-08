@@ -106,6 +106,26 @@ def downwind(r):
     return np.maximum(0.0, np.minimum(2.0 * r, 2.0))
 
 
+def hyper_c(r, courant=0.4):
+    """Hyper-C (Leonard 1991) — compressive scheme used as the
+    sharp-interface arm of CICSAM (Ubbink 1997).
+
+        ψ_HC(r) = 2 · min(1, r · (1−Co)/Co)
+
+    Derivation: in NVD, Hyper-C says φ̃_f = min(1, φ̃_C/Co).  Converting
+    back to TVD gives a limiter MORE compressive than downwind for any
+    Co < ½ — at Co=0.4 the slope is 3r (vs 2r for downwind).  Best
+    paired with a robust LMP wrapper (T-MLP-u) since it sits well above
+    the Sweby region; CICSAM's full version blends it with Ultimate-
+    QUICKEST via cos²(2θ) for smooth-region anti-compression.
+
+    `courant` is a fixed estimate; for true CICSAM Co should be the
+    actual face Courant number per step.
+    """
+    factor = (1.0 - courant) / max(courant, 1e-10)
+    return np.maximum(0.0, np.minimum(2.0 * r * factor, 2.0))
+
+
 TVD_LIMITERS = {
     'minmod':     minmod,
     'van_leer':   van_leer,
@@ -114,6 +134,8 @@ TVD_LIMITERS = {
     'mc':         mc,
     'umist':      umist,
     'downwind':   downwind,
+    'hyper_c':    hyper_c,
+    'cicsam':     hyper_c,   # alias — Hyper-C is CICSAM's compressive arm
 }
 
 

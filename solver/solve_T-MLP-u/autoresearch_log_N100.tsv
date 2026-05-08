@@ -22,3 +22,4 @@ iter	change	metric	delta	verdict	notes
 20	IDW p scan (B=5 D=7 vs A=6)	0.02033	0%	keep	p=6 sweet spot at adaptive M=64 too. p=5 +3.6%, p=7 +2.0% (only hump -1.7%). PLATEAU on canonical knobs (TVD/M/p/threshold/smooth).
 21	3-tier limiter (cicsam_co38/van_leer/minmod, threshold 0.10/0.05)	0.02008	-1.2%	keep	NEW BEST. 3-tier wins. Slot -2.1%, mass drift 50x better (6.3e-7 -> 1.2e-8). Very-smooth minmod adds diffusion only where it helps.
 22	threshold2 scan (B=0.03 D=0.07 vs A=0.05)	0.02008	0%	keep	t2=0.05 sweet spot. 0.03 too narrow (+2.1%), 0.07 too wide (+1.2%, only hump -3%). Plateau on 6 knobs.
+23	CFL scan (B=0.3 D=0.5 vs A=0.4)	0.02008	0%	keep	cfl=0.4 sweet spot. 0.3 more recon overhead +1.4%. 0.5 less temporal accuracy +0.6%. 7 knobs plateau.

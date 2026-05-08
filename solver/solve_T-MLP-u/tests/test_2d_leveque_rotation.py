@@ -223,45 +223,32 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 22: threshold2 scan for 3-tier (B=minmod arm).
-    # iter 21 best = threshold/threshold2 = 0.10/0.05.
-    # Now test threshold2 ∈ {0.03, 0.05, 0.07} keeping threshold=0.10.
+    # Iter 23: CFL scan (untried at adaptive 3-tier setup).
+    # baseline cfl=0.4.  Try 0.3 (more steps, less per-step error)
+    # and 0.5 (fewer steps).
+    common3 = dict(tvd='cicsam_co38', tvd_smooth='van_leer',
+                   tvd_smooth2='minmod', mlp_bound=True,
+                   extremum_relax=True, tvb_M=64.0,
+                   smoothness_threshold=0.10,
+                   smoothness_threshold2=0.05,
+                   virtual_uu_gradient=True, **common)
     case_specs = [
-        dict(case_id='A', N=N,
-             recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
-                        tvd_smooth2='minmod', mlp_bound=True,
-                        extremum_relax=True, tvb_M=64.0,
-                        smoothness_threshold=0.10,
-                        smoothness_threshold2=0.05,
-                        virtual_uu_gradient=True, **common),
+        dict(case_id='A', N=N, recon=dict(**common3),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: thresh2=0.05 (iter 21 best 0.02008)'),
-        dict(case_id='B', N=N,
-             recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
-                        tvd_smooth2='minmod', mlp_bound=True,
-                        extremum_relax=True, tvb_M=64.0,
-                        smoothness_threshold=0.10,
-                        smoothness_threshold2=0.03,
-                        virtual_uu_gradient=True, **common),
+             label='A: cfl=0.4 (iter 21 best 0.02008)'),
+        dict(case_id='B', N=N, recon=dict(**common3),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
-             cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: thresh2=0.03 (narrower very-smooth zone)'),
-        dict(case_id='C', N=N,
-             recon='first_order',
+             cfl=0.3, t_end=1.0, face_velocity_mode='analytic',
+             label='B: cfl=0.3 (more steps)'),
+        dict(case_id='C', N=N, recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
              label='C: 1st-order + central flux (reference)'),
-        dict(case_id='D', N=N,
-             recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
-                        tvd_smooth2='minmod', mlp_bound=True,
-                        extremum_relax=True, tvb_M=64.0,
-                        smoothness_threshold=0.10,
-                        smoothness_threshold2=0.07,
-                        virtual_uu_gradient=True, **common),
+        dict(case_id='D', N=N, recon=dict(**common3),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
-             cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: thresh2=0.07 (wider very-smooth zone)'),
+             cfl=0.5, t_end=1.0, face_velocity_mode='analytic',
+             label='D: cfl=0.5 (fewer steps)'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

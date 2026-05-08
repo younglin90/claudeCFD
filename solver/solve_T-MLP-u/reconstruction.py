@@ -237,6 +237,13 @@ class TMLPU(Reconstruction):
     # LSQ-residual ratio below which a cell is classified `smooth`
     # (extremum_relax / tvd_smooth dispatch).  Lower = stricter, more
     # cells stay under LMP.  0.1 is the iter-15 default.
+    tvd_smooth2: object = None
+    # Optional tertiary limiter for *very* smooth cells, used when
+    # residual < smoothness_threshold2 < smoothness_threshold.  Three
+    # tiers: sharp (LMP+TVD primary) > moderate (tvd_smooth) >
+    # very-smooth (tvd_smooth2).  Set to None for 2-tier (default).
+    smoothness_threshold2: float = 0.05
+    # Secondary threshold for tvd_smooth2; ignored if tvd_smooth2=None.
     idw_p: float = 6.0
     # Inverse-distance weighting exponent for the LSQ.  weight = 1/d^p.
     # Larger p emphasises closer cells more heavily.  6.0 is the
@@ -270,6 +277,19 @@ class TMLPU(Reconstruction):
                 self._psi_tvd_smooth = self.tvd_smooth
             else:
                 raise TypeError("`tvd_smooth` must be a string or callable.")
+        # Resolve tertiary very-smooth limiter (optional, 3-tier).
+        self._psi_tvd_smooth2 = None
+        if self.tvd_smooth2 is not None:
+            if isinstance(self.tvd_smooth2, str):
+                key3 = self.tvd_smooth2.lower()
+                if key3 not in TVD_LIMITERS:
+                    raise ValueError(
+                        f"unknown tvd_smooth2 '{self.tvd_smooth2}'")
+                self._psi_tvd_smooth2 = TVD_LIMITERS[key3]
+            elif callable(self.tvd_smooth2):
+                self._psi_tvd_smooth2 = self.tvd_smooth2
+            else:
+                raise TypeError("`tvd_smooth2` must be a string or callable.")
         if self.stencil not in ('face', 'vertex', 'vertex2'):
             raise ValueError(
                 f"stencil must be 'face' / 'vertex' / 'vertex2', got {self.stencil!r}")
@@ -556,6 +576,7 @@ class TMLPU(Reconstruction):
         # (ATA_inv · Aᵀ) · ΔW_w — saves one tensor traversal per variable.
         coeffs = np.empty((nvar, N, nbasis), dtype=float)
         is_smooth_cell = np.zeros((nvar, N), dtype=bool)
+        is_very_smooth_cell = np.zeros((nvar, N), dtype=bool)
         for v in range(nvar):
             delta_W = (W_cell[v, nb_safe] - W_cell[v, :, None]) * valid_nb
             # Weighted RHS: A_basis is already √W·A, multiply ΔW by √W too.
@@ -583,6 +604,8 @@ class TMLPU(Reconstruction):
                 den = np.sqrt(np.sum(delta_W * delta_W, axis=1))
                 smoothness = num / np.maximum(den, 1e-30)
                 is_smooth_cell[v] = smoothness < self.smoothness_threshold
+                is_very_smooth_cell[v] = (
+                    smoothness < self.smoothness_threshold2)
 
         # Helper — evaluate the LSQ polynomial at a face displacement vector.
         def _poly_at(coef_per_face, dxs):
@@ -840,8 +863,17 @@ class TMLPU(Reconstruction):
                                              0.0, 2.0)
                     else:
                         psi_smooth = np.clip(psi_tvd, 0.0, 2.0)
-                    psi_final = np.where(is_smooth_cell[v, o_idx],
-                                         psi_smooth, psi_lmp)
+                    # 3-tier dispatch: very-smooth uses tvd_smooth2.
+                    if self._psi_tvd_smooth2 is not None:
+                        psi_smooth2 = np.clip(self._psi_tvd_smooth2(r),
+                                              0.0, 2.0)
+                        psi_final = np.where(
+                            is_very_smooth_cell[v, o_idx], psi_smooth2,
+                            np.where(is_smooth_cell[v, o_idx],
+                                     psi_smooth, psi_lmp))
+                    else:
+                        psi_final = np.where(is_smooth_cell[v, o_idx],
+                                             psi_smooth, psi_lmp)
                 else:
                     psi_final = psi_lmp
             else:
@@ -899,8 +931,16 @@ class TMLPU(Reconstruction):
                                              0.0, 2.0)
                     else:
                         psi_smooth = np.clip(psi_tvd, 0.0, 2.0)
-                    psi_final = np.where(is_smooth_cell[v, n_idx],
-                                         psi_smooth, psi_lmp)
+                    if self._psi_tvd_smooth2 is not None:
+                        psi_smooth2 = np.clip(self._psi_tvd_smooth2(r),
+                                              0.0, 2.0)
+                        psi_final = np.where(
+                            is_very_smooth_cell[v, n_idx], psi_smooth2,
+                            np.where(is_smooth_cell[v, n_idx],
+                                     psi_smooth, psi_lmp))
+                    else:
+                        psi_final = np.where(is_smooth_cell[v, n_idx],
+                                             psi_smooth, psi_lmp)
                 else:
                     psi_final = psi_lmp
             else:

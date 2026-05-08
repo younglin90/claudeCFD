@@ -223,25 +223,28 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 20: IDW p scan.  iter 19 picked M=64 as paper baseline
-    # (better monotone).  Now test idw_p ∈ {5, 6, 7} at M=64 adaptive.
+    # Iter 21: 3-tier adaptive limiter (technique upgrade).
+    # Sharp (resid≥0.10):     cicsam_co38 + LMP
+    # Moderate (0.05≤resid<0.10): van_leer
+    # Very-smooth (resid<0.05):   tvd_smooth2 (minmod or mc)
+    common2 = dict(tvb_M=64.0, smoothness_threshold=0.10,
+                   smoothness_threshold2=0.05,
+                   virtual_uu_gradient=True, **common)
     case_specs = [
         dict(case_id='A', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
                         mlp_bound=True, extremum_relax=True,
-                        tvb_M=64.0, virtual_uu_gradient=True,
-                        smoothness_threshold=0.10, idw_p=6.0, **common),
+                        **common2),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: M=64 idw_p=6 (paper baseline 0.02033)'),
+             label='A: 2-tier (paper baseline 0.02033)'),
         dict(case_id='B', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
-                        mlp_bound=True, extremum_relax=True,
-                        tvb_M=64.0, virtual_uu_gradient=True,
-                        smoothness_threshold=0.10, idw_p=5.0, **common),
+                        tvd_smooth2='minmod', mlp_bound=True,
+                        extremum_relax=True, **common2),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: idw_p=5'),
+             label='B: 3-tier (cicsam/van_leer/minmod)'),
         dict(case_id='C', N=N,
              recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
@@ -249,12 +252,11 @@ def main():
              label='C: 1st-order + central flux (reference)'),
         dict(case_id='D', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
-                        mlp_bound=True, extremum_relax=True,
-                        tvb_M=64.0, virtual_uu_gradient=True,
-                        smoothness_threshold=0.10, idw_p=7.0, **common),
+                        tvd_smooth2='mc', mlp_bound=True,
+                        extremum_relax=True, **common2),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: idw_p=7'),
+             label='D: 3-tier (cicsam/van_leer/mc)'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

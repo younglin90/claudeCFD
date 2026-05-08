@@ -7,3 +7,4 @@ iter	change	metric	delta	verdict	notes
 5	IDW p=6 -> p=7	0.02832	+0.82%	revert	p=6 still best at N=100. Slot regressed (0.157 -> 0.159).
 6	smoothness threshold 0.1 -> 0.07	0.02818	+0.32%	revert	0.1 still optimal at N=100. Tighter relaxation hurt cone (0.01355 -> 0.01390).
 7	face GQ 2pt -> 3pt	0.02815	+0.21%	revert	2pt sufficient. Wall +38% for nothing.
+8	vertex_mlp=True (PYG2010)	0.04676	+66.5%	revert	severe overcrushing, peak 0.97 -> 0.86. Same finding as N=25 iter 12.

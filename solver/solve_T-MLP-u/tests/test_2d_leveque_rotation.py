@@ -160,10 +160,10 @@ def main():
     # T-MLP-u wrapper supplies the LMP bound that suppresses overshoots,
     # turning the aggressive downwind compression into a monotone scheme.
     case_A = _run(mesh,
-                  TMLPU(tvd='downwind', mlp_bound=True,
+                  TMLPU(tvd='downwind', mlp_bound=True, vertex_mlp=True,
                         extremum_relax=True, tvb_M=64.0, **common),
-                  t_end=1.0, integrator='ssp_rk3', n_face_quad=3,
-                  label='A: T-MLP-u + downwind   (vertex, k=2, RK3, 3-pt GQ)')
+                  t_end=1.0, integrator='ssp_rk3', n_face_quad=2,
+                  label='A: T-MLP-u + downwind   (vertex, k=2, RK3, 2-pt GQ)')
 
     # -- Case B: plain van Leer TVD (no T-MLP-u wrapper) -----------------
     # mlp_bound=False makes TMLPU compute ψ = ψ_TVD only — no LMP.  Used

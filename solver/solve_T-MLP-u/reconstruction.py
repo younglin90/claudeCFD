@@ -213,6 +213,19 @@ class TMLPU(Reconstruction):
     # geometric face-neighbour search and works on any unstructured mesh.
     #     φ_UU_virt = φ_D − 2·∇φ_U · (x_D − x_U)
     #     ⇒ φ_U − φ_UU_virt = −Δ⁺ + 2·∇φ_U · d_UD
+    cicsam_full: bool = False
+    # Full CICSAM (Ubbink 1997) in NVD framework:
+    #   • Hyper-C arm (sharp): φ̃_f^HC = min(1, φ̃_C/Co)
+    #   • Ultimate-QUICKEST arm (smooth):
+    #       φ̃_f^UQ = (8·Co·φ̃_C + (1−Co)·(6·φ̃_C+3))/8
+    #     clipped to [φ̃_C, φ̃_f^HC]
+    #   • Blend: φ̃_f = γ·HC + (1−γ)·UQ
+    #     γ = cos²(2θ), θ = ∠(∇φ_C, d_UD).  γ→1 sharp interface aligned
+    #     with face → maximum compression; γ→0 gradient tangential →
+    #     gentler UQ.  Outside monotone region [φ̃_C ∈ 0..1] falls back
+    #     to first-order.  Bypasses the standard ψ_TVD path; uses the
+    #     virtual-UU formulation for φ̃_C natively.
+    cicsam_courant: float = 0.4   # Co for both HC and UQ formulae
     name: str = 't_mlp_u'
 
     def __post_init__(self):
@@ -585,8 +598,23 @@ class TMLPU(Reconstruction):
                     0.5 * coeffs_v[:, None, 7] * δx * δy * δy +
                     coeffs_v[:, None, 8] * δy * δy * δy / 6.0)
 
-        # Vertex-MLP — Park-Yoon-Kim 2010 cell-wise ψ from LSQ polynomial
-        # values at each cell vertex.  Computed once per call (per variable).
+        # TVB tolerance — needed by both vertex-MLP and per-face MLP paths.
+        if self.mlp_bound and self.tvb_M > 0.0:
+            h_sq = getattr(mesh, '_tvb_h_sq_cache', None)
+            if h_sq is None:
+                h_sq = float(np.median(mesh.cell_volumes))
+                mesh._tvb_h_sq_cache = h_sq
+            tvb_eps = self.tvb_M * h_sq
+        else:
+            tvb_eps = 0.0
+
+        # Vertex-MLP — Park-Yoon-Kim 2010 cell-wise ψ.
+        # CANONICAL T-MLP-u: linear gradient projection at vertices only,
+        # not the full polynomial.  The LSQ poly's higher-order terms
+        # (½∂xx, ∂xy, ½∂yy, …) overshoot at vertices for cubic k=3 LSQ
+        # and over-shrink ψ; PYG2010 uses ∇W_C · (x_v − x_C) only.
+        # Augmented with TVB (Cockburn-Shu) tolerance M·h² so smooth
+        # extrema do not get pinned by the LMP.
         psi_vertex_cell = None
         if self.vertex_mlp and ctx['vertex_offsets'] is not None:
             v2c_safe = ctx['v2c_safe']
@@ -598,26 +626,29 @@ class TMLPU(Reconstruction):
 
             psi_vertex_cell = np.ones((nvar, N), dtype=float)
             for v in range(nvar):
-                # Per-vertex bounds: φ_min^v / φ_max^v over cells touching vertex.
                 W_at_vc = W_cell[v, v2c_safe]                  # (Nnodes, max_v2c)
-                W_masked = np.where(v2c_valid, W_at_vc, np.nan)
-                phi_min_v = np.nanmin(W_masked, axis=1)        # (Nnodes,)
-                phi_max_v = np.nanmax(W_masked, axis=1)
-                # Project poly to each vertex of each cell: (N, V).
-                proj = _poly_at_cell_offsets(coeffs[v], vertex_offsets)
-                # ψ that brings projection inside [φ_min^v - W_C, φ_max^v - W_C].
-                W_C = W_cell[v]                                 # (N,)
+                # Use np.where + min/max instead of nanmin/max (slow).
+                W_self_v = W_cell[v, v2c_safe[:, :1]]
+                W_at_vc_filled = np.where(v2c_valid, W_at_vc, W_self_v)
+                phi_min_v = W_at_vc_filled.min(axis=1)         # (Nnodes,)
+                phi_max_v = W_at_vc_filled.max(axis=1)
+                # ─── Fix 1: linear gradient only (canonical PYG2010) ────
+                # Per-cell gradient = (coeffs[0], coeffs[1])
+                grad_x = coeffs[v, :, 0]                       # (N,)
+                grad_y = coeffs[v, :, 1]
+                proj = (grad_x[:, None] * vertex_offsets[..., 0]
+                        + grad_y[:, None] * vertex_offsets[..., 1])
+                W_C = W_cell[v]
                 phi_min_at_node = phi_min_v[cell_node_safe]    # (N, V)
-                phi_max_at_node = phi_max_v[cell_node_safe]    # (N, V)
-                # Δ_proj = poly value relative to W_C; allowed range
-                # similarly relative to W_C.
-                allowed_max = phi_max_at_node - W_C[:, None]   # (N, V)
-                allowed_min = phi_min_at_node - W_C[:, None]
-                eps = 1e-30
-                # Each vertex contributes a ψ_v ∈ [0, 1] (cap at 1 so we
-                # never grow the slope; we only shrink).
+                phi_max_at_node = phi_max_v[cell_node_safe]
+                # ─── Fix 2: TVB tolerance M·h² added to bounds ──────────
+                allowed_max = phi_max_at_node - W_C[:, None] + tvb_eps
+                allowed_min = phi_min_at_node - W_C[:, None] - tvb_eps
+                # Field-relative epsilon (not absolute 1e-30) — guards
+                # divide when ∇φ·δ is tiny vs the local field magnitude.
+                W_scale = max(float(np.max(np.abs(W_C))), 1e-30)
+                eps = 1e-12 * W_scale
                 psi_v_each = np.ones_like(proj)
-                # When proj > allowed_max + 0 we must shrink:
                 pos = proj > eps
                 neg = proj < -eps
                 psi_v_each = np.where(
@@ -643,17 +674,7 @@ class TMLPU(Reconstruction):
         if interior.size == 0:
             return W_L, W_R
 
-        # TVB tolerance — allows the LMP bound to be exceeded by M·h² so
-        # smooth extrema retain full design accuracy.  h estimated as
-        # √(median cell volume); mesh-only quantity, cached on mesh.
-        if self.mlp_bound and self.tvb_M > 0.0:
-            h_sq = getattr(mesh, '_tvb_h_sq_cache', None)
-            if h_sq is None:
-                h_sq = float(np.median(mesh.cell_volumes))
-                mesh._tvb_h_sq_cache = h_sq                # already h²
-            tvb_eps = self.tvb_M * h_sq
-        else:
-            tvb_eps = 0.0
+        # tvb_eps already computed above before vertex-MLP path.
 
         o_idx = owner[interior]
         n_idx = nei[interior]
@@ -668,6 +689,45 @@ class TMLPU(Reconstruction):
         # Pre-compute side-independent fallback flag once.
         all_valid_when_virt = self.virtual_uu_gradient
 
+        Co_cic = self.cicsam_courant if self.cicsam_full else 0.0
+
+        def _cicsam_face_value(grad_x, grad_y, d_vec, phi_self, delta_p,
+                                phi_min_b, phi_max_b, smooth_mask):
+            """One-side CICSAM (Ubbink) NVD blend.
+
+            Inputs are aligned to "owner-as-U" or "neighbour-as-U" view of
+            the face, with d_vec = x_D − x_U (for the local U).  Returns
+            the limited face value (1-D array of length n_int).
+            """
+            gdotd = grad_x * d_vec[:, 0] + grad_y * d_vec[:, 1]
+            denom = 2.0 * gdotd
+            safe_denom = np.where(np.abs(denom) > _EPS,
+                                   denom, np.copysign(_EPS, denom))
+            delta_minus_v = -delta_p + 2.0 * gdotd
+            phi_C_t = delta_minus_v / safe_denom
+            # HC + UQ arms
+            phi_f_HC = np.minimum(1.0, phi_C_t / max(Co_cic, 1e-10))
+            phi_f_UQ = ((8.0 * Co_cic) * phi_C_t
+                        + (1.0 - Co_cic) * (6.0 * phi_C_t + 3.0)) / 8.0
+            phi_f_UQ = np.maximum(phi_f_UQ, phi_C_t)
+            phi_f_UQ = np.minimum(phi_f_UQ, phi_f_HC)
+            # γ_f = cos²(2θ) ; θ = ∠(∇φ, d_UD)
+            grad_sq = grad_x * grad_x + grad_y * grad_y
+            d_sq = d_vec[:, 0] ** 2 + d_vec[:, 1] ** 2
+            cos2_th = (gdotd * gdotd) / np.maximum(grad_sq * d_sq, _EPS)
+            cos_2th = 2.0 * cos2_th - 1.0
+            gamma_f = np.minimum(cos_2th * cos_2th, 1.0)
+            phi_f_t = gamma_f * phi_f_HC + (1.0 - gamma_f) * phi_f_UQ
+            is_mono = (phi_C_t >= 0.0) & (phi_C_t <= 1.0)
+            phi_f_t = np.where(is_mono, phi_f_t, phi_C_t)
+            recon_cic = phi_self + (phi_f_t - phi_C_t) * denom
+            if self.mlp_bound:
+                clip_v = np.clip(recon_cic, phi_min_b, phi_max_b)
+                if self.extremum_relax:
+                    return np.where(smooth_mask, recon_cic, clip_v)
+                return clip_v
+            return recon_cic
+
         for v in range(nvar):
             # ---------- Owner side ----------
             phi_U  = W_cell[v, o_idx]
@@ -677,11 +737,45 @@ class TMLPU(Reconstruction):
             delta = one_minus_C * delta_unl
 
             delta_plus = phi_D - phi_U
-            # Single mask reused for safe_dp + psi_tvd zero-protection.
             abs_dp = np.abs(delta_plus)
             is_zero_dp = abs_dp <= _EPS
             safe_dp = np.where(is_zero_dp,
                                np.copysign(_EPS, delta_plus), delta_plus)
+
+            # ─── Full CICSAM path (bypasses ψ_TVD machinery) ───────────
+            if self.cicsam_full:
+                phi_min_b = phi_min_cell[v, o_idx] - tvb_eps
+                phi_max_b = phi_max_cell[v, o_idx] + tvb_eps
+                recon_o = _cicsam_face_value(
+                    coeffs[v, o_idx, 0], coeffs[v, o_idx, 1],
+                    d_o_int, phi_U, delta_plus,
+                    phi_min_b, phi_max_b,
+                    is_smooth_cell[v, o_idx] if self.extremum_relax else None,
+                )
+                if all_valid_when_virt:
+                    W_L[v, interior] = recon_o
+                else:
+                    W_L[v, interior] = np.where(valid_o, recon_o, phi_U)
+                # ----- Neighbour side ---------------------------------
+                phi_Un = W_cell[v, n_idx]
+                phi_Dn = W_cell[v, o_idx]
+                delta_p_n = phi_Dn - phi_Un
+                phi_min_bn = phi_min_cell[v, n_idx] - tvb_eps
+                phi_max_bn = phi_max_cell[v, n_idx] + tvb_eps
+                # Neighbour's d_UD = x_o − x_n = −d_o_int
+                d_n_int = -d_o_int
+                recon_n = _cicsam_face_value(
+                    coeffs[v, n_idx, 0], coeffs[v, n_idx, 1],
+                    d_n_int, phi_Un, delta_p_n,
+                    phi_min_bn, phi_max_bn,
+                    is_smooth_cell[v, n_idx] if self.extremum_relax else None,
+                )
+                if all_valid_when_virt:
+                    W_R[v, interior] = recon_n
+                else:
+                    W_R[v, interior] = np.where(valid_n, recon_n, phi_Un)
+                continue   # next variable — skip standard ψ path
+
             if self.virtual_uu_gradient:
                 grad_x_U = coeffs[v, o_idx, 0]
                 grad_y_U = coeffs[v, o_idx, 1]

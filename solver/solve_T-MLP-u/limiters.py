@@ -151,6 +151,16 @@ def hyper_c_co42(r):
     return hyper_c(r, courant=0.42)
 
 
+def hyper_c_co34(r):
+    """Hyper-C at Co=0.34 — slope ≈ 1.941·r (more compressive)."""
+    return hyper_c(r, courant=0.34)
+
+
+def hyper_c_co36(r):
+    """Hyper-C at Co=0.36 — slope ≈ 1.778·r (between 0.34 and 0.38)."""
+    return hyper_c(r, courant=0.36)
+
+
 TVD_LIMITERS = {
     'minmod':       minmod,
     'van_leer':     van_leer,
@@ -162,7 +172,9 @@ TVD_LIMITERS = {
     'hyper_c':      hyper_c,
     'cicsam':       hyper_c,    # alias — Hyper-C is CICSAM's compressive arm
     'cicsam_co3':   hyper_c_co3,
+    'cicsam_co34':  hyper_c_co34,
     'cicsam_co35':  hyper_c_co35,
+    'cicsam_co36':  hyper_c_co36,
     'cicsam_co38':  hyper_c_co38,
     'cicsam_co42':  hyper_c_co42,
     'cicsam_co45':  hyper_c_co45,

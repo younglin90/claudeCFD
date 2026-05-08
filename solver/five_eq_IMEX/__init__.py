@@ -7,3 +7,8 @@ Public API will live in `main.py` and a thin set of well-named helper modules
 (`eos/`, `flux/`, `time_integrator/`, `primitive/`, `boundary/`).  The legacy
 `solver/He2024/` tree is frozen for regression reference and must not be edited.
 """
+
+from .main_2d import solve_2d
+from .main_3d import solve_3d
+
+__all__ = ["solve_2d", "solve_3d"]

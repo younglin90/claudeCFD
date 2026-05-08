@@ -223,41 +223,39 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 26 — paper-ready 4-case comparison.  T-MLP-u FINAL config
-    # locked after 9-knob plateau (iter 12-25):
-    #   3-tier limiter (cicsam_co38 sharp / van_leer mid / minmod smooth)
-    #   LMP TVB M=64, threshold=0.10/0.05
-    #   cubic LSQ k=3, vertex2, IDW p=6, virtual_uu_gradient fallback
-    #   SSP-RK3, CFL=0.4, 2-pt face Gauss
-    final_recon = dict(tvd='cicsam_co38', tvd_smooth='van_leer',
-                       tvd_smooth2='minmod', mlp_bound=True,
-                       extremum_relax=True, tvb_M=64.0,
-                       smoothness_threshold=0.10,
-                       smoothness_threshold2=0.05,
-                       virtual_uu_gradient=True, **common)
+    # Iter 27 — downwind vs CICSAM head-to-head (same 3-tier wrapper).
+    # User asks: "isn't downwind sharper than CICSAM?"
+    # Answer: NO — Hyper-C@Co<0.5 exceeds Sweby boundary (anti-diffusive).
+    # Direct comparison: A=CICSAM 3-tier, B=downwind 3-tier, D=pure downwind.
+    common3 = dict(tvd_smooth='van_leer', tvd_smooth2='minmod',
+                   mlp_bound=True, extremum_relax=True, tvb_M=64.0,
+                   smoothness_threshold=0.10,
+                   smoothness_threshold2=0.05,
+                   virtual_uu_gradient=True, **common)
     case_specs = [
-        # A — T-MLP-u FINAL (paper headline result)
-        dict(case_id='A', N=N, recon=dict(**final_recon),
+        # A — T-MLP-u + CICSAM (3-tier) — paper FINAL
+        dict(case_id='A', N=N,
+             recon=dict(tvd='cicsam_co38', **common3),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: T-MLP-u FINAL (3-tier adaptive, 0.02008)'),
-        # B — plain van Leer TVD (no LMP wrapper) — TVD reference
+             label='A: T-MLP-u + CICSAM 3-tier (FINAL 0.02008)'),
+        # B — T-MLP-u + downwind (3-tier) — same wrapper, swapped sharp limiter
         dict(case_id='B', N=N,
-             recon=dict(tvd='van_leer', mlp_bound=False, **common),
+             recon=dict(tvd='downwind', **common3),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: plain van Leer (TVD reference)'),
-        # C — 1st-order + central flux (no-dissipation reference)
+             label='B: T-MLP-u + downwind 3-tier'),
+        # C — 1st-order + central (reference)
         dict(case_id='C', N=N, recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
              label='C: 1st-order + central flux (reference)'),
-        # D — pure CICSAM (Hyper-C only, no T-MLP-u wrapper) — comparison
+        # D — pure downwind (no T-MLP-u wrapper) — does it diverge like pure CICSAM?
         dict(case_id='D', N=N,
-             recon=dict(tvd='cicsam_co38', mlp_bound=False, **common),
+             recon=dict(tvd='downwind', mlp_bound=False, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: pure CICSAM Co=0.38 (no T-MLP-u wrapper)'),
+             label='D: pure downwind (no T-MLP-u, no LMP)'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

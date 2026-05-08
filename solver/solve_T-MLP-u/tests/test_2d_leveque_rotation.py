@@ -223,28 +223,30 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 21: 3-tier adaptive limiter (technique upgrade).
-    # Sharp (resid≥0.10):     cicsam_co38 + LMP
-    # Moderate (0.05≤resid<0.10): van_leer
-    # Very-smooth (resid<0.05):   tvd_smooth2 (minmod or mc)
-    common2 = dict(tvb_M=64.0, smoothness_threshold=0.10,
-                   smoothness_threshold2=0.05,
-                   virtual_uu_gradient=True, **common)
+    # Iter 22: threshold2 scan for 3-tier (B=minmod arm).
+    # iter 21 best = threshold/threshold2 = 0.10/0.05.
+    # Now test threshold2 ∈ {0.03, 0.05, 0.07} keeping threshold=0.10.
     case_specs = [
         dict(case_id='A', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
-                        mlp_bound=True, extremum_relax=True,
-                        **common2),
+                        tvd_smooth2='minmod', mlp_bound=True,
+                        extremum_relax=True, tvb_M=64.0,
+                        smoothness_threshold=0.10,
+                        smoothness_threshold2=0.05,
+                        virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: 2-tier (paper baseline 0.02033)'),
+             label='A: thresh2=0.05 (iter 21 best 0.02008)'),
         dict(case_id='B', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
                         tvd_smooth2='minmod', mlp_bound=True,
-                        extremum_relax=True, **common2),
+                        extremum_relax=True, tvb_M=64.0,
+                        smoothness_threshold=0.10,
+                        smoothness_threshold2=0.03,
+                        virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: 3-tier (cicsam/van_leer/minmod)'),
+             label='B: thresh2=0.03 (narrower very-smooth zone)'),
         dict(case_id='C', N=N,
              recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
@@ -252,11 +254,14 @@ def main():
              label='C: 1st-order + central flux (reference)'),
         dict(case_id='D', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
-                        tvd_smooth2='mc', mlp_bound=True,
-                        extremum_relax=True, **common2),
+                        tvd_smooth2='minmod', mlp_bound=True,
+                        extremum_relax=True, tvb_M=64.0,
+                        smoothness_threshold=0.10,
+                        smoothness_threshold2=0.07,
+                        virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: 3-tier (cicsam/van_leer/mc)'),
+             label='D: thresh2=0.07 (wider very-smooth zone)'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

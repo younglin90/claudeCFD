@@ -223,10 +223,10 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 13: M=128 adopted from iter 12.  Now scan Hyper-C Co
-    # parameter — lower Co = more compressive (slope (1−Co)/Co).
-    # A baseline at Co=0.4, B/D variants at Co=0.3 (extra-compressive)
-    # and Co=0.45 (gentler).  C = central reference.
+    # Iter 14: fine Co scan around the iter 13 winner (Co=0.4 single
+    # global optimum).  iter 13 showed slot wants Co=0.3 (-15%) while
+    # cone wants Co=0.45 (-25%); single Co stuck at 0.4 trade-off.
+    # Try Co=0.38 and Co=0.42 to see if there is a finer sweet spot.
     case_specs = [
         dict(case_id='A', N=N,
              recon=dict(tvd='cicsam', mlp_bound=True,
@@ -234,26 +234,26 @@ def main():
                         virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: CICSAM Co=0.4 M=128 (baseline)'),
+             label='A: CICSAM Co=0.40 M=128 (baseline)'),
         dict(case_id='B', N=N,
-             recon=dict(tvd='cicsam_co3', mlp_bound=True,
+             recon=dict(tvd='cicsam_co38', mlp_bound=True,
                         extremum_relax=True, tvb_M=128.0,
                         virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: CICSAM Co=0.3 M=128'),
+             label='B: CICSAM Co=0.38 M=128'),
         dict(case_id='C', N=N,
              recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
              label='C: 1st-order + central flux (reference)'),
         dict(case_id='D', N=N,
-             recon=dict(tvd='cicsam_co45', mlp_bound=True,
+             recon=dict(tvd='cicsam_co42', mlp_bound=True,
                         extremum_relax=True, tvb_M=128.0,
                         virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: CICSAM Co=0.45 M=128'),
+             label='D: CICSAM Co=0.42 M=128'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

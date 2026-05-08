@@ -223,36 +223,37 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 12: parallel TVB M scan on CICSAM — A baseline (M=64), B/D
-    # variants (M=128, M=32).  Whichever beats A becomes next iter's A.
-    # C remains the central-scheme reference per user directive.
+    # Iter 13: M=128 adopted from iter 12.  Now scan Hyper-C Co
+    # parameter — lower Co = more compressive (slope (1−Co)/Co).
+    # A baseline at Co=0.4, B/D variants at Co=0.3 (extra-compressive)
+    # and Co=0.45 (gentler).  C = central reference.
     case_specs = [
         dict(case_id='A', N=N,
-             recon=dict(tvd='cicsam', mlp_bound=True,
-                        extremum_relax=True, tvb_M=64.0,
-                        virtual_uu_gradient=True, **common),
-             flux='upwind', integrator='ssp_rk3', n_face_quad=2,
-             cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: CICSAM M=64  (baseline)'),
-        dict(case_id='B', N=N,
              recon=dict(tvd='cicsam', mlp_bound=True,
                         extremum_relax=True, tvb_M=128.0,
                         virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: CICSAM M=128'),
+             label='A: CICSAM Co=0.4 M=128 (baseline)'),
+        dict(case_id='B', N=N,
+             recon=dict(tvd='cicsam_co3', mlp_bound=True,
+                        extremum_relax=True, tvb_M=128.0,
+                        virtual_uu_gradient=True, **common),
+             flux='upwind', integrator='ssp_rk3', n_face_quad=2,
+             cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
+             label='B: CICSAM Co=0.3 M=128'),
         dict(case_id='C', N=N,
              recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
              label='C: 1st-order + central flux (reference)'),
         dict(case_id='D', N=N,
-             recon=dict(tvd='cicsam', mlp_bound=True,
-                        extremum_relax=True, tvb_M=32.0,
+             recon=dict(tvd='cicsam_co45', mlp_bound=True,
+                        extremum_relax=True, tvb_M=128.0,
                         virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: CICSAM M=32'),
+             label='D: CICSAM Co=0.45 M=128'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

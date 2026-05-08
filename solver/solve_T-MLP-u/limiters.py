@@ -126,16 +126,34 @@ def hyper_c(r, courant=0.4):
     return np.maximum(0.0, np.minimum(2.0 * r * factor, 2.0))
 
 
+def hyper_c_co3(r):
+    """Hyper-C at Co=0.3 — slope 7/3·r (extra compressive)."""
+    return hyper_c(r, courant=0.3)
+
+
+def hyper_c_co35(r):
+    """Hyper-C at Co=0.35 — slope ≈ 1.857·r."""
+    return hyper_c(r, courant=0.35)
+
+
+def hyper_c_co45(r):
+    """Hyper-C at Co=0.45 — slope ≈ 1.222·r (gentler than 0.4)."""
+    return hyper_c(r, courant=0.45)
+
+
 TVD_LIMITERS = {
-    'minmod':     minmod,
-    'van_leer':   van_leer,
-    'superbee':   superbee,
-    'van_albada': van_albada,
-    'mc':         mc,
-    'umist':      umist,
-    'downwind':   downwind,
-    'hyper_c':    hyper_c,
-    'cicsam':     hyper_c,   # alias — Hyper-C is CICSAM's compressive arm
+    'minmod':       minmod,
+    'van_leer':     van_leer,
+    'superbee':     superbee,
+    'van_albada':   van_albada,
+    'mc':           mc,
+    'umist':        umist,
+    'downwind':     downwind,
+    'hyper_c':      hyper_c,
+    'cicsam':       hyper_c,    # alias — Hyper-C is CICSAM's compressive arm
+    'cicsam_co3':   hyper_c_co3,
+    'cicsam_co35':  hyper_c_co35,
+    'cicsam_co45':  hyper_c_co45,
 }
 
 

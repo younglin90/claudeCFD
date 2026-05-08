@@ -223,12 +223,9 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 16: technique upgrade — adaptive limiter via tvd_smooth.
-    # iter 15 showed Full CICSAM cos²(2θ) fails on criss-cross mesh;
-    # use mesh-independent LSQ-residual smoothness criterion instead.
-    # Sharp cells (residual≥0.1): cicsam_co38 (compressive) + LMP
-    # Smooth cells (residual<0.1): van_leer (gentle) — tvd_smooth path
-    # A = adaptive, D = HC-only (iter 14 best 0.02054 reference).
+    # Iter 17: explore smooth-limiter alternatives.  iter 16 winner
+    # cicsam_co38/van_leer = 0.02026 is baseline.  B = van_albada
+    # (smoother), D = mc (between).  C = central reference.
     case_specs = [
         dict(case_id='A', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
@@ -236,26 +233,26 @@ def main():
                         tvb_M=128.0, virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: Adaptive T-MLP-u (cicsam_co38/van_leer)'),
+             label='A: cicsam_co38/van_leer (iter 16 best 0.02026)'),
         dict(case_id='B', N=N,
-             recon=dict(tvd='cicsam_co38', tvd_smooth='minmod',
+             recon=dict(tvd='cicsam_co38', tvd_smooth='van_albada',
                         mlp_bound=True, extremum_relax=True,
                         tvb_M=128.0, virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: Adaptive T-MLP-u (cicsam_co38/minmod)'),
+             label='B: cicsam_co38/van_albada'),
         dict(case_id='C', N=N,
              recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
              label='C: 1st-order + central flux (reference)'),
         dict(case_id='D', N=N,
-             recon=dict(tvd='cicsam_co38', mlp_bound=True,
-                        extremum_relax=True, tvb_M=128.0,
-                        virtual_uu_gradient=True, **common),
+             recon=dict(tvd='cicsam_co38', tvd_smooth='mc',
+                        mlp_bound=True, extremum_relax=True,
+                        tvb_M=128.0, virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: HC-only Co=0.38 (iter 14 best 0.02054)'),
+             label='D: cicsam_co38/mc'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

@@ -233,6 +233,10 @@ class TMLPU(Reconstruction):
     # criterion (LSQ residual) replaces CICSAM's cos²(2θ) blend.
     #     Sharp cell:  ψ = min(ψ_TVD, ψ_LMP)            ← compressive
     #     Smooth cell: ψ = clip(ψ_TVD_smooth, 0, 2)     ← gentler
+    smoothness_threshold: float = 0.1
+    # LSQ-residual ratio below which a cell is classified `smooth`
+    # (extremum_relax / tvd_smooth dispatch).  Lower = stricter, more
+    # cells stay under LMP.  0.1 is the iter-15 default.
     name: str = 't_mlp_u'
 
     def __post_init__(self):
@@ -574,7 +578,7 @@ class TMLPU(Reconstruction):
                 num = np.sqrt(np.sum(resid * resid, axis=1))
                 den = np.sqrt(np.sum(delta_W * delta_W, axis=1))
                 smoothness = num / np.maximum(den, 1e-30)
-                is_smooth_cell[v] = smoothness < 0.1
+                is_smooth_cell[v] = smoothness < self.smoothness_threshold
 
         # Helper — evaluate the LSQ polynomial at a face displacement vector.
         def _poly_at(coef_per_face, dxs):

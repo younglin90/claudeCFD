@@ -223,39 +223,39 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 27 — downwind vs CICSAM head-to-head (same 3-tier wrapper).
-    # User asks: "isn't downwind sharper than CICSAM?"
-    # Answer: NO — Hyper-C@Co<0.5 exceeds Sweby boundary (anti-diffusive).
-    # Direct comparison: A=CICSAM 3-tier, B=downwind 3-tier, D=pure downwind.
-    common3 = dict(tvd_smooth='van_leer', tvd_smooth2='minmod',
-                   mlp_bound=True, extremum_relax=True, tvb_M=64.0,
-                   smoothness_threshold=0.10,
-                   smoothness_threshold2=0.05,
-                   virtual_uu_gradient=True, **common)
+    # Iter 28 — verify TRUE pure downwind (φ_L≡φ_nei always, ψ≡2)
+    # vs Roe ultrabee (TVD-bounded downwind).
+    # User insight: TRUE pure downwind = anti-diffusive everywhere
+    # including at extrema → must diverge.
     case_specs = [
-        # A — T-MLP-u + CICSAM (3-tier) — paper FINAL
+        # A — T-MLP-u FINAL (paper baseline)
         dict(case_id='A', N=N,
-             recon=dict(tvd='cicsam_co38', **common3),
+             recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
+                        tvd_smooth2='minmod', mlp_bound=True,
+                        extremum_relax=True, tvb_M=64.0,
+                        smoothness_threshold=0.10,
+                        smoothness_threshold2=0.05,
+                        virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: T-MLP-u + CICSAM 3-tier (FINAL 0.02008)'),
-        # B — T-MLP-u + downwind (3-tier) — same wrapper, swapped sharp limiter
+             label='A: T-MLP-u FINAL (0.02008)'),
+        # B — pure_downwind without LMP (ψ≡2, no TVD bound) — should diverge
         dict(case_id='B', N=N,
-             recon=dict(tvd='downwind', **common3),
+             recon=dict(tvd='pure_downwind', mlp_bound=False, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: T-MLP-u + downwind 3-tier'),
+             label='B: pure ψ≡2 downwind (no LMP, expect DIVERGE)'),
         # C — 1st-order + central (reference)
         dict(case_id='C', N=N, recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
              label='C: 1st-order + central flux (reference)'),
-        # D — pure downwind (no T-MLP-u wrapper) — does it diverge like pure CICSAM?
+        # D — Roe ultrabee (our 'downwind') without LMP — TVD-bounded
         dict(case_id='D', N=N,
              recon=dict(tvd='downwind', mlp_bound=False, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: pure downwind (no T-MLP-u, no LMP)'),
+             label='D: Roe ultrabee (TVD-bounded), no LMP'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

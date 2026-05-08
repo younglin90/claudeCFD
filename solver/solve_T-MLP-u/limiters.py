@@ -106,6 +106,19 @@ def downwind(r):
     return np.maximum(0.0, np.minimum(2.0 * r, 2.0))
 
 
+def pure_downwind(r):
+    """Pure downwind reconstruction: φ_L ≡ φ_D, φ_R ≡ φ_U (downstream).
+
+        ψ ≡ 2  ∀ r  (no TVD constraint, no extremum cutoff)
+
+    Anti-diffusive everywhere — even at local extrema where TVD
+    schemes shut off (ψ=0).  Mathematically unstable; provided as a
+    stress test to demonstrate the necessity of the LMP wrapper or
+    a TVD constraint.
+    """
+    return np.full_like(r, 2.0)
+
+
 def hyper_c(r, courant=0.4):
     """Hyper-C (Leonard 1991) — compressive scheme used as the
     sharp-interface arm of CICSAM (Ubbink 1997).
@@ -169,6 +182,7 @@ TVD_LIMITERS = {
     'mc':           mc,
     'umist':        umist,
     'downwind':     downwind,
+    'pure_downwind': pure_downwind,
     'hyper_c':      hyper_c,
     'cicsam':       hyper_c,    # alias — Hyper-C is CICSAM's compressive arm
     'cicsam_co3':   hyper_c_co3,

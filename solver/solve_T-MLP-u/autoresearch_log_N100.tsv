@@ -15,3 +15,4 @@ iter	change	metric	delta	verdict	notes
 13	parallel CICSAM Co scan (B=0.3, D=0.45 vs A=0.4)	0.02095	0%	keep	A=0.02095 best TOTAL. B=0.02124 BEST slot (-15%) but worst cone. D=0.02320 BEST cone/hump but worst slot. Trade-off: single Co optimal=0.4. Need adaptive Co or UQ blend.
 14	parallel CICSAM fine Co scan (B=0.38, D=0.42 vs A=0.40)	0.02054	-2.0%	keep	Co=0.38 NEW BEST. slot -5.5% (0.105->0.099). Cumulative -27.1% from iter 0.
 15	Full CICSAM (HC+UQ+cos²(2θ) blend)	0.03028	+47%	revert	criss-cross mesh: 50% faces have 45° angle between grad and d_UD -> cos²(2θ)=0 -> UQ used at slot edges -> diffusion. Mesh-dependent failure. HC-only Co=0.38 retained as best.
+16	Adaptive limiter (cicsam_co38 sharp / van_leer smooth, mesh-independent)	0.02026	-1.4%	keep	NEW BEST. Adaptive via LSQ residual (mesh-independent) WINS. All shapes improve, overshoot 40% lower. cicsam_co38/minmod also good (0.02045). Adaptive technique works on criss-cross unlike Full CICSAM cos²(2θ).

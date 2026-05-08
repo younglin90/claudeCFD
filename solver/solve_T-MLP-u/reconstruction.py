@@ -226,6 +226,13 @@ class TMLPU(Reconstruction):
     #     to first-order.  Bypasses the standard ψ_TVD path; uses the
     #     virtual-UU formulation for φ̃_C natively.
     cicsam_courant: float = 0.4   # Co for both HC and UQ formulae
+    tvd_smooth: object = None
+    # Optional secondary TVD limiter used ONLY at smooth cells (when
+    # extremum_relax=True and is_smooth_cell[c]=True).  Sharp cells keep
+    # the primary `tvd` limiter clipped by LMP.  Mesh-independent
+    # criterion (LSQ residual) replaces CICSAM's cos²(2θ) blend.
+    #     Sharp cell:  ψ = min(ψ_TVD, ψ_LMP)            ← compressive
+    #     Smooth cell: ψ = clip(ψ_TVD_smooth, 0, 2)     ← gentler
     name: str = 't_mlp_u'
 
     def __post_init__(self):
@@ -242,6 +249,19 @@ class TMLPU(Reconstruction):
             self._tvd_name = getattr(self.tvd, '__name__', 'custom')
         else:
             raise TypeError("`tvd` must be a string or a callable.")
+        # Resolve secondary smooth-cell limiter (optional).
+        self._psi_tvd_smooth = None
+        if self.tvd_smooth is not None:
+            if isinstance(self.tvd_smooth, str):
+                key2 = self.tvd_smooth.lower()
+                if key2 not in TVD_LIMITERS:
+                    raise ValueError(
+                        f"unknown tvd_smooth '{self.tvd_smooth}'")
+                self._psi_tvd_smooth = TVD_LIMITERS[key2]
+            elif callable(self.tvd_smooth):
+                self._psi_tvd_smooth = self.tvd_smooth
+            else:
+                raise TypeError("`tvd_smooth` must be a string or callable.")
         if self.stencil not in ('face', 'vertex', 'vertex2'):
             raise ValueError(
                 f"stencil must be 'face' / 'vertex' / 'vertex2', got {self.stencil!r}")
@@ -807,9 +827,13 @@ class TMLPU(Reconstruction):
                 # Final clip [0, 2] outside the inner branches.
                 np.clip(psi_lmp, 0.0, 2.0, out=psi_lmp)
                 if self.extremum_relax:
-                    psi_tvd_only = np.clip(psi_tvd, 0.0, 2.0)
+                    if self._psi_tvd_smooth is not None:
+                        psi_smooth = np.clip(self._psi_tvd_smooth(r),
+                                             0.0, 2.0)
+                    else:
+                        psi_smooth = np.clip(psi_tvd, 0.0, 2.0)
                     psi_final = np.where(is_smooth_cell[v, o_idx],
-                                         psi_tvd_only, psi_lmp)
+                                         psi_smooth, psi_lmp)
                 else:
                     psi_final = psi_lmp
             else:
@@ -862,9 +886,13 @@ class TMLPU(Reconstruction):
                     psi_lmp = np.minimum(psi_tvd, psi_mlp)
                 np.clip(psi_lmp, 0.0, 2.0, out=psi_lmp)
                 if self.extremum_relax:
-                    psi_tvd_only = np.clip(psi_tvd, 0.0, 2.0)
+                    if self._psi_tvd_smooth is not None:
+                        psi_smooth = np.clip(self._psi_tvd_smooth(r),
+                                             0.0, 2.0)
+                    else:
+                        psi_smooth = np.clip(psi_tvd, 0.0, 2.0)
                     psi_final = np.where(is_smooth_cell[v, n_idx],
-                                         psi_tvd_only, psi_lmp)
+                                         psi_smooth, psi_lmp)
                 else:
                     psi_final = psi_lmp
             else:

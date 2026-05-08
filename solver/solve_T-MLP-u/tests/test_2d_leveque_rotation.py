@@ -223,26 +223,27 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 15: technique upgrade — Full CICSAM (Ubbink 1997) with
-    # HC + UQ + cos²(2θ) blend (auto sharp/smooth dispatch per face).
-    # A = full CICSAM, D = HC-only (iter 14 best 0.02054 reference).
+    # Iter 16: technique upgrade — adaptive limiter via tvd_smooth.
+    # iter 15 showed Full CICSAM cos²(2θ) fails on criss-cross mesh;
+    # use mesh-independent LSQ-residual smoothness criterion instead.
+    # Sharp cells (residual≥0.1): cicsam_co38 (compressive) + LMP
+    # Smooth cells (residual<0.1): van_leer (gentle) — tvd_smooth path
+    # A = adaptive, D = HC-only (iter 14 best 0.02054 reference).
     case_specs = [
         dict(case_id='A', N=N,
-             recon=dict(tvd='cicsam', mlp_bound=True,
-                        extremum_relax=True, tvb_M=128.0,
-                        virtual_uu_gradient=True,
-                        cicsam_full=True, cicsam_courant=0.4,
-                        **common),
+             recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
+                        mlp_bound=True, extremum_relax=True,
+                        tvb_M=128.0, virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: Full CICSAM (HC+UQ blend, gamma=cos^2(2theta))'),
+             label='A: Adaptive T-MLP-u (cicsam_co38/van_leer)'),
         dict(case_id='B', N=N,
-             recon=dict(tvd='downwind', mlp_bound=True,
-                        extremum_relax=True, tvb_M=128.0,
-                        virtual_uu_gradient=True, **common),
+             recon=dict(tvd='cicsam_co38', tvd_smooth='minmod',
+                        mlp_bound=True, extremum_relax=True,
+                        tvb_M=128.0, virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: T-MLP-u + downwind (iter 10 ref)'),
+             label='B: Adaptive T-MLP-u (cicsam_co38/minmod)'),
         dict(case_id='C', N=N,
              recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,

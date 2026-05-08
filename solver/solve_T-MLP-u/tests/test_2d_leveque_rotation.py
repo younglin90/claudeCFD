@@ -223,10 +223,9 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 18: smoothness_threshold scan (parametrized in TMLPU now).
-    # iter 16-17 best = cicsam_co38/van_leer threshold=0.10.
-    # B = stricter 0.07 (more cells under LMP, more compression).
-    # D = looser 0.15 (more cells use van_leer, less compression).
+    # Iter 19: TVB M scan at adaptive config.  iter 16-18 confirmed
+    # baseline cicsam_co38/van_leer thresh=0.10 M=128 = 0.02026.
+    # New limiter dispatch may favour different M than HC-only run.
     case_specs = [
         dict(case_id='A', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
@@ -235,15 +234,15 @@ def main():
                         smoothness_threshold=0.10, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: thresh=0.10 (iter 16 best 0.02026)'),
+             label='A: M=128 (baseline 0.02026)'),
         dict(case_id='B', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
                         mlp_bound=True, extremum_relax=True,
-                        tvb_M=128.0, virtual_uu_gradient=True,
-                        smoothness_threshold=0.07, **common),
+                        tvb_M=64.0, virtual_uu_gradient=True,
+                        smoothness_threshold=0.10, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: thresh=0.07 (stricter)'),
+             label='B: M=64 (stricter LMP)'),
         dict(case_id='C', N=N,
              recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
@@ -252,11 +251,11 @@ def main():
         dict(case_id='D', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
                         mlp_bound=True, extremum_relax=True,
-                        tvb_M=128.0, virtual_uu_gradient=True,
-                        smoothness_threshold=0.15, **common),
+                        tvb_M=256.0, virtual_uu_gradient=True,
+                        smoothness_threshold=0.10, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: thresh=0.15 (looser)'),
+             label='D: M=256 (looser LMP)'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

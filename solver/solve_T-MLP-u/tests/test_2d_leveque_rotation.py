@@ -223,26 +223,25 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 19: TVB M scan at adaptive config.  iter 16-18 confirmed
-    # baseline cicsam_co38/van_leer thresh=0.10 M=128 = 0.02026.
-    # New limiter dispatch may favour different M than HC-only run.
+    # Iter 20: IDW p scan.  iter 19 picked M=64 as paper baseline
+    # (better monotone).  Now test idw_p ∈ {5, 6, 7} at M=64 adaptive.
     case_specs = [
         dict(case_id='A', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
                         mlp_bound=True, extremum_relax=True,
-                        tvb_M=128.0, virtual_uu_gradient=True,
-                        smoothness_threshold=0.10, **common),
+                        tvb_M=64.0, virtual_uu_gradient=True,
+                        smoothness_threshold=0.10, idw_p=6.0, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: M=128 (baseline 0.02026)'),
+             label='A: M=64 idw_p=6 (paper baseline 0.02033)'),
         dict(case_id='B', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
                         mlp_bound=True, extremum_relax=True,
                         tvb_M=64.0, virtual_uu_gradient=True,
-                        smoothness_threshold=0.10, **common),
+                        smoothness_threshold=0.10, idw_p=5.0, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: M=64 (stricter LMP)'),
+             label='B: idw_p=5'),
         dict(case_id='C', N=N,
              recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
@@ -251,11 +250,11 @@ def main():
         dict(case_id='D', N=N,
              recon=dict(tvd='cicsam_co38', tvd_smooth='van_leer',
                         mlp_bound=True, extremum_relax=True,
-                        tvb_M=256.0, virtual_uu_gradient=True,
-                        smoothness_threshold=0.10, **common),
+                        tvb_M=64.0, virtual_uu_gradient=True,
+                        smoothness_threshold=0.10, idw_p=7.0, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: M=256 (looser LMP)'),
+             label='D: idw_p=7'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

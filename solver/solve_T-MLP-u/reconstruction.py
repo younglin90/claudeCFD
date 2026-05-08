@@ -237,6 +237,10 @@ class TMLPU(Reconstruction):
     # LSQ-residual ratio below which a cell is classified `smooth`
     # (extremum_relax / tvd_smooth dispatch).  Lower = stricter, more
     # cells stay under LMP.  0.1 is the iter-15 default.
+    idw_p: float = 6.0
+    # Inverse-distance weighting exponent for the LSQ.  weight = 1/d^p.
+    # Larger p emphasises closer cells more heavily.  6.0 is the
+    # iter-N=50 winner.
     name: str = 't_mlp_u'
 
     def __post_init__(self):
@@ -975,9 +979,9 @@ class TMLPU(Reconstruction):
             nbasis = 9
         A = A * valid_nb[:, :, None]
         # Inverse-distance LSQ weighting — emphasises closer cells.
-        # weight = 1/d^6
+        # weight = 1/d^p,  sqrt_w = (1/dist_sq)^(p/4)
         dist_sq = dx * dx + dy * dy + 1e-30
-        sqrt_w = (1.0 / dist_sq) ** 1.5 * valid_nb              # √(1/d^6) = 1/d^3
+        sqrt_w = (1.0 / dist_sq) ** (self.idw_p / 4.0) * valid_nb
         A = A * sqrt_w[:, :, None]                              # A → √W · A
         ATA = np.einsum('cki,ckj->cij', A, A)                  # (N, nbasis, nbasis)
 

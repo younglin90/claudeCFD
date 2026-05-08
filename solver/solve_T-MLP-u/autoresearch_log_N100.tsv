@@ -12,3 +12,4 @@ iter	change	metric	delta	verdict	notes
 10	parallel 4-case + perf-opt + CICSAM Case D added	0.02818	0%	keep	Case A unchanged metric. Wall 91min seq -> 38min parallel (-58%). CICSAM (Case D)=0.02098 BEATS A by -26% (slot -33%, hump -8%). switch primary to CICSAM next iter.
 11	swap Case A: downwind -> CICSAM (primary metric switch)	0.02098	-25.5%	keep	new baseline. Case D=downwind ref=0.02818. BLAS pin no help (single-thread bound). Wall 36.8min unchanged.
 12	parallel CICSAM TVB M scan (B=128, D=32 vs A=64)	0.02095	-0.14%	keep	M=128 marginal best (hump -1.7%). M=32 +0.14% worse. Adopt M=128.
+13	parallel CICSAM Co scan (B=0.3, D=0.45 vs A=0.4)	0.02095	0%	keep	A=0.02095 best TOTAL. B=0.02124 BEST slot (-15%) but worst cone. D=0.02320 BEST cone/hump but worst slot. Trade-off: single Co optimal=0.4. Need adaptive Co or UQ blend.

@@ -223,14 +223,17 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
+    # Iter 11: Case A is now CICSAM (Hyper-C) — wins by 26% over downwind
+    # at iter 10 (slot −33%, hump −8%). Case D keeps the old downwind
+    # config as a historical reference.
     case_specs = [
         dict(case_id='A', N=N,
-             recon=dict(tvd='downwind', mlp_bound=True,
+             recon=dict(tvd='cicsam', mlp_bound=True,
                         extremum_relax=True, tvb_M=64.0,
                         virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: T-MLP-u + downwind   (vertex, k=2, RK3, 2pt GQ, virt-UU)'),
+             label='A: T-MLP-u + CICSAM     (vertex, k=2, RK3, 2pt GQ, virt-UU)'),
         dict(case_id='B', N=N,
              recon=dict(tvd='van_leer', mlp_bound=False, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
@@ -242,12 +245,12 @@ def main():
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
              label='C: 1st-order recon + central flux  (RK3, 1-pt midpoint)'),
         dict(case_id='D', N=N,
-             recon=dict(tvd='cicsam', mlp_bound=True,
+             recon=dict(tvd='downwind', mlp_bound=True,
                         extremum_relax=True, tvb_M=64.0,
                         virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: T-MLP-u + CICSAM     (vertex, k=2, RK3, 2pt GQ, virt-UU)'),
+             label='D: T-MLP-u + downwind   (vertex, k=2, RK3, 2pt GQ, ref iter10 A)'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

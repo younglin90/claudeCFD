@@ -11,3 +11,4 @@ iter	change	metric	delta	verdict	notes
 9	virtual_uu_gradient=True (Darwish-Moukalled)	DIVERGED	+inf	revert	1e+23 blow-up. virt-UU r approx 1 (downwind psi=2 max compression). Geometric UU has natural self-shutoff at curved regions; gradient-based loses that brake. extremum_relax bypasses LMP at smooth cells - compounds.
 10	parallel 4-case + perf-opt + CICSAM Case D added	0.02818	0%	keep	Case A unchanged metric. Wall 91min seq -> 38min parallel (-58%). CICSAM (Case D)=0.02098 BEATS A by -26% (slot -33%, hump -8%). switch primary to CICSAM next iter.
 11	swap Case A: downwind -> CICSAM (primary metric switch)	0.02098	-25.5%	keep	new baseline. Case D=downwind ref=0.02818. BLAS pin no help (single-thread bound). Wall 36.8min unchanged.
+12	parallel CICSAM TVB M scan (B=128, D=32 vs A=64)	0.02095	-0.14%	keep	M=128 marginal best (hump -1.7%). M=32 +0.14% worse. Adopt M=128.

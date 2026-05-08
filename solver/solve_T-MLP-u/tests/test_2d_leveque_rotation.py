@@ -223,9 +223,9 @@ def main():
     # Each worker rebuilds the mesh + recon (mesh-keyed caches are
     # process-local so there's no contention).  Wall-time becomes the
     # max of {Case A, Case B, Case C, Case D} instead of their sum.
-    # Iter 11: Case A is now CICSAM (Hyper-C) — wins by 26% over downwind
-    # at iter 10 (slot −33%, hump −8%). Case D keeps the old downwind
-    # config as a historical reference.
+    # Iter 12: parallel TVB M scan on CICSAM — A baseline (M=64), B/D
+    # variants (M=128, M=32).  Whichever beats A becomes next iter's A.
+    # C remains the central-scheme reference per user directive.
     case_specs = [
         dict(case_id='A', N=N,
              recon=dict(tvd='cicsam', mlp_bound=True,
@@ -233,24 +233,26 @@ def main():
                         virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='A: T-MLP-u + CICSAM     (vertex, k=2, RK3, 2pt GQ, virt-UU)'),
+             label='A: CICSAM M=64  (baseline)'),
         dict(case_id='B', N=N,
-             recon=dict(tvd='van_leer', mlp_bound=False, **common),
+             recon=dict(tvd='cicsam', mlp_bound=True,
+                        extremum_relax=True, tvb_M=128.0,
+                        virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='B: plain van Leer       (vertex, k=2, RK3, 2-pt GQ)'),
+             label='B: CICSAM M=128'),
         dict(case_id='C', N=N,
              recon='first_order',
              flux='central', integrator='ssp_rk3', n_face_quad=1,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='C: 1st-order recon + central flux  (RK3, 1-pt midpoint)'),
+             label='C: 1st-order + central flux (reference)'),
         dict(case_id='D', N=N,
-             recon=dict(tvd='downwind', mlp_bound=True,
-                        extremum_relax=True, tvb_M=64.0,
+             recon=dict(tvd='cicsam', mlp_bound=True,
+                        extremum_relax=True, tvb_M=32.0,
                         virtual_uu_gradient=True, **common),
              flux='upwind', integrator='ssp_rk3', n_face_quad=2,
              cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
-             label='D: T-MLP-u + downwind   (vertex, k=2, RK3, 2pt GQ, ref iter10 A)'),
+             label='D: CICSAM M=32'),
     ]
 
     n_workers = min(len(case_specs), os.cpu_count() or 4)

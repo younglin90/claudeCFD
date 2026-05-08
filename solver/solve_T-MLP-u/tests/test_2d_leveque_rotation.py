@@ -48,6 +48,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from _pkgshim import setup_paths
 setup_paths()
@@ -57,6 +58,13 @@ from equations import Advection
 from reconstruction import TMLPU
 from boundary import BoundaryCondition
 from solver import solve
+
+
+# ─── LeVeque velocity field — module-level so child processes can pickle ───
+def _leveque_velocity(x, y):
+    """Rigid rotation about (½, ½), period T = 1."""
+    return (-2.0 * np.pi * (y - 0.5),
+             2.0 * np.pi * (x - 0.5))
 
 
 # ─── LeVeque initial field ──────────────────────────────────────────────────
@@ -79,8 +87,7 @@ def phi0(x, y):
 def _run(mesh, recon, *, t_end, cfl=0.4, integrator='ssp_rk2',
          flux='upwind', n_face_quad=1, label='',
          face_velocity_mode='analytic'):
-    eq = Advection(velocity=lambda x, y: (-2 * np.pi * (y - 0.5),
-                                          2 * np.pi * (x - 0.5)))
+    eq = Advection(velocity=_leveque_velocity)
     x = mesh.cell_centers[:, 0]
     y = mesh.cell_centers[:, 1]
     U0 = phi0(x, y)[None, :]
@@ -104,6 +111,62 @@ def _run(mesh, recon, *, t_end, cfl=0.4, integrator='ssp_rk2',
         print(f"  [{label}]  DIVERGED ({e})  wall={wall:.1f} s")
         out = np.zeros_like(phi0(x, y))
     return out
+
+
+# ─── Parallel worker — runs a single case in its own process ─────────────
+def _run_case_worker(spec):
+    """Worker for ProcessPoolExecutor.
+
+    spec: dict with keys
+        case_id   — 'A' / 'B' / 'C' / 'D'
+        N         — mesh resolution (mesh built locally so each process
+                    gets its own pristine cache)
+        recon     — either a string ('first_order') or a TMLPU kwargs dict
+        flux      — flux name
+        integrator— integrator name
+        n_face_quad — int
+        cfl       — float
+        t_end     — float
+        face_velocity_mode — 'analytic' or 'central_avg'
+    Returns: dict(case_id, U_final, n_steps, wall_s, label)
+    """
+    setup_paths()
+    from mesh import criss_cross_box as _ccb
+    from solver import solve as _solve
+    from reconstruction import TMLPU as _TMLPU
+    from equations import Advection as _Adv
+    from boundary import BoundaryCondition as _BC
+
+    mesh = _ccb(spec['N'], L=1.0)
+    eq = _Adv(velocity=_leveque_velocity)
+    x = mesh.cell_centers[:, 0]
+    y = mesh.cell_centers[:, 1]
+    U0 = phi0(x, y)[None, :]
+    bc = {p: _BC('dirichlet', state=(0.0,)) for p in mesh.bc_patches}
+
+    if isinstance(spec['recon'], str):
+        recon = spec['recon']
+    else:
+        recon = _TMLPU(**spec['recon'])
+
+    t0 = time.time()
+    try:
+        res = _solve(mesh, eq, U0,
+                     reconstruction=recon, flux=spec['flux'],
+                     integrator=spec['integrator'], bc=bc,
+                     cfl=spec.get('cfl', 0.4),
+                     n_face_quad=spec['n_face_quad'],
+                     face_velocity_mode=spec.get('face_velocity_mode', 'analytic'),
+                     t_end=spec['t_end'], max_steps=50_000)
+        wall = time.time() - t0
+        out = res['U_final'][0]
+        n_steps = res['n_steps']
+    except FloatingPointError:
+        wall = time.time() - t0
+        out = np.zeros_like(phi0(x, y))
+        n_steps = -1
+    return dict(case_id=spec['case_id'], U_final=out,
+                n_steps=n_steps, wall_s=wall, label=spec.get('label', ''))
 
 
 # ─── Per-shape error diagnostics ──────────────────────────────────────────
@@ -156,50 +219,56 @@ def main():
     # so the only difference is the face-side limiter.
     common = dict(stencil='vertex2', order=3)
 
-    # -- Case A: T-MLP-u wrapping the *downwind* TVD limiter -------------
-    # ψ_DW(r)=max(0,min(2r,2)) is the most compressive symmetric Sweby-
-    # region limiter — it would oscillate when used standalone.  The
-    # T-MLP-u wrapper supplies the LMP bound that suppresses overshoots,
-    # turning the aggressive downwind compression into a monotone scheme.
-    case_A = _run(mesh,
-                  TMLPU(tvd='downwind', mlp_bound=True,
+    # ── Parallel: 4 cases run in their own processes via ProcessPoolExecutor.
+    # Each worker rebuilds the mesh + recon (mesh-keyed caches are
+    # process-local so there's no contention).  Wall-time becomes the
+    # max of {Case A, Case B, Case C, Case D} instead of their sum.
+    case_specs = [
+        dict(case_id='A', N=N,
+             recon=dict(tvd='downwind', mlp_bound=True,
                         extremum_relax=True, tvb_M=64.0,
                         virtual_uu_gradient=True, **common),
-                  t_end=1.0, integrator='ssp_rk3', n_face_quad=2,
-                  label='A: T-MLP-u + downwind   (vertex, k=2, RK3, 2pt GQ, virt-UU)')
-
-    # -- Case B: plain van Leer TVD (no T-MLP-u wrapper) -----------------
-    # mlp_bound=False makes TMLPU compute ψ = ψ_TVD only — no LMP.  Used
-    # here with the smooth ψ_VL(r) = (r+|r|)/(1+|r|) limiter.
-    case_B = _run(mesh,
-                  TMLPU(tvd='van_leer', mlp_bound=False, **common),
-                  t_end=1.0, integrator='ssp_rk3', n_face_quad=2,
-                  label='B: plain van Leer       (vertex, k=2, RK3, 2-pt GQ)')
-
-    # -- Case C: textbook central scheme --------------------------------
-    # 1st-order reconstruction (W_L = W_owner, W_R = W_neighbour) +
-    # central flux F = ½(F_L + F_R) — no upwinding, no limiter.  Pure
-    # central differencing; well-known to oscillate on advection
-    # without artificial dissipation.  Provided as an absolute reference.
-    case_C = _run(mesh,
-                  'first_order',
-                  t_end=1.0, integrator='ssp_rk3',
-                  flux='central', n_face_quad=1,
-                  label='C: 1st-order recon + central flux  (RK3, 1-pt midpoint)')
-
-    # -- Case D: CICSAM (Hyper-C arm of Ubbink 1997, Leonard 1991) -------
-    # ψ_HC(r) = 2·min(1, r·(1-Co)/Co); at Co=0.4 the slope (3r) is 50%
-    # steeper than downwind's (2r), making it the most compressive TVD
-    # limiter in the Sweby diagram.  Same T-MLP-u + LMP + virt-UU stack
-    # as Case A — only the inner TVD shape differs.  Used as an
-    # interface-capturing reference: how much further does an extra-
-    # compressive limiter buy us once the LMP cap is the same?
-    case_D = _run(mesh,
-                  TMLPU(tvd='cicsam', mlp_bound=True,
+             flux='upwind', integrator='ssp_rk3', n_face_quad=2,
+             cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
+             label='A: T-MLP-u + downwind   (vertex, k=2, RK3, 2pt GQ, virt-UU)'),
+        dict(case_id='B', N=N,
+             recon=dict(tvd='van_leer', mlp_bound=False, **common),
+             flux='upwind', integrator='ssp_rk3', n_face_quad=2,
+             cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
+             label='B: plain van Leer       (vertex, k=2, RK3, 2-pt GQ)'),
+        dict(case_id='C', N=N,
+             recon='first_order',
+             flux='central', integrator='ssp_rk3', n_face_quad=1,
+             cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
+             label='C: 1st-order recon + central flux  (RK3, 1-pt midpoint)'),
+        dict(case_id='D', N=N,
+             recon=dict(tvd='cicsam', mlp_bound=True,
                         extremum_relax=True, tvb_M=64.0,
                         virtual_uu_gradient=True, **common),
-                  t_end=1.0, integrator='ssp_rk3', n_face_quad=2,
-                  label='D: T-MLP-u + CICSAM     (vertex, k=2, RK3, 2pt GQ, virt-UU)')
+             flux='upwind', integrator='ssp_rk3', n_face_quad=2,
+             cfl=0.4, t_end=1.0, face_velocity_mode='analytic',
+             label='D: T-MLP-u + CICSAM     (vertex, k=2, RK3, 2pt GQ, virt-UU)'),
+    ]
+
+    n_workers = min(len(case_specs), os.cpu_count() or 4)
+    print(f"  launching {len(case_specs)} cases on {n_workers} processes")
+    results = {}
+    t_par_start = time.time()
+    with ProcessPoolExecutor(max_workers=n_workers) as ex:
+        future_to_id = {ex.submit(_run_case_worker, s): s['case_id']
+                        for s in case_specs}
+        for fut in as_completed(future_to_id):
+            r = fut.result()
+            results[r['case_id']] = r
+            print(f"  [{r['label']}]  n={r['n_steps']:5d}  "
+                  f"wall={r['wall_s']:.1f} s")
+    print(f"  parallel wall = {time.time() - t_par_start:.1f} s "
+          f"(max of 4 cases, vs sum ≈ {sum(r['wall_s'] for r in results.values()):.0f} s)")
+
+    case_A = results['A']['U_final']
+    case_B = results['B']['U_final']
+    case_C = results['C']['U_final']
+    case_D = results['D']['U_final']
 
     # ── Quantitative metrics ─────────────────────────────────────────────
     masks = _shape_masks(x, y)

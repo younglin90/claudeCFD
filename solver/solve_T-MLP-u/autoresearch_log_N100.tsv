@@ -8,3 +8,5 @@ iter	change	metric	delta	verdict	notes
 6	smoothness threshold 0.1 -> 0.07	0.02818	+0.32%	revert	0.1 still optimal at N=100. Tighter relaxation hurt cone (0.01355 -> 0.01390).
 7	face GQ 2pt -> 3pt	0.02815	+0.21%	revert	2pt sufficient. Wall +38% for nothing.
 8	vertex_mlp=True (PYG2010)	0.04676	+66.5%	revert	severe overcrushing, peak 0.97 -> 0.86. Same finding as N=25 iter 12.
+9	virtual_uu_gradient=True (Darwish-Moukalled)	DIVERGED	+inf	revert	1e+23 blow-up. virt-UU r approx 1 (downwind psi=2 max compression). Geometric UU has natural self-shutoff at curved regions; gradient-based loses that brake. extremum_relax bypasses LMP at smooth cells - compounds.
+10	parallel 4-case + perf-opt + CICSAM Case D added	0.02818	0%	keep	Case A unchanged metric. Wall 91min seq -> 38min parallel (-58%). CICSAM (Case D)=0.02098 BEATS A by -26% (slot -33%, hump -8%). switch primary to CICSAM next iter.

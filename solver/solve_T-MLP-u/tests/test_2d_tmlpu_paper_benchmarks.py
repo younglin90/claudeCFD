@@ -70,6 +70,85 @@ def _plot_field(mesh, field, path, title, vmin=None, vmax=None):
     plt.close(fig)
 
 
+def _node_values_from_cells(mesh, cell_values):
+    vals = np.asarray(cell_values, dtype=float)
+    sums = np.zeros(mesh.nodes.shape[0], dtype=float)
+    counts = np.zeros(mesh.nodes.shape[0], dtype=float)
+    for c, nodes in enumerate(mesh.cell_nodes):
+        np.add.at(sums, nodes, vals[c])
+        np.add.at(counts, nodes, 1.0)
+    fallback = float(np.nanmean(vals)) if vals.size else 0.0
+    return np.where(counts > 0.0, sums / np.maximum(counts, 1.0), fallback)
+
+
+def _format_metric(row, key):
+    val = row.get(key)
+    if isinstance(val, (int, float)) and np.isfinite(val):
+        return f"{key}={val:.3g}"
+    return None
+
+
+def _short_error(row):
+    err = row.get('error') or ''
+    if not err:
+        return ''
+    err = err.replace('FloatingPointError', 'FPE')
+    return err[:58] + ('...' if len(err) > 58 else '')
+
+
+def _plot_scheme_contours(mesh, fields, rows, path, title, *,
+                          vmin=None, vmax=None, metric_keys=()):
+    tris, _ = _triangles(mesh)
+    tri = mtri.Triangulation(mesh.nodes[:, 0], mesh.nodes[:, 1],
+                             triangles=tris)
+    valid_fields = [np.asarray(f, dtype=float) for f in fields.values()
+                    if np.all(np.isfinite(f))]
+    if vmin is None or vmax is None:
+        all_vals = np.concatenate(valid_fields) if valid_fields else np.array([0.0, 1.0])
+        if vmin is None:
+            vmin = float(np.min(all_vals))
+        if vmax is None:
+            vmax = float(np.max(all_vals))
+    if not np.isfinite(vmin) or not np.isfinite(vmax) or vmin == vmax:
+        vmin, vmax = 0.0, 1.0
+    levels = np.linspace(vmin, vmax, 32)
+    line_levels = np.linspace(vmin, vmax, 9)
+
+    fig, axes = plt.subplots(2, 4, figsize=(14.0, 6.1), constrained_layout=True)
+    axes = axes.ravel()
+    mappable = None
+    for ax, row in zip(axes, rows):
+        method = row['method']
+        field = fields.get(method)
+        metric_text = ', '.join(
+            x for x in (_format_metric(row, k) for k in metric_keys) if x)
+        ax.set_aspect('equal')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        if field is None:
+            ax.set_title(method, fontsize=9)
+            ax.text(0.5, 0.56, 'DIVERGED', transform=ax.transAxes,
+                    ha='center', va='center', fontsize=12, weight='bold')
+            ax.text(0.5, 0.42, _short_error(row), transform=ax.transAxes,
+                    ha='center', va='center', fontsize=7, wrap=True)
+            ax.set_facecolor('#f2f2f2')
+            continue
+        node_vals = _node_values_from_cells(mesh, field)
+        mappable = ax.tricontourf(tri, node_vals, levels=levels,
+                                  cmap='viridis', extend='both')
+        ax.tricontour(tri, node_vals, levels=line_levels,
+                      colors='k', linewidths=0.18, alpha=0.35)
+        ax.set_title(f"{method}\n{metric_text}", fontsize=8)
+    for ax in axes[len(rows):]:
+        ax.axis('off')
+    fig.suptitle(title, fontsize=12)
+    if mappable is not None:
+        fig.colorbar(mappable, ax=axes.tolist(), shrink=0.82,
+                     pad=0.01, fraction=0.025)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def _metric(row, key):
     val = row.get(key)
     if isinstance(val, (int, float)) and np.isfinite(val):
@@ -288,6 +367,10 @@ def run_leveque(out, quick):
     if 'T-MLP-u ON' in fields:
         _plot_field(mesh, fields['T-MLP-u ON'], out / 'leveque_tmlpu_on.png',
                     f'LeVeque T-MLP-u ON N={N}', vmin=0, vmax=1)
+    _plot_scheme_contours(
+        mesh, fields, rows, out / 'leveque_scheme_contours.png',
+        f'LeVeque rotation: all schemes N={N}',
+        vmin=0.0, vmax=1.0, metric_keys=('l1', 'sharpness'))
     return passed, rows
 
 
@@ -370,6 +453,10 @@ def run_double_mach(out, quick):
     if 'T-MLP-u ON' in fields:
         _plot_field(mesh, fields['T-MLP-u ON'], out / 'double_mach_tmlpu_on.png',
                     f'Double Mach density T-MLP-u ON {nx}x{ny}')
+    _plot_scheme_contours(
+        mesh, fields, rows, out / 'double_mach_scheme_contours.png',
+        f'Double Mach reflection density: all schemes {nx}x{ny}',
+        metric_keys=('vortex_proxy', 'checker'))
     return passed, rows
 
 
@@ -434,6 +521,10 @@ def run_mach3_step(out, quick):
     if 'T-MLP-u ON' in fields:
         _plot_field(mesh, fields['T-MLP-u ON'], out / 'mach3_step_tmlpu_on.png',
                     f'Mach 3 step density T-MLP-u ON t=4 {nx}x{ny}')
+    _plot_scheme_contours(
+        mesh, fields, rows, out / 'mach3_step_scheme_contours.png',
+        f'Mach 3 forward-facing step density: all schemes t=4 {nx}x{ny}',
+        metric_keys=('flag_proxy', 'carbuncle'))
     return passed, rows
 
 

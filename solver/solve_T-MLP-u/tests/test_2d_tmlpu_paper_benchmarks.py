@@ -40,9 +40,11 @@ def _out_dir():
 
 
 DOUBLE_MACH_QUICK_GRID = (80, 20)
-DOUBLE_MACH_PAPER_GRID = (480, 120)
+DOUBLE_MACH_PAPER_GRID = (240, 60)
+DOUBLE_MACH_FINE_GRID = (480, 120)
 MACH3_STEP_QUICK_GRID = (90, 30)
-MACH3_STEP_PAPER_GRID = (240, 80)
+MACH3_STEP_PAPER_GRID = (120, 40)
+MACH3_STEP_FINE_GRID = (240, 80)
 LEVEQUE_QUICK_N = 18
 LEVEQUE_PAPER_N = 100
 
@@ -931,12 +933,19 @@ def main():
                 f'{DOUBLE_MACH_PAPER_GRID[0]}x{DOUBLE_MACH_PAPER_GRID[1]} '
                 'logical cells '
                 f'({_box_triangle_count(*DOUBLE_MACH_PAPER_GRID)} triangles; '
+                f'fine reference {DOUBLE_MACH_FINE_GRID[0]}x'
+                f'{DOUBLE_MACH_FINE_GRID[1]} = '
+                f'{_box_triangle_count(*DOUBLE_MACH_FINE_GRID)} triangles; '
                 f'quick={DOUBLE_MACH_QUICK_GRID[0]}x{DOUBLE_MACH_QUICK_GRID[1]})'),
             'mach3_step_mesh': (
                 'unstructured alternating-diagonal triangles from '
                 f'{MACH3_STEP_PAPER_GRID[0]}x{MACH3_STEP_PAPER_GRID[1]} '
                 'logical cells with forward-step cutout '
                 f'({_mach3_step_triangle_count(*MACH3_STEP_PAPER_GRID)} '
+                'triangles; '
+                f'fine reference {MACH3_STEP_FINE_GRID[0]}x'
+                f'{MACH3_STEP_FINE_GRID[1]} = '
+                f'{_mach3_step_triangle_count(*MACH3_STEP_FINE_GRID)} '
                 'triangles; '
                 f'quick={MACH3_STEP_QUICK_GRID[0]}x{MACH3_STEP_QUICK_GRID[1]})'),
         },

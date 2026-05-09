@@ -668,24 +668,62 @@ def run_mach3_step(out, quick):
     return passed, rows
 
 
+CASE_RUNNERS = [
+    ('leveque', run_leveque),
+    ('double_mach', run_double_mach),
+    ('mach3_step', run_mach3_step),
+]
+
+
+def _selected_cases(case_arg):
+    names = [name for name, _ in CASE_RUNNERS]
+    if case_arg == 'all':
+        return names
+    selected = [x.strip() for x in case_arg.split(',') if x.strip()]
+    invalid = [x for x in selected if x not in names]
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            f"unknown case(s) {invalid}; choose from {names} or 'all'")
+    if not selected:
+        raise argparse.ArgumentTypeError("at least one case is required")
+    return selected
+
+
+def _artifact_prefix(selected_names, explicit):
+    if explicit:
+        return explicit
+    all_names = [name for name, _ in CASE_RUNNERS]
+    if selected_names == all_names:
+        return 'paper_benchmark_summary'
+    return 'paper_benchmark_' + '_'.join(selected_names)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--quick', action='store_true')
+    ap.add_argument(
+        '--cases', default='all',
+        help="comma-separated subset of leveque,double_mach,mach3_step")
+    ap.add_argument(
+        '--artifact-prefix', default=None,
+        help="basename for JSON/TSV/comparison PNG; default depends on cases")
     args = ap.parse_args()
     out = _out_dir()
+    try:
+        selected_names = _selected_cases(args.cases)
+    except argparse.ArgumentTypeError as exc:
+        ap.error(str(exc))
+    runners = dict(CASE_RUNNERS)
+    prefix = _artifact_prefix(selected_names, args.artifact_prefix)
 
     all_rows = []
     case_status = {}
-    for name, fn in [
-        ('leveque', run_leveque),
-        ('double_mach', run_double_mach),
-        ('mach3_step', run_mach3_step),
-    ]:
-        ok, rows = fn(out, args.quick)
+    for name in selected_names:
+        ok, rows = runners[name](out, args.quick)
         case_status[name] = bool(ok)
         all_rows.extend(rows)
 
-    tsv = out / 'paper_benchmark_summary.tsv'
+    tsv = out / f'{prefix}.tsv'
     keys = sorted({k for row in all_rows for k in row.keys()})
     with tsv.open('w') as f:
         f.write('\t'.join(keys) + '\n')
@@ -712,6 +750,10 @@ def main():
                 f'quick N={LEVEQUE_QUICK_N})'),
             'double_mach_flux': 'hllc_adc',
             'mach3_step_flux': 'hllc_adc',
+            'euler_reconstruction_space': (
+                'primitive variables W=(rho,u,v,p); HLLC-ADC converts '
+                'the reconstructed primitives to conservative variables '
+                'through the Euler EOS before flux evaluation'),
             'double_mach_setup': (
                 'Woodward-Colella domain [0,4]x[0,1], Mach 10 shock, '
                 'bottom x<=1/6 postshock, bottom x>1/6 reflective, '
@@ -732,20 +774,30 @@ def main():
         },
         'fail_count': int(sum(0 if v else 1 for v in case_status.values())),
         'pass_count': int(sum(1 if v else 0 for v in case_status.values())),
-        'total': 3,
-        'evidence_ready': int(all(case_status.values())),
-        'leveque_ready': int(case_status['leveque']),
-        'double_mach_ready': int(case_status['double_mach']),
-        'mach3_step_ready': int(case_status['mach3_step']),
+        'total': len(selected_names),
+        'selected_cases': selected_names,
+        'all_cases_selected': int(selected_names == [name for name, _ in CASE_RUNNERS]),
+        'evidence_ready': int(
+            selected_names == [name for name, _ in CASE_RUNNERS]
+            and all(case_status.values())),
+        'selected_ready': int(all(case_status.values())),
+        'leveque_ready': int(case_status.get('leveque', False)),
+        'double_mach_ready': int(case_status.get('double_mach', False)),
+        'mach3_step_ready': int(case_status.get('mach3_step', False)),
         'quick': bool(args.quick),
         'rows': all_rows,
     }
-    _plot_summary(all_rows, out / 'paper_benchmark_comparison.png')
+    comparison_png = (out / 'paper_benchmark_comparison.png'
+                      if prefix == 'paper_benchmark_summary'
+                      else out / f'{prefix}_comparison.png')
+    _plot_summary(all_rows, comparison_png)
+    summary['comparison_png'] = str(comparison_png.relative_to(_repo_root()))
     summary = _json_ready(summary)
-    (out / 'paper_benchmark_summary.json').write_text(
+    json_path = out / f'{prefix}.json'
+    json_path.write_text(
         json.dumps(summary, allow_nan=False, indent=2, sort_keys=True) + '\n')
     print(f"TSV saved: {tsv}")
-    print(f"JSON saved: {out / 'paper_benchmark_summary.json'}")
+    print(f"JSON saved: {json_path}")
     print(json.dumps(summary, sort_keys=True))
     return 0 if summary['fail_count'] == 0 else 1
 

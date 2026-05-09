@@ -1,10 +1,17 @@
 {
+  "comparison_definition": {
+    "T-MLP-u OFF": "SUPERBEE TVD-only reconstruction with mlp_bound=False",
+    "T-MLP-u ON": "T-MLP-u wrapper plus SUPERBEE with mlp_bound=True",
+    "double_mach_flux": "llf",
+    "leveque_flux": "upwind",
+    "mach3_step_flux": "llf"
+  },
   "double_mach_ready": 1,
-  "evidence_ready": 1,
-  "fail_count": 0,
-  "leveque_ready": 1,
+  "evidence_ready": 0,
+  "fail_count": 1,
+  "leveque_ready": 0,
   "mach3_step_ready": 1,
-  "pass_count": 3,
+  "pass_count": 2,
   "quick": false,
   "rows": [
     {
@@ -17,7 +24,7 @@
       "range_min": 8.73795821039943e-13,
       "sharpness": 0.02307524769724017,
       "steps": 1247,
-      "wall": 9.942619800567627
+      "wall": 10.225504398345947
     },
     {
       "case": "leveque",
@@ -29,7 +36,7 @@
       "range_min": 1.7206325675140395e-16,
       "sharpness": 0.03433591778010245,
       "steps": 1247,
-      "wall": 39.287952184677124
+      "wall": 39.11381649971008
     },
     {
       "case": "leveque",
@@ -41,7 +48,7 @@
       "range_min": -0.00023088322441122287,
       "sharpness": 0.031493774075651,
       "steps": 1247,
-      "wall": 39.95476460456848
+      "wall": 40.47887897491455
     },
     {
       "case": "leveque",
@@ -53,7 +60,7 @@
       "range_min": -2.1461160154917793e-31,
       "sharpness": 0.060080672363967635,
       "steps": 1247,
-      "wall": 59.09611511230469
+      "wall": 60.43958759307861
     },
     {
       "case": "leveque",
@@ -65,31 +72,31 @@
       "range_min": -0.00442918101982654,
       "sharpness": 0.049827136228432635,
       "steps": 1247,
-      "wall": 101.695068359375
+      "wall": 101.88887786865234
     },
     {
       "case": "leveque",
       "error": null,
-      "l1": 0.05480239722976986,
+      "l1": 0.06171231494668773,
       "method": "T-MLP-u OFF",
       "ok": true,
-      "range_max": 1.6169957150705572,
-      "range_min": -0.4116689835533906,
-      "sharpness": 0.12263395485512756,
+      "range_max": 0.7206643901540102,
+      "range_min": -0.0013501745369374368,
+      "sharpness": 0.04301760818790716,
       "steps": 1247,
-      "wall": 75.52883553504944
+      "wall": 75.09114360809326
     },
     {
       "case": "leveque",
       "error": null,
-      "l1": 0.03932735778172617,
+      "l1": 0.062236187865851014,
       "method": "T-MLP-u ON",
       "ok": true,
-      "range_max": 0.8759682713698231,
-      "range_min": -0.0136927172852436,
-      "sharpness": 0.07291460469840856,
+      "range_max": 0.7123302595426602,
+      "range_min": -0.00028099240093028494,
+      "sharpness": 0.04248884937392682,
       "steps": 1247,
-      "wall": 79.32952165603638
+      "wall": 78.45031929016113
     },
     {
       "case": "double_mach",
@@ -99,7 +106,7 @@
       "ok": true,
       "steps": 244,
       "vortex_proxy": 1.6780151087798612,
-      "wall": 1.1236319541931152
+      "wall": 1.1395740509033203
     },
     {
       "case": "double_mach",
@@ -109,7 +116,7 @@
       "ok": true,
       "steps": 289,
       "vortex_proxy": 3.226068664453911,
-      "wall": 4.699615240097046
+      "wall": 4.171115398406982
     },
     {
       "case": "double_mach",
@@ -119,7 +126,7 @@
       "ok": true,
       "steps": 279,
       "vortex_proxy": 2.9307508225142556,
-      "wall": 4.229788303375244
+      "wall": 4.136098146438599
     },
     {
       "case": "double_mach",
@@ -129,7 +136,7 @@
       "ok": true,
       "steps": 285,
       "vortex_proxy": 3.185467848912395,
-      "wall": 5.231529951095581
+      "wall": 5.2093117237091064
     },
     {
       "case": "double_mach",
@@ -139,7 +146,7 @@
       "ok": true,
       "steps": 277,
       "vortex_proxy": 2.8902053061026973,
-      "wall": 6.366628408432007
+      "wall": 6.29533576965332
     },
     {
       "case": "double_mach",
@@ -149,7 +156,7 @@
       "ok": false,
       "steps": -1,
       "vortex_proxy": 0.0,
-      "wall": 0.06605720520019531
+      "wall": 0.0702064037322998
     },
     {
       "case": "double_mach",
@@ -159,7 +166,7 @@
       "ok": true,
       "steps": 300,
       "vortex_proxy": 4.588806102659977,
-      "wall": 5.036777973175049
+      "wall": 5.731411933898926
     },
     {
       "carbuncle": 0.06575491797307088,
@@ -169,7 +176,7 @@
       "method": "first_order",
       "ok": true,
       "steps": 1872,
-      "wall": 12.034894227981567
+      "wall": 11.171359539031982
     },
     {
       "carbuncle": 0.07169585846079354,
@@ -179,7 +186,7 @@
       "method": "Barth-Jespersen",
       "ok": true,
       "steps": 1886,
-      "wall": 31.797078847885132
+      "wall": 32.01422381401062
     },
     {
       "carbuncle": 0.06955306935641822,
@@ -189,7 +196,7 @@
       "method": "Venkatakrishnan",
       "ok": true,
       "steps": 1880,
-      "wall": 33.977126121520996
+      "wall": 33.491305351257324
     },
     {
       "carbuncle": 0.07546788069232775,
@@ -199,7 +206,7 @@
       "method": "MLP-u1",
       "ok": true,
       "steps": 1884,
-      "wall": 40.727673053741455
+      "wall": 40.015490770339966
     },
     {
       "carbuncle": 0.0734714571610869,
@@ -209,7 +216,7 @@
       "method": "MLP-u2",
       "ok": true,
       "steps": 1880,
-      "wall": 51.648948431015015
+      "wall": 50.731945753097534
     },
     {
       "carbuncle": null,
@@ -219,7 +226,7 @@
       "method": "T-MLP-u OFF",
       "ok": false,
       "steps": -1,
-      "wall": 0.5405435562133789
+      "wall": 0.5295205116271973
     },
     {
       "carbuncle": 0.10192864195390831,
@@ -229,7 +236,7 @@
       "method": "T-MLP-u ON",
       "ok": true,
       "steps": 1943,
-      "wall": 37.574501276016235
+      "wall": 36.24497985839844
     }
   ],
   "total": 3

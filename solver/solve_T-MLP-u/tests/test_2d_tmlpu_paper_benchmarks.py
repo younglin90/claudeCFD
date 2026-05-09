@@ -246,8 +246,16 @@ def _quad_mesh(nx, ny, Lx, Ly, *, origin=(0.0, 0.0), keep=None,
 
 
 def _tmlpu_leveque():
-    return TMLPU(tvd='cicsam_co38', tvd_smooth='van_leer',
-                 tvd_smooth2='minmod', mlp_bound=True,
+    return TMLPU(tvd='superbee', mlp_bound=True,
+                 extremum_relax=True, tvb_M=64.0,
+                 smoothness_threshold=0.10,
+                 smoothness_threshold2=0.05,
+                 virtual_uu_gradient=True, stencil='vertex2',
+                 order=3, idw_p=6)
+
+
+def _tmlpu_off_leveque():
+    return TMLPU(tvd='superbee', mlp_bound=False,
                  extremum_relax=True, tvb_M=64.0,
                  smoothness_threshold=0.10,
                  smoothness_threshold2=0.05,
@@ -268,13 +276,7 @@ def _tmlpu_off_euler():
 def _comparison_suite(kind):
     if kind == 'leveque':
         t_on = _tmlpu_leveque()
-        t_off = TMLPU(tvd='cicsam_co38', tvd_smooth='van_leer',
-                      tvd_smooth2='minmod', mlp_bound=False,
-                      extremum_relax=True, tvb_M=64.0,
-                      smoothness_threshold=0.10,
-                      smoothness_threshold2=0.05,
-                      virtual_uu_gradient=True, stencil='vertex2',
-                      order=3, idw_p=6)
+        t_off = _tmlpu_off_leveque()
     else:
         t_on = _tmlpu_euler()
         t_off = _tmlpu_off_euler()
@@ -553,6 +555,13 @@ def main():
             f.write('\t'.join(str(row.get(k, '')) for k in keys) + '\n')
 
     summary = {
+        'comparison_definition': {
+            'T-MLP-u OFF': 'SUPERBEE TVD-only reconstruction with mlp_bound=False',
+            'T-MLP-u ON': 'T-MLP-u wrapper plus SUPERBEE with mlp_bound=True',
+            'leveque_flux': 'upwind',
+            'double_mach_flux': 'llf',
+            'mach3_step_flux': 'llf',
+        },
         'fail_count': int(sum(0 if v else 1 for v in case_status.values())),
         'pass_count': int(sum(1 if v else 0 for v in case_status.values())),
         'total': 3,

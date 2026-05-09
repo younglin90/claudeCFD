@@ -1111,12 +1111,7 @@ def _characteristic_primitive_slopes(rho, u, p, c, kind):
 
     a_minus = _tvd_pair(aL_minus, aR_minus, kind)
     a_plus = _tvd_pair(aL_plus, aR_plus, kind)
-    # The zero-speed characteristic is the entropy/contact density mode.  Using
-    # a very compressive limiter there can create density-only peaks at close
-    # material/contact pairs, while it does not improve acoustic shock speeds.
-    # Keep the configured high-order limiter on acoustic modes and use the
-    # monotone TVD member for the contact mode.
-    a_zero = _tvd_pair(aL_zero, aR_zero, "minmod")
+    a_zero = _tvd_pair(aL_zero, aR_zero, kind)
 
     drho[1:-1] = a_zero + a_minus + a_plus
     du[1:-1] = c_c / rho_c * (a_plus - a_minus)

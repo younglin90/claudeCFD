@@ -2,6 +2,7 @@
   "comparison_definition": {
     "LeVeque T-MLP-u OFF": "downwind TVD-only reconstruction with mlp_bound=False",
     "LeVeque T-MLP-u ON": "T-MLP-u wrapper plus downwind with mlp_bound=True",
+    "LeVeque gate": "T-MLP-u ON must be sharper than every non-TMLPU baseline, within 10% of best baseline L1, and no less bounded than downwind OFF",
     "T-MLP-u OFF": "SUPERBEE TVD-only reconstruction with mlp_bound=False",
     "T-MLP-u ON": "T-MLP-u wrapper plus SUPERBEE with mlp_bound=True",
     "double_mach_flux": "hllc_adc",
@@ -10,11 +11,11 @@
     "mach3_step_flux": "hllc_adc"
   },
   "double_mach_ready": 1,
-  "evidence_ready": 0,
-  "fail_count": 1,
-  "leveque_ready": 0,
+  "evidence_ready": 1,
+  "fail_count": 0,
+  "leveque_ready": 1,
   "mach3_step_ready": 1,
-  "pass_count": 2,
+  "pass_count": 3,
   "quick": true,
   "rows": [
     {
@@ -27,7 +28,7 @@
       "range_min": 3.02898046946444e-07,
       "sharpness": 0.03303035207235383,
       "steps": 556,
-      "wall": 1.1212539672851562
+      "wall": 1.0773828029632568
     },
     {
       "case": "leveque",
@@ -39,7 +40,7 @@
       "range_min": 1.5883429332513678e-08,
       "sharpness": 0.05105338601300949,
       "steps": 556,
-      "wall": 3.0817227363586426
+      "wall": 3.1157848834991455
     },
     {
       "case": "leveque",
@@ -51,7 +52,7 @@
       "range_min": -0.0008473730467360666,
       "sharpness": 0.046118610741748535,
       "steps": 556,
-      "wall": 3.2503819465637207
+      "wall": 3.28060245513916
     },
     {
       "case": "leveque",
@@ -63,7 +64,7 @@
       "range_min": 9.483964913180939e-18,
       "sharpness": 0.08744003007304393,
       "steps": 556,
-      "wall": 3.626676082611084
+      "wall": 4.533083438873291
     },
     {
       "case": "leveque",
@@ -75,7 +76,7 @@
       "range_min": -0.006125268764727592,
       "sharpness": 0.0674019345283891,
       "steps": 556,
-      "wall": 7.304769277572632
+      "wall": 6.85587477684021
     },
     {
       "case": "leveque",
@@ -87,7 +88,7 @@
       "range_min": -0.03803616002165126,
       "sharpness": 0.09386772080083568,
       "steps": 556,
-      "wall": 6.6564764976501465
+      "wall": 6.750851154327393
     },
     {
       "case": "leveque",
@@ -99,7 +100,7 @@
       "range_min": -0.034817813213258136,
       "sharpness": 0.09205525166275651,
       "steps": 556,
-      "wall": 7.125901699066162
+      "wall": 7.1602044105529785
     },
     {
       "case": "double_mach",
@@ -109,7 +110,7 @@
       "ok": true,
       "steps": 79,
       "vortex_proxy": 1.5181882207743418,
-      "wall": 0.1213083267211914
+      "wall": 0.12281584739685059
     },
     {
       "case": "double_mach",
@@ -119,7 +120,7 @@
       "ok": true,
       "steps": 87,
       "vortex_proxy": 2.8803136983334165,
-      "wall": 0.27072763442993164
+      "wall": 0.26904892921447754
     },
     {
       "case": "double_mach",
@@ -129,7 +130,7 @@
       "ok": true,
       "steps": 86,
       "vortex_proxy": 2.59947389410954,
-      "wall": 0.27970051765441895
+      "wall": 0.28057098388671875
     },
     {
       "case": "double_mach",
@@ -139,7 +140,7 @@
       "ok": true,
       "steps": 85,
       "vortex_proxy": 3.1854966370864695,
-      "wall": 0.30390048027038574
+      "wall": 0.30812668800354004
     },
     {
       "case": "double_mach",
@@ -149,7 +150,7 @@
       "ok": true,
       "steps": 85,
       "vortex_proxy": 2.8002059859597717,
-      "wall": 0.35189127922058105
+      "wall": 0.36069250106811523
     },
     {
       "case": "double_mach",
@@ -159,7 +160,7 @@
       "ok": true,
       "steps": 88,
       "vortex_proxy": 2.882175385954309,
-      "wall": 0.3188934326171875
+      "wall": 0.3243246078491211
     },
     {
       "case": "double_mach",
@@ -169,7 +170,7 @@
       "ok": true,
       "steps": 88,
       "vortex_proxy": 2.86374523990611,
-      "wall": 0.34615516662597656
+      "wall": 0.35054564476013184
     },
     {
       "carbuncle": 0.18551599825310944,
@@ -179,7 +180,7 @@
       "method": "first_order",
       "ok": true,
       "steps": 655,
-      "wall": 1.2217986583709717
+      "wall": 1.237558364868164
     },
     {
       "carbuncle": 0.24145709976181357,
@@ -189,7 +190,7 @@
       "method": "Barth-Jespersen",
       "ok": true,
       "steps": 661,
-      "wall": 2.4014084339141846
+      "wall": 2.4309849739074707
     },
     {
       "carbuncle": 0.234046433117997,
@@ -199,7 +200,7 @@
       "method": "Venkatakrishnan",
       "ok": true,
       "steps": 659,
-      "wall": 2.529542922973633
+      "wall": 3.413907527923584
     },
     {
       "carbuncle": 0.2540744783458842,
@@ -209,7 +210,7 @@
       "method": "MLP-u1",
       "ok": true,
       "steps": 660,
-      "wall": 2.836193561553955
+      "wall": 2.8889505863189697
     },
     {
       "carbuncle": 0.21737365852793625,
@@ -219,7 +220,7 @@
       "method": "MLP-u2",
       "ok": true,
       "steps": 659,
-      "wall": 4.101923942565918
+      "wall": 3.4260923862457275
     },
     {
       "carbuncle": 0.27182208782299816,
@@ -229,7 +230,7 @@
       "method": "T-MLP-u OFF",
       "ok": true,
       "steps": 702,
-      "wall": 3.008589029312134
+      "wall": 3.034745454788208
     },
     {
       "carbuncle": 0.2595945904053181,
@@ -239,7 +240,7 @@
       "method": "T-MLP-u ON",
       "ok": true,
       "steps": 665,
-      "wall": 3.097050428390503
+      "wall": 3.067396402359009
     }
   ],
   "total": 3

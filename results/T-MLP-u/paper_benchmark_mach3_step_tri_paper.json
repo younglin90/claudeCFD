@@ -2,10 +2,10 @@
   "all_cases_selected": 0,
   "comparison_definition": {
     "LeVeque T-MLP-u OFF": "pure_downwind reconstruction with mlp_bound=False",
-    "LeVeque T-MLP-u ON": "T-MLP-u wrapper plus pure_downwind with mlp_bound=True, vertex_mlp=True, tvb_M=0, extremum_relax=False",
+    "LeVeque T-MLP-u ON": "T-MLP-u wrapper plus pure_downwind with mlp_bound=True, vertex_mlp=True, vertex_mlp_cap=1, tvb_M=0, extremum_relax=False",
     "LeVeque gate": "T-MLP-u ON must have lower L1 than every non-TMLPU baseline, keep at least 90% of the best interface-jump sharpness proxy, and remain wiggle-free within [0,1]",
     "T-MLP-u OFF": "SUPERBEE TVD-only reconstruction with mlp_bound=False",
-    "T-MLP-u ON": "T-MLP-u wrapper plus SUPERBEE with mlp_bound=True, vertex_mlp=True, tvb_M=0, extremum_relax=False",
+    "T-MLP-u ON": "T-MLP-u wrapper plus SUPERBEE with mlp_bound=True, vertex_mlp=True, vertex_mlp_cap=2, tvb_M=0, extremum_relax=False",
     "double_mach_flux": "hllc_adc",
     "double_mach_mesh": "unstructured alternating-diagonal triangles from 240x60 logical cells (28800 triangles; fine reference 480x120 = 115200 triangles; quick=80x20)",
     "double_mach_setup": "Woodward-Colella domain [0,4]x[0,1], Mach 10 shock, bottom x<=1/6 postshock, bottom x>1/6 reflective, top exact moving shock",
@@ -42,7 +42,7 @@
       "ok": true,
       "steps": 5327,
       "transverse_velocity_rms": 0.23412838010059683,
-      "wall": 105.00079131126404
+      "wall": 110.66494107246399
     },
     {
       "carbuncle": 0.03999031475026737,
@@ -60,7 +60,7 @@
       "ok": true,
       "steps": 5350,
       "transverse_velocity_rms": 0.25107890530168336,
-      "wall": 253.33952474594116
+      "wall": 270.79988837242126
     },
     {
       "carbuncle": 0.03848251714438332,
@@ -78,7 +78,7 @@
       "ok": true,
       "steps": 5347,
       "transverse_velocity_rms": 0.24718973575425995,
-      "wall": 264.091206073761
+      "wall": 281.6896433830261
     },
     {
       "carbuncle": 0.04394070659856582,
@@ -96,7 +96,7 @@
       "ok": true,
       "steps": 5370,
       "transverse_velocity_rms": 0.2981900286718587,
-      "wall": 356.3420135974884
+      "wall": 385.21739959716797
     },
     {
       "carbuncle": 0.04055268279378277,
@@ -114,7 +114,7 @@
       "ok": true,
       "steps": 5354,
       "transverse_velocity_rms": 0.2579007519363327,
-      "wall": 407.073557138443
+      "wall": 475.13798427581787
     },
     {
       "carbuncle": null,
@@ -132,15 +132,15 @@
       "ok": false,
       "steps": -1,
       "transverse_velocity_rms": 0.0,
-      "wall": 4.782323837280273
+      "wall": 5.697729825973511
     },
     {
-      "carbuncle": 0.036958605799675456,
+      "carbuncle": 0.039965351477665036,
       "case": "mach3_step",
       "error": null,
-      "flag_enstrophy_proxy": 39.77374139725848,
-      "flag_proxy": 0.16852054738069477,
-      "flag_vorticity_p95": 14.015469896431117,
+      "flag_enstrophy_proxy": 28.78305777368126,
+      "flag_proxy": 0.16410147874579956,
+      "flag_vorticity_p95": 12.627081681144725,
       "logical_nx": 120,
       "logical_ny": 40,
       "mesh": "tri_alternating",
@@ -148,9 +148,9 @@
       "mesh_faces": 12256,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 5351,
-      "transverse_velocity_rms": 0.25467106256453786,
-      "wall": 248.61864805221558
+      "steps": 5356,
+      "transverse_velocity_rms": 0.24962570249928032,
+      "wall": 284.33290219306946
     }
   ],
   "selected_cases": [

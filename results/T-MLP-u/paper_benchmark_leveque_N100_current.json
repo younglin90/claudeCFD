@@ -2,10 +2,10 @@
   "all_cases_selected": 0,
   "comparison_definition": {
     "LeVeque T-MLP-u OFF": "pure_downwind reconstruction with mlp_bound=False",
-    "LeVeque T-MLP-u ON": "T-MLP-u wrapper plus pure_downwind with mlp_bound=True, vertex_mlp=True, tvb_M=0, extremum_relax=False",
+    "LeVeque T-MLP-u ON": "T-MLP-u wrapper plus pure_downwind with mlp_bound=True, vertex_mlp=True, vertex_mlp_cap=1, tvb_M=0, extremum_relax=False",
     "LeVeque gate": "T-MLP-u ON must have lower L1 than every non-TMLPU baseline, keep at least 90% of the best interface-jump sharpness proxy, and remain wiggle-free within [0,1]",
     "T-MLP-u OFF": "SUPERBEE TVD-only reconstruction with mlp_bound=False",
-    "T-MLP-u ON": "T-MLP-u wrapper plus SUPERBEE with mlp_bound=True, vertex_mlp=True, tvb_M=0, extremum_relax=False",
+    "T-MLP-u ON": "T-MLP-u wrapper plus SUPERBEE with mlp_bound=True, vertex_mlp=True, vertex_mlp_cap=2, tvb_M=0, extremum_relax=False",
     "double_mach_flux": "hllc_adc",
     "double_mach_mesh": "unstructured alternating-diagonal triangles from 240x60 logical cells (28800 triangles; fine reference 480x120 = 115200 triangles; quick=80x20)",
     "double_mach_setup": "Woodward-Colella domain [0,4]x[0,1], Mach 10 shock, bottom x<=1/6 postshock, bottom x>1/6 reflective, top exact moving shock",
@@ -41,7 +41,7 @@
       "range_min": 4.399644976919378e-28,
       "sharpness": 0.01418921903741906,
       "steps": 3132,
-      "wall": 139.9178295135498,
+      "wall": 135.24221754074097,
       "wiggle": 0.0
     },
     {
@@ -59,7 +59,7 @@
       "range_min": -6.533824817069711e-32,
       "sharpness": 0.02033589912615413,
       "steps": 3132,
-      "wall": 626.6047582626343,
+      "wall": 616.0876612663269,
       "wiggle": 6.533824817069711e-32
     },
     {
@@ -77,7 +77,7 @@
       "range_min": -7.598284160656655e-05,
       "sharpness": 0.018992758779063784,
       "steps": 3132,
-      "wall": 655.0227994918823,
+      "wall": 641.4811477661133,
       "wiggle": 7.598284160656655e-05
     },
     {
@@ -95,7 +95,7 @@
       "range_min": -9.47815113612207e-30,
       "sharpness": 0.031244533888324415,
       "steps": 3132,
-      "wall": 839.8772077560425,
+      "wall": 803.8640832901001,
       "wiggle": 9.47815113612207e-30
     },
     {
@@ -113,7 +113,7 @@
       "range_min": -0.0024391510134883668,
       "sharpness": 0.03034960625717754,
       "steps": 3132,
-      "wall": 966.2155315876007,
+      "wall": 962.9944651126862,
       "wiggle": 0.0024391510134883668
     },
     {
@@ -131,7 +131,7 @@
       "range_min": null,
       "sharpness": 0.0,
       "steps": -1,
-      "wall": 220.94912147521973,
+      "wall": 218.69109773635864,
       "wiggle": null
     },
     {
@@ -149,7 +149,7 @@
       "range_min": -4.691771241094825e-12,
       "sharpness": 0.028895368193217946,
       "steps": 3132,
-      "wall": 880.8195853233337,
+      "wall": 872.7486882209778,
       "wiggle": 4.691771241094825e-12
     }
   ],

@@ -18,12 +18,12 @@
     "mach3_step_mesh": "unstructured alternating-diagonal triangles from 240x80 logical cells with forward-step cutout (32256 triangles; fine reference 480x160 = 129024 triangles; quick=90x30)"
   },
   "comparison_png": "results/T-MLP-u/paper_benchmark_comparison.png",
-  "double_mach_ready": 0,
-  "evidence_ready": 0,
-  "fail_count": 1,
+  "double_mach_ready": 1,
+  "evidence_ready": 1,
+  "fail_count": 0,
   "leveque_ready": 1,
   "mach3_step_ready": 1,
-  "pass_count": 2,
+  "pass_count": 3,
   "quick": false,
   "rows": [
     {
@@ -41,7 +41,7 @@
       "range_min": 4.399644976919378e-28,
       "sharpness": 0.01418921903741906,
       "steps": 3132,
-      "wall": 135.24221754074097,
+      "wall": 143.15797591209412,
       "wiggle": 0.0
     },
     {
@@ -59,7 +59,7 @@
       "range_min": -6.533824817069711e-32,
       "sharpness": 0.02033589912615413,
       "steps": 3132,
-      "wall": 616.0876612663269,
+      "wall": 679.4935805797577,
       "wiggle": 6.533824817069711e-32
     },
     {
@@ -77,7 +77,7 @@
       "range_min": -7.598284160656655e-05,
       "sharpness": 0.018992758779063784,
       "steps": 3132,
-      "wall": 641.4811477661133,
+      "wall": 702.3097479343414,
       "wiggle": 7.598284160656655e-05
     },
     {
@@ -95,7 +95,7 @@
       "range_min": -9.47815113612207e-30,
       "sharpness": 0.031244533888324415,
       "steps": 3132,
-      "wall": 803.8640832901001,
+      "wall": 887.9744875431061,
       "wiggle": 9.47815113612207e-30
     },
     {
@@ -113,7 +113,7 @@
       "range_min": -0.0024391510134883668,
       "sharpness": 0.03034960625717754,
       "steps": 3132,
-      "wall": 962.9944651126862,
+      "wall": 1023.2957990169525,
       "wiggle": 0.0024391510134883668
     },
     {
@@ -131,7 +131,7 @@
       "range_min": null,
       "sharpness": 0.0,
       "steps": -1,
-      "wall": 218.69109773635864,
+      "wall": 231.01727986335754,
       "wiggle": null
     },
     {
@@ -149,7 +149,7 @@
       "range_min": -4.691771241094825e-12,
       "sharpness": 0.028895368193217946,
       "steps": 3132,
-      "wall": 872.7486882209778,
+      "wall": 962.5267949104309,
       "wiggle": 4.691771241094825e-12
     },
     {
@@ -167,7 +167,7 @@
       "steps": 3785,
       "vortex_proxy": 0.1960607129058718,
       "vorticity_p95": 53.5751288379108,
-      "wall": 1387.9565289020538
+      "wall": 1271.5362994670868
     },
     {
       "case": "double_mach",
@@ -184,7 +184,7 @@
       "steps": 3945,
       "vortex_proxy": 0.20689390229316817,
       "vorticity_p95": 67.38847189894041,
-      "wall": 2919.6162457466125
+      "wall": 2849.841961622238
     },
     {
       "case": "double_mach",
@@ -201,7 +201,7 @@
       "steps": 3929,
       "vortex_proxy": 0.20168979561854372,
       "vorticity_p95": 63.51829175559681,
-      "wall": 3059.516101360321
+      "wall": 2985.782328605652
     },
     {
       "case": "double_mach",
@@ -218,7 +218,7 @@
       "steps": 3994,
       "vortex_proxy": 0.2533025925858534,
       "vorticity_p95": 77.5785444202312,
-      "wall": 4040.058693408966
+      "wall": 4013.2970128059387
     },
     {
       "case": "double_mach",
@@ -235,13 +235,13 @@
       "steps": 3990,
       "vortex_proxy": 0.24938880676325503,
       "vorticity_p95": 76.12014099245661,
-      "wall": 5857.4516768455505
+      "wall": 5795.622662067413
     },
     {
       "case": "double_mach",
       "checker": null,
       "enstrophy_proxy": 0.0,
-      "error": "FloatingPointError('NaN at step 845, t=0.04706218338359537')",
+      "error": "FloatingPointError('NaN at step 3, t=0.0001722543119827628')",
       "logical_nx": 480,
       "logical_ny": 120,
       "mesh": "tri_alternating",
@@ -252,12 +252,12 @@
       "steps": -1,
       "vortex_proxy": 0.0,
       "vorticity_p95": 0.0,
-      "wall": 571.8380036354065
+      "wall": 2.214000701904297
     },
     {
       "case": "double_mach",
-      "checker": 0.004868428392705796,
-      "enstrophy_proxy": 1123.9313413502807,
+      "checker": 0.005017125441967419,
+      "enstrophy_proxy": 1708.2814235228004,
       "error": null,
       "logical_nx": 480,
       "logical_ny": 120,
@@ -266,10 +266,10 @@
       "mesh_faces": 173400,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 3912,
-      "vortex_proxy": 0.20760958395849172,
-      "vorticity_p95": 59.10007014760743,
-      "wall": 3130.783240556717
+      "steps": 4050,
+      "vortex_proxy": 0.25535532220464985,
+      "vorticity_p95": 72.2685046602418,
+      "wall": 3225.6976583004
     },
     {
       "carbuncle": 0.01765008359320359,
@@ -287,7 +287,7 @@
       "ok": true,
       "steps": 10681,
       "transverse_velocity_rms": 0.250463267802359,
-      "wall": 1109.775489807129
+      "wall": 1116.1609554290771
     },
     {
       "carbuncle": 0.017529725599265265,
@@ -305,7 +305,7 @@
       "ok": true,
       "steps": 10735,
       "transverse_velocity_rms": 0.27593260494798216,
-      "wall": 2591.2822234630585
+      "wall": 2516.2721467018127
     },
     {
       "carbuncle": 0.017544629934891694,
@@ -323,7 +323,7 @@
       "ok": true,
       "steps": 10723,
       "transverse_velocity_rms": 0.2759711613698134,
-      "wall": 2697.5127127170563
+      "wall": 2603.032011270523
     },
     {
       "carbuncle": 0.015983810826083182,
@@ -341,7 +341,7 @@
       "ok": true,
       "steps": 10924,
       "transverse_velocity_rms": 0.3147300218858507,
-      "wall": 2603.3929686546326
+      "wall": 2627.287954568863
     },
     {
       "carbuncle": 0.017572337269809227,
@@ -359,12 +359,12 @@
       "ok": true,
       "steps": 10790,
       "transverse_velocity_rms": 0.2915739168044636,
-      "wall": 4254.670226812363
+      "wall": 4208.093300580978
     },
     {
       "carbuncle": null,
       "case": "mach3_step",
-      "error": "FloatingPointError('NaN at step 36, t=0.012363538498174691')",
+      "error": "FloatingPointError('NaN at step 13, t=0.004168696011273934')",
       "flag_enstrophy_proxy": 0.0,
       "flag_proxy": 0.0,
       "flag_vorticity_p95": 0.0,
@@ -377,15 +377,15 @@
       "ok": false,
       "steps": -1,
       "transverse_velocity_rms": 0.0,
-      "wall": 5.480479001998901
+      "wall": 1.6335711479187012
     },
     {
-      "carbuncle": 0.01749519606905764,
+      "carbuncle": 0.018764570918265288,
       "case": "mach3_step",
       "error": null,
-      "flag_enstrophy_proxy": 87.04189429073838,
-      "flag_proxy": 0.09340010958463152,
-      "flag_vorticity_p95": 19.731157420373748,
+      "flag_enstrophy_proxy": 88.43851922567032,
+      "flag_proxy": 0.10810991148793003,
+      "flag_vorticity_p95": 18.79125809262947,
       "logical_nx": 240,
       "logical_ny": 80,
       "mesh": "tri_alternating",
@@ -393,9 +393,9 @@
       "mesh_faces": 48704,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 10740,
-      "transverse_velocity_rms": 0.27288978752563176,
-      "wall": 2458.6514003276825
+      "steps": 10907,
+      "transverse_velocity_rms": 0.3110016772392593,
+      "wall": 2481.5228316783905
     }
   ],
   "selected_cases": [
@@ -403,7 +403,7 @@
     "double_mach",
     "mach3_step"
   ],
-  "selected_ready": 0,
+  "selected_ready": 1,
   "source_json": [
     "results/T-MLP-u/paper_benchmark_leveque_N100_current.json",
     "results/T-MLP-u/paper_benchmark_double_mach_tri_paper.json",
@@ -412,7 +412,7 @@
   "total": 3,
   "workers": {
     "double_mach": 7,
-    "leveque": 4,
+    "leveque": 7,
     "mach3_step": 7
   }
 }

@@ -42,7 +42,7 @@
       "ok": true,
       "steps": 10681,
       "transverse_velocity_rms": 0.250463267802359,
-      "wall": 1109.775489807129
+      "wall": 1116.1609554290771
     },
     {
       "carbuncle": 0.017529725599265265,
@@ -60,7 +60,7 @@
       "ok": true,
       "steps": 10735,
       "transverse_velocity_rms": 0.27593260494798216,
-      "wall": 2591.2822234630585
+      "wall": 2516.2721467018127
     },
     {
       "carbuncle": 0.017544629934891694,
@@ -78,7 +78,7 @@
       "ok": true,
       "steps": 10723,
       "transverse_velocity_rms": 0.2759711613698134,
-      "wall": 2697.5127127170563
+      "wall": 2603.032011270523
     },
     {
       "carbuncle": 0.015983810826083182,
@@ -96,7 +96,7 @@
       "ok": true,
       "steps": 10924,
       "transverse_velocity_rms": 0.3147300218858507,
-      "wall": 2603.3929686546326
+      "wall": 2627.287954568863
     },
     {
       "carbuncle": 0.017572337269809227,
@@ -114,12 +114,12 @@
       "ok": true,
       "steps": 10790,
       "transverse_velocity_rms": 0.2915739168044636,
-      "wall": 4254.670226812363
+      "wall": 4208.093300580978
     },
     {
       "carbuncle": null,
       "case": "mach3_step",
-      "error": "FloatingPointError('NaN at step 36, t=0.012363538498174691')",
+      "error": "FloatingPointError('NaN at step 13, t=0.004168696011273934')",
       "flag_enstrophy_proxy": 0.0,
       "flag_proxy": 0.0,
       "flag_vorticity_p95": 0.0,
@@ -132,15 +132,15 @@
       "ok": false,
       "steps": -1,
       "transverse_velocity_rms": 0.0,
-      "wall": 5.480479001998901
+      "wall": 1.6335711479187012
     },
     {
-      "carbuncle": 0.01749519606905764,
+      "carbuncle": 0.018764570918265288,
       "case": "mach3_step",
       "error": null,
-      "flag_enstrophy_proxy": 87.04189429073838,
-      "flag_proxy": 0.09340010958463152,
-      "flag_vorticity_p95": 19.731157420373748,
+      "flag_enstrophy_proxy": 88.43851922567032,
+      "flag_proxy": 0.10810991148793003,
+      "flag_vorticity_p95": 18.79125809262947,
       "logical_nx": 240,
       "logical_ny": 80,
       "mesh": "tri_alternating",
@@ -148,9 +148,9 @@
       "mesh_faces": 48704,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 10740,
-      "transverse_velocity_rms": 0.27288978752563176,
-      "wall": 2458.6514003276825
+      "steps": 10907,
+      "transverse_velocity_rms": 0.3110016772392593,
+      "wall": 2481.5228316783905
     }
   ],
   "selected_cases": [

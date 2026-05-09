@@ -7,7 +7,7 @@
     "T-MLP-u OFF": "SUPERBEE TVD-only reconstruction with mlp_bound=False",
     "T-MLP-u ON": "T-MLP-u wrapper plus SUPERBEE with mlp_bound=True, vertex_mlp=True, vertex_mlp_cap=2, tvb_M=0, extremum_relax=False",
     "double_mach_flux": "hllc_adc",
-    "double_mach_mesh": "unstructured alternating-diagonal triangles from 240x60 logical cells (28800 triangles; fine reference 480x120 = 115200 triangles; quick=80x20)",
+    "double_mach_mesh": "unstructured alternating-diagonal triangles from 480x120 logical cells (115200 triangles; fine reference 960x240 = 460800 triangles; quick=80x20)",
     "double_mach_setup": "Woodward-Colella domain [0,4]x[0,1], Mach 10 shock, bottom x<=1/6 postshock, bottom x>1/6 reflective, top exact moving shock",
     "double_mach_vortex_metric": "right-bottom ROI reports both density-jump vortex_proxy and LSQ curl metrics vorticity_p95/enstrophy_proxy",
     "euler_reconstruction_space": "primitive variables W=(rho,u,v,p); HLLC-ADC converts the reconstructed primitives to conservative variables through the Euler EOS before flux evaluation",
@@ -15,7 +15,7 @@
     "leveque_mesh": "unstructured criss-cross triangles, N=100 (40000 triangles; quick N=18)",
     "mach3_step_flag_metric": "post-step lower-channel ROI reports density-jump flag_proxy, LSQ vorticity/enstrophy, transverse velocity RMS, and pressure-checker carbuncle proxy",
     "mach3_step_flux": "hllc_adc",
-    "mach3_step_mesh": "unstructured alternating-diagonal triangles from 120x40 logical cells with forward-step cutout (8064 triangles; fine reference 240x80 = 32256 triangles; quick=90x30)"
+    "mach3_step_mesh": "unstructured alternating-diagonal triangles from 240x80 logical cells with forward-step cutout (32256 triangles; fine reference 480x160 = 129024 triangles; quick=90x30)"
   },
   "comparison_png": "results/T-MLP-u/paper_benchmark_leveque_N100_current_comparison.png",
   "double_mach_ready": 0,
@@ -41,7 +41,7 @@
       "range_min": 4.399644976919378e-28,
       "sharpness": 0.01418921903741906,
       "steps": 3132,
-      "wall": 135.24221754074097,
+      "wall": 143.15797591209412,
       "wiggle": 0.0
     },
     {
@@ -59,7 +59,7 @@
       "range_min": -6.533824817069711e-32,
       "sharpness": 0.02033589912615413,
       "steps": 3132,
-      "wall": 616.0876612663269,
+      "wall": 679.4935805797577,
       "wiggle": 6.533824817069711e-32
     },
     {
@@ -77,7 +77,7 @@
       "range_min": -7.598284160656655e-05,
       "sharpness": 0.018992758779063784,
       "steps": 3132,
-      "wall": 641.4811477661133,
+      "wall": 702.3097479343414,
       "wiggle": 7.598284160656655e-05
     },
     {
@@ -95,7 +95,7 @@
       "range_min": -9.47815113612207e-30,
       "sharpness": 0.031244533888324415,
       "steps": 3132,
-      "wall": 803.8640832901001,
+      "wall": 887.9744875431061,
       "wiggle": 9.47815113612207e-30
     },
     {
@@ -113,7 +113,7 @@
       "range_min": -0.0024391510134883668,
       "sharpness": 0.03034960625717754,
       "steps": 3132,
-      "wall": 962.9944651126862,
+      "wall": 1023.2957990169525,
       "wiggle": 0.0024391510134883668
     },
     {
@@ -131,7 +131,7 @@
       "range_min": null,
       "sharpness": 0.0,
       "steps": -1,
-      "wall": 218.69109773635864,
+      "wall": 231.01727986335754,
       "wiggle": null
     },
     {
@@ -149,7 +149,7 @@
       "range_min": -4.691771241094825e-12,
       "sharpness": 0.028895368193217946,
       "steps": 3132,
-      "wall": 872.7486882209778,
+      "wall": 962.5267949104309,
       "wiggle": 4.691771241094825e-12
     }
   ],
@@ -158,5 +158,5 @@
   ],
   "selected_ready": 1,
   "total": 1,
-  "workers": 4
+  "workers": 7
 }

@@ -266,7 +266,17 @@ def _stiff_to_soft_pressure_material_face_mask(W, eos1, eos2, *,
     s_l = np.array([side_stiffness(a) for a in a_l], dtype=float)
     s_r = np.array([side_stiffness(a) for a in a_r], dtype=float)
     stiff_to_soft = np.where(p_l >= p_r, s_l > s_r, s_r > s_l)
-    return alpha_jump & pure_face & (rel_p_jump > jump_tol) & stiff_to_soft
+    mask = alpha_jump & pure_face & (rel_p_jump > jump_tol) & stiff_to_soft
+    if mask.size > 1:
+        # The reconstructed face state uses a three-cell TVD stencil.  Treat
+        # the immediate neighbouring faces of a stiff-to-soft pressure/material
+        # jump as part of the same numerical discontinuity so rho/Y
+        # preservation is not reintroduced one face away as a density bump.
+        mask = mask.copy()
+        original = mask.copy()
+        mask[:-1] |= original[1:]
+        mask[1:] |= original[:-1]
+    return mask
 
 
 def _regularize_near_vacuum_velocity(W_n, q1_new, q2_new, u_new, p_new,

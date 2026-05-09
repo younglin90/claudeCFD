@@ -26,7 +26,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-import math
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -35,42 +34,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from _pkgshim import setup_paths
 setup_paths()
-
-
-# ─── Module-level helpers (must be picklable for ProcessPoolExecutor) ──────
-def _leveque_velocity(x, y):
-    return (-2.0 * np.pi * (y - 0.5),
-             2.0 * np.pi * (x - 0.5))
-
-
-def _phi0(x, y):
-    r0 = 0.15
-    r1 = np.sqrt((x - 0.5) ** 2 + (y - 0.75) ** 2) / r0
-    in_slot = (np.abs(x - 0.5) < 0.025) & (y < 0.85)
-    phi_slot = np.where((r1 <= 1.0) & ~in_slot, 1.0, 0.0)
-    r2 = np.sqrt((x - 0.5) ** 2 + (y - 0.25) ** 2) / r0
-    phi_cone = np.where(r2 <= 1.0, 1.0 - r2, 0.0)
-    r3 = np.sqrt((x - 0.25) ** 2 + (y - 0.5) ** 2) / r0
-    phi_hump = np.where(r3 <= 1.0, 0.25 * (1.0 + np.cos(np.pi * r3)), 0.0)
-    return phi_slot + phi_cone + phi_hump
-
-
-def _shape_masks(x, y):
-    r0 = 0.15
-    r1 = np.sqrt((x - 0.5) ** 2 + (y - 0.75) ** 2) / r0
-    r2 = np.sqrt((x - 0.5) ** 2 + (y - 0.25) ** 2) / r0
-    r3 = np.sqrt((x - 0.25) ** 2 + (y - 0.5) ** 2) / r0
-    margin = 1.5
-    return {'slot': r1 <= margin,
-            'cone': r2 <= margin,
-            'hump': r3 <= margin}
-
-
-def _l1(field_num, field_exact, V, mask=None):
-    if mask is None:
-        return float(np.sum(np.abs(field_num - field_exact) * V) / np.sum(V))
-    return float(np.sum(np.abs(field_num - field_exact) * V * mask) /
-                 np.maximum(np.sum(V * mask), 1e-30))
+from test_2d_leveque_rotation import _run_case_worker, phi0, _shape_masks, _l1
 
 
 # T-MLP-u FINAL config (paper baseline — iter 26 frozen).
@@ -87,6 +51,7 @@ def _tmlpu_final_kwargs():
         virtual_uu_gradient=True,
         stencil='vertex2',
         order=3,
+        idw_p=6,
     )
 
 
@@ -94,44 +59,35 @@ def _run_N_worker(N):
     """Worker — runs T-MLP-u FINAL at one resolution.  Returns metrics dict."""
     setup_paths()
     from mesh import criss_cross_box
-    from equations import Advection
-    from reconstruction import TMLPU
-    from boundary import BoundaryCondition
-    from solver import solve
 
     mesh = criss_cross_box(N, L=1.0)
-    eq = Advection(velocity=_leveque_velocity)
     x = mesh.cell_centers[:, 0]
     y = mesh.cell_centers[:, 1]
     V = mesh.cell_volumes
-    U0_field = _phi0(x, y)
-    U0 = U0_field[None, :]
-    bc = {p: BoundaryCondition('dirichlet', state=(0.0,))
-          for p in mesh.bc_patches}
-    recon = TMLPU(**_tmlpu_final_kwargs())
+    U0_field = phi0(x, y)
     init_max = float(np.max(U0_field))
     init_min = float(np.min(U0_field))
     mass0 = float(np.sum(U0_field * V))
 
-    t0 = time.time()
-    try:
-        # Allow more steps at large N: O(N) per period.
-        max_steps = max(50_000, 200 * N)
-        res = solve(mesh, eq, U0,
-                    reconstruction=recon, flux='upwind',
-                    integrator='ssp_rk3', bc=bc,
-                    cfl=0.4, n_face_quad=2,
-                    face_velocity_mode='analytic',
-                    t_end=1.0, max_steps=max_steps)
-        wall = time.time() - t0
-        out = res['U_final'][0]
-        n_steps = res['n_steps']
-    except FloatingPointError as e:
-        wall = time.time() - t0
-        out = np.zeros_like(U0_field)
-        n_steps = -1
+    case = _run_case_worker(dict(
+        case_id=f'N{N}',
+        N=N,
+        recon=_tmlpu_final_kwargs(),
+        flux='upwind',
+        integrator='ssp_rk3',
+        n_face_quad=2,
+        cfl=0.4,
+        t_end=1.0,
+        face_velocity_mode='analytic',
+        label=f'N={N}: T-MLP-u FINAL',
+    ))
+    out = case['U_final']
+    n_steps = int(case['n_steps'])
+    wall = float(case['wall_s'])
+    if n_steps < 0:
         return dict(N=N, n_cells=mesh.n_cells, n_steps=n_steps,
-                    wall_s=wall, diverged=True, error=str(e))
+                    wall_s=wall, diverged=True,
+                    error='FloatingPointError in _run_case_worker')
 
     masks = _shape_masks(x, y)
     metrics = dict(
@@ -164,6 +120,24 @@ def _convergence_rate(h_arr, L1_arr):
         return float('nan')
     p = np.polyfit(np.log(h[mask]), np.log(L1[mask]), 1)
     return float(p[0])
+
+
+def _pairwise_rates(results):
+    """Rates for adjacent N pairs: p = log(e_coarse/e_fine)/log(N_fine/N_coarse)."""
+    finite = [r for r in results if not r['diverged']]
+    out = []
+    for coarse, fine in zip(finite[:-1], finite[1:]):
+        row = {'N0': coarse['N'], 'N1': fine['N']}
+        denom = np.log(float(fine['N']) / float(coarse['N']))
+        for key in ('L1_total', 'L1_slot', 'L1_cone', 'L1_hump'):
+            e0 = coarse[key]
+            e1 = fine[key]
+            if e0 > 0.0 and e1 > 0.0 and denom > 0.0:
+                row[key] = float(np.log(e0 / e1) / denom)
+            else:
+                row[key] = float('nan')
+        out.append(row)
+    return out
 
 
 def run_convergence(n_values=(25, 50, 100), out_dir=None):
@@ -214,12 +188,13 @@ def run_convergence(n_values=(25, 50, 100), out_dir=None):
     for key in ('L1_total', 'L1_slot', 'L1_cone', 'L1_hump'):
         L1_arr = [r[key] for r in results if not r['diverged']]
         rates[key] = _convergence_rate(h_arr, L1_arr)
+    pair_rates = _pairwise_rates(results)
 
     # ─── TSV table ────────────────────────────────────────────────────────
     tsv_path = os.path.join(out_dir, 'leveque_convergence.tsv')
     with open(tsv_path, 'w') as f:
-        f.write('N\tn_cells\th\tn_steps\twall_s\tL1_total\tL1_slot\tL1_cone\t'
-                'L1_hump\tphi_min\tphi_max\tover\tunder\tdrift\n')
+        f.write('N\tn_cells\th\tn_steps\twall_s\tTOTAL\tslot\tcone\t'
+                'hump\trange_min\trange_max\tover\tunder\tdrift\n')
         for r in results:
             if r['diverged']:
                 continue
@@ -229,6 +204,13 @@ def run_convergence(n_values=(25, 50, 100), out_dir=None):
                     f"{r['L1_hump']:.6e}\t{r['phi_min']:.6e}\t"
                     f"{r['phi_max']:.6e}\t{r['over']:.6e}\t"
                     f"{r['under']:.6e}\t{r['drift']:.6e}\n")
+        f.write('\n# adjacent pair rates p = log(e_N0/e_N1)/log(N1/N0)\n')
+        for row in pair_rates:
+            f.write(f"# rate_{row['N0']}_{row['N1']}\t"
+                    f"TOTAL={row['L1_total']:.3f}\t"
+                    f"slot={row['L1_slot']:.3f}\t"
+                    f"cone={row['L1_cone']:.3f}\t"
+                    f"hump={row['L1_hump']:.3f}\n")
         f.write('\n# convergence rates (L1 ~ h^p)\n')
         for key, p in rates.items():
             f.write(f"# rate_{key}\t{p:.3f}\n")
@@ -247,6 +229,12 @@ def run_convergence(n_values=(25, 50, 100), out_dir=None):
     print("\n  ──── convergence rate (slope of log L1 vs log h) ────")
     for key, p in rates.items():
         print(f"  {key:12s}  rate = {p:.3f}")
+    if pair_rates:
+        print("\n  ──── adjacent pair rates p = log(e_N0/e_N1)/log(N1/N0) ────")
+        for row in pair_rates:
+            print(f"  N={row['N0']:d}->{row['N1']:d}  "
+                  f"TOTAL={row['L1_total']:.3f}  slot={row['L1_slot']:.3f}  "
+                  f"cone={row['L1_cone']:.3f}  hump={row['L1_hump']:.3f}")
 
     # ─── Log-log plot ─────────────────────────────────────────────────────
     fig, ax = plt.subplots(1, 1, figsize=(7.5, 6.0))

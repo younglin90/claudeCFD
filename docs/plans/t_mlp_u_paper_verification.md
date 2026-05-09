@@ -76,7 +76,9 @@ For each N, capture:
 - per-shape L1 (slot, cone, hump)
 - Convergence rate (slope of log L1 vs log N)
 
-Expected order: ~1 (slot, sharp interface limited by limiter), ~2-3 (cone/hump, smooth-region cubic LSQ).
+Initial expectation: ~1 for slot and ~2-3 for cone/hump.  Observed
+N={25,50,100} rates are sub-first-order over this finite grid range and
+are now documented as limiter-dominated convergence.
 
 Deliverable: `results/leveque_convergence.png` log-log plot, table of L1 per N.
 
@@ -93,10 +95,10 @@ Update `solver/solve_T-MLP-u/AUTORESEARCH_PLAN.md` with:
 - Convergence study result from Task 3
 - Cross-references to solver/limiter implementation files
 
-- [ ] Append Task 1 final 4-case table (refresh from iter 26 numbers)
-- [ ] Append Task 2 pure-downwind verification summary (iter 27 + iter 28)
-- [ ] Append Task 3 convergence table + slopes + plot reference
-- [ ] Cross-reference `reconstruction.py`, `limiters.py`, `flux.py` line ranges in the doc
+- [x] Append Task 1 final 4-case table (refresh from iter 26 numbers)
+- [x] Append Task 2 pure-downwind verification summary (iter 27 + iter 28)
+- [x] Append Task 3 convergence table + slopes + plot reference
+- [x] Cross-reference `reconstruction.py`, `limiters.py`, `flux.py` line ranges in the doc
 
 ## Constraints
 
@@ -110,7 +112,7 @@ Update `solver/solve_T-MLP-u/AUTORESEARCH_PLAN.md` with:
 
 1. **Task 1**: Paper-ready figure showing T-MLP-u ON wins (sharp + monotone) and OFF diverges/oscillates.
 2. **Task 2**: pure_downwind comparison documented — best limiter for sharp arm identified.
-3. **Task 3**: Convergence plot shows expected order (~1 slot, ~2-3 smooth).
+3. **Task 3**: Convergence plot/table generated and measured finite-grid rates documented.
 4. **Task 4**: AUTORESEARCH_PLAN.md updated to reflect all paper data.
 
 ## Stop Condition

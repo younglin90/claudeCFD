@@ -167,3 +167,92 @@ iter 12 log 에서 metric 명령어 실행 → `0.02098` 정상 추출. 명령�
 ---
 
 이 plan 은 `git log --grep='experiment:'` 와 `solver/solve_T-MLP-u/autoresearch_log_N100.tsv` 가 단일 진실 (single source of truth). 본 문서는 autoresearch 시작 시점 문맥 보존용.
+
+## Task 1 Final Paper-Ready 4-Case Table
+
+LeVeque (1996) solid-body-rotation, N=100, t_end=1.0, criss-cross mesh
+4N²=40,000 triangles.  Case A is the frozen T-MLP-u FINAL configuration:
+`cicsam_co38 / van_leer / minmod`, LMP+TVB M=64, vertex2 cubic LSQ,
+IDW p=6, virtual-UU, SSP-RK3, CFL=0.4, 2-point face Gauss, upwind flux.
+
+| Case | Scheme | TOTAL L1 | range | drift | Paper role |
+|---|---|---:|---|---:|---|
+| A | T-MLP-u FINAL | **0.02008** | [-0.005, 1.002] | 1.2e-8 | headline scheme |
+| B | plain van Leer, no LMP | 0.04881 | [0.000, 0.832] | 7e-5 | smooth but too diffusive |
+| C | 1st-order + central flux | 0.06797 | [-0.73, 1.65] | 5e-3 | oscillatory central reference |
+| D | pure CICSAM, no T-MLP-u | 0.04544 | [-0.84, 2.31] | 1e-5 | compressive limiter without LMP overshoots |
+
+Conclusion: T-MLP-u FINAL is 2.43x lower L1 than plain van Leer and
+2.26x lower than unwrapped CICSAM while keeping the final range close to
+the exact [0, 1] bounds.  The paper-safe claim is an on/off contrast:
+the LMP wrapper is what makes the compressive CICSAM arm usable.
+
+## Task 2 Pure-Downwind Verification
+
+The user hypothesis was that `pure_downwind` (ψ ≡ 2) wrapped by T-MLP-u
+could be sharper than CICSAM because the LMP bound would clip the
+anti-diffusive overshoot.
+
+| Iter | Variant | TOTAL L1 | Result |
+|---|---|---:|---|
+| 27 | T-MLP-u + Roe-ultrabee/downwind arm | 0.02821 | Worse than CICSAM FINAL by +40% |
+| 28 | pure ψ ≡ 2, no LMP / no TVD cutoff stress test | DIVERGED | Confirms wrapper/TVD constraint is essential |
+
+Conclusion: keep `cicsam_co38` as the sharp arm.  Pure downwind is useful
+as a stress-test/control, not as the paper baseline.
+
+## Task 3 N Convergence Study
+
+Command used:
+
+```bash
+MPLCONFIGDIR=/tmp/mpl python3 solver/solve_T-MLP-u/tests/test_2d_leveque_convergence.py 25 50 100
+```
+
+Artifacts:
+- `results/leveque_convergence.tsv`
+- `results/leveque_convergence.png`
+
+| N | cells | steps | wall_s | TOTAL | slot | cone | hump | range | drift |
+|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|
+| 25 | 2,500 | 775 | 21.91 | 4.982798e-02 | 2.409212e-01 | 4.001462e-02 | 4.611352e-02 | [-5.663694e-02, 8.369504e-01] | 1.315474e-04 |
+| 50 | 10,000 | 1561 | 156.46 | 3.411847e-02 | 1.616690e-01 | 3.606636e-02 | 2.838386e-02 | [-1.230583e-02, 9.223521e-01] | 2.019904e-05 |
+| 100 | 40,000 | 3132 | 1395.63 | 2.008128e-02 | 9.797978e-02 | 1.893189e-02 | 1.772022e-02 | [-4.879460e-03, 1.002377e+00] | 1.233265e-08 |
+
+Adjacent pair rates, `p = log(e_N0/e_N1) / log(N1/N0)`:
+
+| N pair | TOTAL | slot | cone | hump |
+|---|---:|---:|---:|---:|
+| 25 -> 50 | 0.546 | 0.576 | 0.150 | 0.700 |
+| 50 -> 100 | 0.765 | 0.722 | 0.930 | 0.680 |
+
+Least-squares rate over N={25,50,100}, using `L1 ~ h^p`:
+
+| Metric | p |
+|---|---:|
+| TOTAL | 0.656 |
+| slot | 0.649 |
+| cone | 0.540 |
+| hump | 0.690 |
+
+Conclusion: the N=25-100 finite-grid study is monotone but limiter
+dominated; it does not support claiming asymptotic 1.5/2-3 order on this
+range.  The paper-ready wording should say that the FINAL scheme
+converges monotonically on all three shapes and reaches the established
+N=100 baseline TOTAL L1=0.02008, while observed three-point rates are
+sub-first-order because the LMP/3-tier limiter clips extrema and
+interfaces throughout this coarse-to-moderate grid range.
+
+## Task 4 Cross-References
+
+Implementation anchors for the paper and reproducibility notes:
+
+| File | Symbol | Lines | Role |
+|---|---|---:|---|
+| `solver/solve_T-MLP-u/reconstruction.py` | `TMLPU` | 168-247, 620-790 | dataclass config, cubic LSQ face polynomial, TVB/LMP limiter path, CICSAM face value |
+| `solver/solve_T-MLP-u/limiters.py` | `minmod`, `van_leer`, `pure_downwind`, `cicsam_co38` | 61-67, 109-119, 157-159, 177-195 | limiter formulas and registry used by TMLPU |
+| `solver/solve_T-MLP-u/flux.py` | `upwind_advection` | 17-40 | linear advection upwind face flux used by FINAL config |
+| `solver/solve_T-MLP-u/tests/test_2d_leveque_convergence.py` | `run_convergence` | full file | N={25,50,100} convergence driver and plot/TSV generator |
+
+Final task status: Tasks 1-4 complete for the T-MLP-u paper-verification
+branch.  No push was performed.

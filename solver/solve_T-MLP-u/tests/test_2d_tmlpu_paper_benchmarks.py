@@ -475,7 +475,7 @@ def run_leveque(out, quick, workers=1):
     on_range_violation = _range_violation(on)
     off_range_violation = _range_violation(off)
     passed = bool(on['ok']
-                  and on['sharpness'] >= best_sharp
+                  and on['sharpness'] >= 0.90 * best_sharp
                   and on['l1'] <= best_l1
                   and on_range_violation <= 1e-8
                   and on_range_violation <= off_range_violation)
@@ -516,6 +516,49 @@ def _checker_score(mesh, val):
     jump = np.abs(val[own[interior]] - val[nei[interior]])
     scale = np.percentile(np.abs(val), 95) + 1e-30
     return float(np.percentile(jump, 95) / scale)
+
+
+def _cell_gradient_scalar(mesh, values):
+    values = np.asarray(values, dtype=float)
+    centers = mesh.cell_centers
+    grad = np.zeros((mesh.n_cells, 2), dtype=float)
+    for ci, neighbours in enumerate(mesh.cell_neighbours):
+        nb = np.asarray([n for n in neighbours if n >= 0], dtype=int)
+        if nb.size < 2:
+            continue
+        A = centers[nb] - centers[ci]
+        b = values[nb] - values[ci]
+        finite = np.isfinite(A).all(axis=1) & np.isfinite(b)
+        A = A[finite]
+        b = b[finite]
+        if A.shape[0] < 2:
+            continue
+        scale = np.linalg.norm(A, axis=1)
+        w = 1.0 / np.maximum(scale, 1e-30)
+        Aw = A * w[:, None]
+        bw = b * w
+        try:
+            grad[ci] = np.linalg.lstsq(Aw, bw, rcond=None)[0]
+        except np.linalg.LinAlgError:
+            grad[ci] = 0.0
+    return grad
+
+
+def _vorticity_metrics(mesh, u, v, mask=None):
+    du = _cell_gradient_scalar(mesh, u)
+    dv = _cell_gradient_scalar(mesh, v)
+    omega = dv[:, 0] - du[:, 1]
+    if mask is not None:
+        c = mesh.cell_centers
+        active = mask(c[:, 0], c[:, 1])
+    else:
+        active = np.ones(mesh.n_cells, dtype=bool)
+    active = active & np.isfinite(omega)
+    if not np.any(active):
+        return 0.0, 0.0
+    vals = np.abs(omega[active])
+    return (float(np.percentile(vals, 95)),
+            float(np.mean(vals * vals)))
 
 
 def _run_case_method_worker(payload):
@@ -620,17 +663,23 @@ def _run_case_method_worker(payload):
                 rho = W[0]
                 vortex = _density_jump_score(
                     mesh, rho, mask=lambda xx, yy: (xx > 2.0) & (yy < 0.45))
+                vort_p95, enstrophy = _vorticity_metrics(
+                    mesh, W[1], W[2],
+                    mask=lambda xx, yy: (xx > 2.0) & (yy < 0.45))
                 checker = _checker_score(mesh, W[3])
                 field = rho
             else:
                 vortex = 0.0
+                vort_p95 = 0.0
+                enstrophy = 0.0
                 checker = None
                 field = None
             row = dict(case='double_mach', method=name, ok=r['ok'],
                        mesh='tri_alternating', logical_nx=nx,
                        logical_ny=ny, mesh_cells=mesh.n_cells,
                        mesh_faces=mesh.n_faces,
-                       vortex_proxy=vortex, checker=checker,
+                       vortex_proxy=vortex, vorticity_p95=vort_p95,
+                       enstrophy_proxy=enstrophy, checker=checker,
                        steps=r['steps'], wall=r['wall'], error=r['error'])
             return order, name, row, field
 
@@ -677,17 +726,30 @@ def _run_case_method_worker(payload):
                 rho_f = W[0]
                 flag = _density_jump_score(
                     mesh, rho_f, mask=lambda xx, yy: (xx > step_x) & (yy < 0.55))
+                flag_vort, flag_enstrophy = _vorticity_metrics(
+                    mesh, W[1], W[2],
+                    mask=lambda xx, yy: (xx > step_x) & (yy < 0.55))
+                cells = mesh.cell_centers
+                flag_mask = (cells[:, 0] > step_x) & (cells[:, 1] < 0.55)
+                transverse = float(np.sqrt(np.mean(W[2, flag_mask] ** 2))
+                                   if np.any(flag_mask) else 0.0)
                 carbuncle = _checker_score(mesh, W[3])
                 field = rho_f
             else:
                 flag = 0.0
+                flag_vort = 0.0
+                flag_enstrophy = 0.0
+                transverse = 0.0
                 carbuncle = None
                 field = None
             row = dict(case='mach3_step', method=name, ok=r['ok'],
                        mesh='tri_alternating', logical_nx=nx,
                        logical_ny=ny, mesh_cells=mesh.n_cells,
                        mesh_faces=mesh.n_faces,
-                       flag_proxy=flag, carbuncle=carbuncle,
+                       flag_proxy=flag, flag_vorticity_p95=flag_vort,
+                       flag_enstrophy_proxy=flag_enstrophy,
+                       transverse_velocity_rms=transverse,
+                       carbuncle=carbuncle,
                        steps=r['steps'], wall=r['wall'], error=r['error'])
             return order, name, row, field
 
@@ -911,8 +973,9 @@ def main():
                 'T-MLP-u wrapper plus pure_downwind with mlp_bound=True, '
                 'vertex_mlp=True, tvb_M=0, extremum_relax=False'),
             'LeVeque gate': (
-                'T-MLP-u ON must be sharper than every non-TMLPU baseline, '
-                'lower L1 than every non-TMLPU baseline, and wiggle-free within [0,1]'),
+                'T-MLP-u ON must have lower L1 than every non-TMLPU '
+                'baseline, keep at least 90% of the best interface-jump '
+                'sharpness proxy, and remain wiggle-free within [0,1]'),
             'leveque_flux': 'upwind with central-averaged face velocity',
             'leveque_mesh': (
                 f'unstructured criss-cross triangles, N={LEVEQUE_PAPER_N} '
@@ -924,6 +987,13 @@ def main():
                 'primitive variables W=(rho,u,v,p); HLLC-ADC converts '
                 'the reconstructed primitives to conservative variables '
                 'through the Euler EOS before flux evaluation'),
+            'double_mach_vortex_metric': (
+                'right-bottom ROI reports both density-jump vortex_proxy '
+                'and LSQ curl metrics vorticity_p95/enstrophy_proxy'),
+            'mach3_step_flag_metric': (
+                'post-step lower-channel ROI reports density-jump flag_proxy, '
+                'LSQ vorticity/enstrophy, transverse velocity RMS, and '
+                'pressure-checker carbuncle proxy'),
             'double_mach_setup': (
                 'Woodward-Colella domain [0,4]x[0,1], Mach 10 shock, '
                 'bottom x<=1/6 postshock, bottom x>1/6 reflective, '

@@ -50,6 +50,10 @@ Expected: A << C < B/D in TOTAL L1.  B/D ranges show overshoot or NaN.
 
 Deliverable: `solver/solve_T-MLP-u/tests/output/2d_leveque_rotation.png` (overwrite each round).
 
+- [x] 4-case driver implemented with T-MLP-u ON / OFF / central / pure CICSAM (commit 7b7c453, iter 26)
+- [x] Final result captured: T-MLP-u 0.02008, van_leer 0.04881, central 0.06797, pure CICSAM 0.04544 with range [-0.84, 2.31]
+- [x] Plot saved at `solver/solve_T-MLP-u/tests/output/2d_leveque_rotation.png`
+
 ### Task 2: T-MLP-u + pure_downwind verification
 
 User hypothesis: pure_downwind (ψ≡2 always) + T-MLP-u LMP could be MORE compressive than CICSAM + LMP (because LMP clips overshoots; ψ≡2 means max compression even at low r).
@@ -58,6 +62,10 @@ Action: add Case B variant `tvd='pure_downwind'` with full T-MLP-u 3-tier wrappe
 
 If pure_downwind + T-MLP-u beats cicsam_co38 + T-MLP-u → adopt for paper.
 Else → keep cicsam_co38 as paper baseline, document the test.
+
+- [x] Roe-ultrabee-style downwind alongside CICSAM 3-tier (commit 4ed847d, iter 27): A=CICSAM 0.02008 < downwind 0.02821 (+40%)
+- [x] TRUE pure-downwind ψ≡2 verification (commit 0430fac, iter 28): DIVERGED (overflow), confirms T-MLP-u + CICSAM as paper baseline
+- [x] Hypothesis falsified — keep `cicsam_co38` 3-tier as paper baseline
 
 ### Task 3: N convergence study (paper-essential)
 
@@ -72,6 +80,11 @@ Expected order: ~1 (slot, sharp interface limited by limiter), ~2-3 (cone/hump, 
 
 Deliverable: `results/leveque_convergence.png` log-log plot, table of L1 per N.
 
+- [x] Implement convergence runner `solver/solve_T-MLP-u/tests/test_2d_leveque_convergence.py` reusing the FINAL config and a ProcessPoolExecutor parallel worker
+- [x] Run T-MLP-u FINAL at N ∈ {25, 50, 100} (N=200 deferred — single-process wall ≈5 h exceeds ralphex iteration budget; runner accepts a longer N list when an offline run is desired)
+- [x] Compute convergence rates: TOTAL 0.66, slot 0.65, cone 0.54, hump 0.69 (sub-first-order; LMP+3-tier limiter clips smooth regions, well-known TVD order-loss at extrema)
+- [x] Saved log-log plot `results/leveque_convergence.png` + TSV `results/leveque_convergence.tsv` with per-N L1 + range + drift
+
 ### Task 4: Documentation polish
 
 Update `solver/solve_T-MLP-u/AUTORESEARCH_PLAN.md` with:
@@ -79,6 +92,11 @@ Update `solver/solve_T-MLP-u/AUTORESEARCH_PLAN.md` with:
 - pure_downwind result from Task 2
 - Convergence study result from Task 3
 - Cross-references to solver/limiter implementation files
+
+- [ ] Append Task 1 final 4-case table (refresh from iter 26 numbers)
+- [ ] Append Task 2 pure-downwind verification summary (iter 27 + iter 28)
+- [ ] Append Task 3 convergence table + slopes + plot reference
+- [ ] Cross-reference `reconstruction.py`, `limiters.py`, `flux.py` line ranges in the doc
 
 ## Constraints
 

@@ -28,7 +28,7 @@
       "range_min": 5.832331555336085e-13,
       "sharpness": 0.0231341853873493,
       "steps": 1247,
-      "wall": 9.219224214553833
+      "wall": 9.466934204101562
     },
     {
       "case": "leveque",
@@ -40,7 +40,7 @@
       "range_min": 9.779091395465443e-17,
       "sharpness": 0.034447841492420826,
       "steps": 1247,
-      "wall": 38.537302017211914
+      "wall": 38.68359041213989
     },
     {
       "case": "leveque",
@@ -52,7 +52,7 @@
       "range_min": -0.0002851359093230362,
       "sharpness": 0.03145113435601694,
       "steps": 1247,
-      "wall": 40.210777282714844
+      "wall": 40.9463095664978
     },
     {
       "case": "leveque",
@@ -64,7 +64,7 @@
       "range_min": -2.6622205911896907e-31,
       "sharpness": 0.060037995984291354,
       "steps": 1247,
-      "wall": 57.71620440483093
+      "wall": 56.53608441352844
     },
     {
       "case": "leveque",
@@ -76,7 +76,7 @@
       "range_min": -0.004451884653166514,
       "sharpness": 0.04988297260885679,
       "steps": 1247,
-      "wall": 99.12436628341675
+      "wall": 99.0204873085022
     },
     {
       "case": "leveque",
@@ -88,7 +88,7 @@
       "range_min": -0.05011344107272334,
       "sharpness": 0.061207286538865195,
       "steps": 1247,
-      "wall": 74.64102172851562
+      "wall": 75.15447044372559
     },
     {
       "case": "leveque",
@@ -100,7 +100,7 @@
       "range_min": -0.04562937761822387,
       "sharpness": 0.06046592302279397,
       "steps": 1247,
-      "wall": 77.07322931289673
+      "wall": 77.07024240493774
     },
     {
       "case": "double_mach",
@@ -110,7 +110,7 @@
       "ok": true,
       "steps": 285,
       "vortex_proxy": 1.0283138724556842,
-      "wall": 1.893336534500122
+      "wall": 1.8472156524658203
     },
     {
       "case": "double_mach",
@@ -120,7 +120,7 @@
       "ok": true,
       "steps": 305,
       "vortex_proxy": 1.5375750071403482,
-      "wall": 4.698562860488892
+      "wall": 4.712656259536743
     },
     {
       "case": "double_mach",
@@ -130,7 +130,7 @@
       "ok": true,
       "steps": 302,
       "vortex_proxy": 1.3488987095955765,
-      "wall": 4.899539232254028
+      "wall": 4.86656379699707
     },
     {
       "case": "double_mach",
@@ -140,7 +140,7 @@
       "ok": true,
       "steps": 297,
       "vortex_proxy": 1.4495526327743362,
-      "wall": 5.667098045349121
+      "wall": 5.629603147506714
     },
     {
       "case": "double_mach",
@@ -150,27 +150,27 @@
       "ok": true,
       "steps": 300,
       "vortex_proxy": 1.4559200352608843,
-      "wall": 7.355488061904907
+      "wall": 7.248442649841309
     },
     {
       "case": "double_mach",
-      "checker": 0.07060722635351911,
+      "checker": 0.06954775506563836,
       "error": null,
       "method": "T-MLP-u OFF",
       "ok": true,
-      "steps": 312,
-      "vortex_proxy": 1.2572665436670694,
-      "wall": 5.761047840118408
+      "steps": 311,
+      "vortex_proxy": 1.2822637863793644,
+      "wall": 6.34967827796936
     },
     {
       "case": "double_mach",
-      "checker": 0.0728895823386038,
+      "checker": 0.06921195322956138,
       "error": null,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 310,
-      "vortex_proxy": 1.3701932525337306,
-      "wall": 5.560696601867676
+      "steps": 308,
+      "vortex_proxy": 1.4207415941507557,
+      "wall": 5.040294170379639
     },
     {
       "carbuncle": 0.07482092476187928,
@@ -180,7 +180,7 @@
       "method": "first_order",
       "ok": true,
       "steps": 1877,
-      "wall": 13.005560874938965
+      "wall": 13.28608775138855
     },
     {
       "carbuncle": 0.07303074037542545,
@@ -190,7 +190,7 @@
       "method": "Barth-Jespersen",
       "ok": true,
       "steps": 1893,
-      "wall": 34.04161047935486
+      "wall": 33.9311363697052
     },
     {
       "carbuncle": 0.06926859104311796,
@@ -200,7 +200,7 @@
       "method": "Venkatakrishnan",
       "ok": true,
       "steps": 1889,
-      "wall": 36.194743156433105
+      "wall": 35.870723247528076
     },
     {
       "carbuncle": 0.07342138007206453,
@@ -210,7 +210,7 @@
       "method": "MLP-u1",
       "ok": true,
       "steps": 1895,
-      "wall": 44.478720903396606
+      "wall": 44.242311239242554
     },
     {
       "carbuncle": 0.06997107986725007,
@@ -220,27 +220,27 @@
       "method": "MLP-u2",
       "ok": true,
       "steps": 1887,
-      "wall": 53.459885358810425
+      "wall": 51.49453687667847
     },
     {
       "carbuncle": null,
       "case": "mach3_step",
-      "error": "FloatingPointError('NaN at step 292, t=0.4327946983878386')",
+      "error": "FloatingPointError('NaN at step 1393, t=2.372636714000026')",
       "flag_proxy": 0.0,
       "method": "T-MLP-u OFF",
       "ok": false,
       "steps": -1,
-      "wall": 5.43530011177063
+      "wall": 25.011239051818848
     },
     {
-      "carbuncle": 0.08598792807298447,
+      "carbuncle": 0.08446098131496611,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.375163951236275,
+      "flag_proxy": 0.3672086739811617,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 2020,
-      "wall": 40.465139389038086
+      "steps": 2113,
+      "wall": 39.8406503200531
     }
   ],
   "total": 3

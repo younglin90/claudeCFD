@@ -265,12 +265,12 @@ def _tmlpu_off_leveque():
 
 def _tmlpu_euler():
     return TMLPU(tvd='superbee', mlp_bound=True, extremum_relax=False,
-                 virtual_uu_gradient=True, stencil='vertex', order=1)
+                 virtual_uu_gradient=True, stencil='face', order=1)
 
 
 def _tmlpu_off_euler():
     return TMLPU(tvd='superbee', mlp_bound=False, extremum_relax=False,
-                 virtual_uu_gradient=True, stencil='vertex', order=1)
+                 virtual_uu_gradient=True, stencil='face', order=1)
 
 
 def _comparison_suite(kind):

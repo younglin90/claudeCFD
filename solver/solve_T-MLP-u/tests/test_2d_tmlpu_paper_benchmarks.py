@@ -42,6 +42,8 @@ DOUBLE_MACH_QUICK_GRID = (80, 20)
 DOUBLE_MACH_PAPER_GRID = (480, 120)
 MACH3_STEP_QUICK_GRID = (90, 30)
 MACH3_STEP_PAPER_GRID = (240, 80)
+LEVEQUE_QUICK_N = 18
+LEVEQUE_PAPER_N = 100
 
 
 def _box_triangle_count(nx, ny):
@@ -333,11 +335,13 @@ def _tmlpu_off_leveque():
 
 def _tmlpu_euler():
     return TMLPU(tvd='superbee', mlp_bound=True, extremum_relax=False,
+                 tvb_M=0.0, vertex_mlp=True,
                  virtual_uu_gradient=True, stencil='face', order=1)
 
 
 def _tmlpu_off_euler():
     return TMLPU(tvd='superbee', mlp_bound=False, extremum_relax=False,
+                 tvb_M=0.0, vertex_mlp=False,
                  virtual_uu_gradient=True, stencil='face', order=1)
 
 
@@ -416,7 +420,7 @@ def _run_safely(mesh, eq, U0, recon, bc, *, flux, integrator, cfl,
 
 
 def run_leveque(out, quick):
-    N = 18 if quick else 40
+    N = LEVEQUE_QUICK_N if quick else LEVEQUE_PAPER_N
     mesh = criss_cross_box(N, L=1.0)
     eq = Advection(velocity=_rotation_velocity)
     x = mesh.cell_centers[:, 0]
@@ -451,7 +455,10 @@ def run_leveque(out, quick):
         error = r['error']
         if r['ok'] and not row_ok:
             error = f"range blow-up: min={rng[0]:.3g}, max={rng[1]:.3g}"
-        rows.append(dict(case='leveque', method=name, ok=row_ok, l1=l1,
+        rows.append(dict(case='leveque', method=name, ok=row_ok,
+                         mesh='criss_cross_triangles', logical_nx=N,
+                         logical_ny=N, mesh_cells=mesh.n_cells,
+                         mesh_faces=mesh.n_faces, l1=l1,
                          sharpness=sharp, range_min=rng[0], range_max=rng[1],
                          wiggle=wiggle, steps=r['steps'], wall=r['wall'],
                          error=error))
@@ -688,13 +695,21 @@ def main():
     summary = {
         'comparison_definition': {
             'T-MLP-u OFF': 'SUPERBEE TVD-only reconstruction with mlp_bound=False',
-            'T-MLP-u ON': 'T-MLP-u wrapper plus SUPERBEE with mlp_bound=True',
+            'T-MLP-u ON': (
+                'T-MLP-u wrapper plus SUPERBEE with mlp_bound=True, '
+                'vertex_mlp=True, tvb_M=0, extremum_relax=False'),
             'LeVeque T-MLP-u OFF': 'pure_downwind reconstruction with mlp_bound=False',
-            'LeVeque T-MLP-u ON': 'T-MLP-u wrapper plus pure_downwind with mlp_bound=True',
+            'LeVeque T-MLP-u ON': (
+                'T-MLP-u wrapper plus pure_downwind with mlp_bound=True, '
+                'vertex_mlp=True, tvb_M=0, extremum_relax=False'),
             'LeVeque gate': (
                 'T-MLP-u ON must be sharper than every non-TMLPU baseline, '
                 'lower L1 than every non-TMLPU baseline, and wiggle-free within [0,1]'),
             'leveque_flux': 'upwind with central-averaged face velocity',
+            'leveque_mesh': (
+                f'unstructured criss-cross triangles, N={LEVEQUE_PAPER_N} '
+                f'({4 * LEVEQUE_PAPER_N * LEVEQUE_PAPER_N} triangles; '
+                f'quick N={LEVEQUE_QUICK_N})'),
             'double_mach_flux': 'hllc_adc',
             'mach3_step_flux': 'hllc_adc',
             'double_mach_setup': (

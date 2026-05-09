@@ -2902,8 +2902,7 @@ def imex_ad_step(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
             if _pressure_jump_high_to_low_impedance(
                     W_n, eos1, eos2, mixture_kind=mixture_kind,
                     alpha_pure_tol=alpha_pure_tol):
-                pressure_closure = 'implicit_energy'
-                energy_momentum_refresh = True
+                pressure_closure = 'compressive_recovery'
             else:
                 pressure_closure = 'pressure_work_consistent'
         else:

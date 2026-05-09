@@ -235,6 +235,40 @@ def _pressure_jump_high_to_low_impedance(W, eos1, eos2, *,
         alpha_pure_tol=alpha_pure_tol)
 
 
+def _stiff_to_soft_pressure_material_face_mask(W, eos1, eos2, *,
+                                               alpha_pure_tol):
+    """Face mask for pressure/material jumps whose high-pressure side is stiff."""
+    alpha = np.asarray(W[0], dtype=float)
+    p = np.asarray(W[4], dtype=float)
+    if alpha.size < 2:
+        return np.zeros(0, dtype=bool)
+    jump_tol = np.finfo(float).eps ** 0.25
+    pure_tol = max(float(alpha_pure_tol), jump_tol)
+    a_l = alpha[:-1]
+    a_r = alpha[1:]
+    alpha_jump = np.abs(a_r - a_l) > jump_tol
+    pure_face = (
+        (a_l <= pure_tol) | (a_l >= 1.0 - pure_tol)
+        | (a_r <= pure_tol) | (a_r >= 1.0 - pure_tol)
+    )
+    p_l = p[:-1]
+    p_r = p[1:]
+    rel_p_jump = np.abs(p_r - p_l) / np.maximum(
+        np.maximum(np.abs(p_l), np.abs(p_r)), 1.0)
+
+    def side_stiffness(alpha_value):
+        eos = eos1 if alpha_value >= 0.5 else eos2
+        return (
+            abs(float(getattr(eos, "pinf", 0.0)))
+            + abs(float(getattr(eos, "q", 0.0)))
+        )
+
+    s_l = np.array([side_stiffness(a) for a in a_l], dtype=float)
+    s_r = np.array([side_stiffness(a) for a in a_r], dtype=float)
+    stiff_to_soft = np.where(p_l >= p_r, s_l > s_r, s_r > s_l)
+    return alpha_jump & pure_face & (rel_p_jump > jump_tol) & stiff_to_soft
+
+
 def _regularize_near_vacuum_velocity(W_n, q1_new, q2_new, u_new, p_new,
                                       eos1, eos2, *,
                                       mixture_kind, alpha_pure_tol,
@@ -1713,12 +1747,20 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     p_adv_f = prim_f["p"]
     mix_rho_f = None
     mix_y1_f = None
+    mix_preserve_mask = None
     rho1_f = np.maximum(eos1.density(p_adv_f, T1_f), _EPS)
     rho2_f = np.maximum(eos2.density(p_adv_f, T2_f), _EPS)
     if _characteristic_recon_enabled() and primitive_scheme != 'upwind':
         (rho1_f, rho2_f, u_adv_f, p_adv_f,
          mix_rho_f, mix_y1_f) = _characteristic_mixture_upwind_faces(
             W_ext, c_mix_sq_ext, eos1, eos2, u_star, primitive_scheme)
+        # In stiff-to-soft pressure/material faces the characteristic density
+        # path already follows the transmitted shock.  Forcing the post-alpha
+        # flux back to scalar mixture rho/Y over-compresses close contact/shock
+        # pairs.  Disable preservation only on those faces, while keeping it on
+        # soft-to-stiff contact faces where it prevents new density extrema.
+        mix_preserve_mask = ~_stiff_to_soft_pressure_material_face_mask(
+            W_ext, eos1, eos2, alpha_pure_tol=alpha_pure_tol)
     elif _mixture_primitive_recon_enabled(primitive_scheme, W_ext):
         alpha_mix_f, mix_rho_f, mix_y1_f, u_adv_f, p_adv_f = (
             _mixture_primitive_upwind_components(
@@ -1936,6 +1978,9 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
                 # on the same path.  Near pure-material/immiscible interfaces
                 # preserve scalar-TVD mixture rho/Y to avoid density extrema.
                 preserve_mask = ~true_mixture_face
+                if mix_preserve_mask is not None:
+                    preserve_mask = preserve_mask & np.asarray(
+                        mix_preserve_mask, dtype=bool)
             else:
                 raise ValueError(
                     "FIVE_EQ_IMEX_PRESERVE_MIXTURE_RHO_ALPHA must be "

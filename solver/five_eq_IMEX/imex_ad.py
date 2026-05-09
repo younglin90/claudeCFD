@@ -1138,7 +1138,14 @@ def _characteristic_mixture_upwind_faces(W_ext, c_mix_sq_ext, eos1, eos2,
     q2_f = (1.0 - y1_f) * rho_f
     rho1_f = q1_f / np.maximum(alpha_f, 1.0e-12)
     rho2_f = q2_f / np.maximum(1.0 - alpha_f, 1.0e-12)
-    return np.maximum(rho1_f, _EPS), np.maximum(rho2_f, _EPS), u_f, p_f
+    return (
+        np.maximum(rho1_f, _EPS),
+        np.maximum(rho2_f, _EPS),
+        u_f,
+        p_f,
+        rho_f,
+        y1_f,
+    )
 
 
 def _characteristic_mixture_lr_states(W_ext, c_mix_sq_ext, eos1, eos2,
@@ -1709,7 +1716,8 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     rho1_f = np.maximum(eos1.density(p_adv_f, T1_f), _EPS)
     rho2_f = np.maximum(eos2.density(p_adv_f, T2_f), _EPS)
     if _characteristic_recon_enabled() and primitive_scheme != 'upwind':
-        rho1_f, rho2_f, u_adv_f, p_adv_f = _characteristic_mixture_upwind_faces(
+        (rho1_f, rho2_f, u_adv_f, p_adv_f,
+         mix_rho_f, mix_y1_f) = _characteristic_mixture_upwind_faces(
             W_ext, c_mix_sq_ext, eos1, eos2, u_star, primitive_scheme)
     elif _mixture_primitive_recon_enabled(primitive_scheme, W_ext):
         alpha_mix_f, mix_rho_f, mix_y1_f, u_adv_f, p_adv_f = (

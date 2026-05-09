@@ -1148,7 +1148,8 @@ def _mixture_char_base(W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme):
 
 
 def _characteristic_mixture_upwind_faces(W_ext, c_mix_sq_ext, eos1, eos2,
-                                         u_face, primitive_scheme):
+                                         u_face, primitive_scheme, *, dt=None,
+                                         dx=None):
     """Upwind face states with TVD limiting in mixture characteristic variables."""
     alpha_ext = np.asarray(W_ext[0], dtype=float)
     rho_ext, y1_ext, u_ext, p_ext, drho, du, dp = _mixture_char_base(
@@ -1158,6 +1159,15 @@ def _characteristic_mixture_upwind_faces(W_ext, c_mix_sq_ext, eos1, eos2,
     left = u_face >= 0.0
     idx = np.where(left, face_ids, face_ids + 1)
     sgn = np.where(left, 0.5, -0.5)
+    if dt is not None and dx is not None:
+        courant = np.minimum(
+            1.0,
+            np.abs(u_face) * float(dt) / max(float(dx), _EPS),
+        )
+        # Match scalar T-MLP-u/TVD reconstruction: a face-time-average flux
+        # reduces the slope contribution by (1-Co), avoiding over-sharpened
+        # characteristic face states at moving contacts and shocks.
+        sgn = sgn * (1.0 - courant)
     rho_f = rho_ext[idx] + sgn * drho[idx]
     u_f = u_ext[idx] + sgn * du[idx]
     p_f = p_ext[idx] + sgn * dp[idx]
@@ -1165,7 +1175,7 @@ def _characteristic_mixture_upwind_faces(W_ext, c_mix_sq_ext, eos1, eos2,
     u_f = _clip_faces_to_local_stencil(u_f, u_ext, idx)
     p_f = np.maximum(_clip_faces_to_local_stencil(p_f, p_ext, idx), 1.0e-12)
     y1_f = reconstruct_upwind_faces(
-        y1_ext, u_face, scheme=primitive_scheme, floor=0.0)
+        y1_ext, u_face, scheme=primitive_scheme, floor=0.0, dt=dt, dx=dx)
     y1_f = np.clip(y1_f, 0.0, 1.0)
     alpha_f = np.where(left, alpha_ext[:-1], alpha_ext[1:])
     q1_f = y1_f * rho_f
@@ -1753,7 +1763,8 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     if _characteristic_recon_enabled() and primitive_scheme != 'upwind':
         (rho1_f, rho2_f, u_adv_f, p_adv_f,
          mix_rho_f, mix_y1_f) = _characteristic_mixture_upwind_faces(
-            W_ext, c_mix_sq_ext, eos1, eos2, u_star, primitive_scheme)
+            W_ext, c_mix_sq_ext, eos1, eos2, u_star, primitive_scheme,
+            dt=dt, dx=dx)
         # In stiff-to-soft pressure/material faces the characteristic density
         # path already follows the transmitted shock.  Forcing the post-alpha
         # flux back to scalar mixture rho/Y over-compresses close contact/shock

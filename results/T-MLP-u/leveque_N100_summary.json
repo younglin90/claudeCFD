@@ -1,0 +1,107 @@
+{
+  "N": 100,
+  "best_baseline_l1": 0.019342452774105165,
+  "best_baseline_sharpness": 0.031244533888324415,
+  "case": "leveque_N100",
+  "comparison_definition": {
+    "T-MLP-u OFF": "pure_downwind reconstruction with mlp_bound=False",
+    "T-MLP-u ON": "T-MLP-u wrapper plus pure_downwind with mlp_bound=True, vertex_mlp=True, tvb_M=0, extremum_relax=False",
+    "flux": "upwind with central-averaged face velocity U_f=0.5*(U_owner+U_neighbour)",
+    "gate": "ON sharper than every non-TMLPU baseline, lower L1 than every non-TMLPU baseline, and wiggle-free within [0,1]"
+  },
+  "passed": 0,
+  "rows": [
+    {
+      "case": "leveque_N100",
+      "error": null,
+      "l1": 0.07327262386068993,
+      "method": "first_order",
+      "ok": true,
+      "range_max": 0.6845359656675662,
+      "range_min": 4.399644976919378e-28,
+      "sharpness": 0.01418921903741906,
+      "steps": 3132,
+      "wall": 142.47128629684448,
+      "wiggle": 0.0
+    },
+    {
+      "case": "leveque_N100",
+      "error": null,
+      "l1": 0.05167664013621282,
+      "method": "Barth-Jespersen",
+      "ok": true,
+      "range_max": 0.8310011283209117,
+      "range_min": -6.533824817069711e-32,
+      "sharpness": 0.02033589912615413,
+      "steps": 3132,
+      "wall": 648.1384444236755,
+      "wiggle": 6.533824817069711e-32
+    },
+    {
+      "case": "leveque_N100",
+      "error": null,
+      "l1": 0.05574758771399081,
+      "method": "Venkatakrishnan",
+      "ok": true,
+      "range_max": 0.7969333311786245,
+      "range_min": -7.598284160656655e-05,
+      "sharpness": 0.018992758779063784,
+      "steps": 3132,
+      "wall": 674.98921251297,
+      "wiggle": 7.598284160656655e-05
+    },
+    {
+      "case": "leveque_N100",
+      "error": null,
+      "l1": 0.019342452774105165,
+      "method": "MLP-u1",
+      "ok": true,
+      "range_max": 0.9997367418515697,
+      "range_min": -9.47815113612207e-30,
+      "sharpness": 0.031244533888324415,
+      "steps": 3132,
+      "wall": 844.6590931415558,
+      "wiggle": 9.47815113612207e-30
+    },
+    {
+      "case": "leveque_N100",
+      "error": null,
+      "l1": 0.026749523862075155,
+      "method": "MLP-u2",
+      "ok": true,
+      "range_max": 0.995426046890503,
+      "range_min": -0.0024391510134883668,
+      "sharpness": 0.03034960625717754,
+      "steps": 3132,
+      "wall": 1014.3219740390778,
+      "wiggle": 0.0024391510134883668
+    },
+    {
+      "case": "leveque_N100",
+      "error": "FloatingPointError('NaN at step 769, t=0.24559896569372228')",
+      "l1": null,
+      "method": "T-MLP-u OFF",
+      "ok": false,
+      "range_max": null,
+      "range_min": null,
+      "sharpness": 0.0,
+      "steps": -1,
+      "wall": 230.2415931224823,
+      "wiggle": null
+    },
+    {
+      "case": "leveque_N100",
+      "error": null,
+      "l1": 0.016525433006350457,
+      "method": "T-MLP-u ON",
+      "ok": true,
+      "range_max": 0.996825870311658,
+      "range_min": -4.691771241094825e-12,
+      "sharpness": 0.028895368193217946,
+      "steps": 3132,
+      "wall": 960.6550483703613,
+      "wiggle": 4.691771241094825e-12
+    }
+  ],
+  "wall": 1022.1069507598877
+}

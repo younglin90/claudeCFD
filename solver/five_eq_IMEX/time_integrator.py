@@ -742,18 +742,29 @@ def _imex_ad_ssp3_transport_acoustic_cn(
             tol=1e-13,
             max_iter=50)
 
-    W1 = material_euler(W_n)
-    W2_euler = material_euler(W1)
     pe_ref = W_n if _pe_projection_allowed(W_n, eos1, eos2) else None
-    W2 = _blend_conservative_states(
-        W_n, W2_euler, 0.75, eos1, eos2,
-        alpha_pure_tol=alpha_pure_tol,
-        pe_reference=pe_ref)
-    W3_euler = material_euler(W2)
-    W_adv = _blend_conservative_states(
-        W_n, W3_euler, 1.0 / 3.0, eos1, eos2,
-        alpha_pure_tol=alpha_pure_tol,
-        pe_reference=pe_ref)
+    if pe_ref is not None:
+        # In a p/u-flat material-contact state the explicit subproblem is
+        # passive finite-volume transport.  _material_update already uses the
+        # configured Hancock/VOF face time average for one dt.  Wrapping that
+        # complete one-step map in Shu-Osher SSP3 would compose full-dt
+        # translations and convex-blend shifted states, adding diffusion to an
+        # otherwise exactly transported full-cell Courant step.
+        W_adv = material_euler(W_n)
+        ssp3_material_mode = 'passive_pe_hancock_single_step'
+    else:
+        W1 = material_euler(W_n)
+        W2_euler = material_euler(W1)
+        W2 = _blend_conservative_states(
+            W_n, W2_euler, 0.75, eos1, eos2,
+            alpha_pure_tol=alpha_pure_tol,
+            pe_reference=None)
+        W3_euler = material_euler(W2)
+        W_adv = _blend_conservative_states(
+            W_n, W3_euler, 1.0 / 3.0, eos1, eos2,
+            alpha_pure_tol=alpha_pure_tol,
+            pe_reference=None)
+        ssp3_material_mode = 'shu_osher_material_composition'
 
     U_adv, _ = prim_to_cons_W(W_adv, eos1, eos2)
     q1_new = np.asarray(U_adv[0], dtype=float)
@@ -854,6 +865,7 @@ def _imex_ad_ssp3_transport_acoustic_cn(
         'alpha_scheme': alpha_scheme,
         'kapila_source_mode': kapila_source_mode,
         'material_energy_form': material_energy_form,
+        'ssp3_material_mode': ssp3_material_mode,
         'vacuum_velocity_cells': int(np.count_nonzero(vacuum_velocity_mask)),
     }
 

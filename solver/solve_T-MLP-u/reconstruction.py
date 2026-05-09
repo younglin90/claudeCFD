@@ -907,8 +907,7 @@ class TMLPU(Reconstruction):
                 grad_y_U = coeffs[v, o_idx, 1]
                 gdotd = grad_x_U * d_o_int[:, 0] + grad_y_U * d_o_int[:, 1]
                 delta_minus_virt = -delta_plus + 2.0 * gdotd
-                delta_minus = np.where(valid_o,
-                                       phi_U - phi_UU, delta_minus_virt)
+                delta_minus = delta_minus_virt
             else:
                 delta_minus = np.where(valid_o, phi_U - phi_UU, 0.0)
             r = delta_minus / safe_dp
@@ -977,8 +976,7 @@ class TMLPU(Reconstruction):
                 gdotd = -(grad_x_U * d_o_int[:, 0] +
                           grad_y_U * d_o_int[:, 1])
                 delta_minus_virt = -delta_plus + 2.0 * gdotd
-                delta_minus = np.where(valid_n,
-                                       phi_U - phi_UU, delta_minus_virt)
+                delta_minus = delta_minus_virt
             else:
                 delta_minus = np.where(valid_n, phi_U - phi_UU, 0.0)
             r = delta_minus / safe_dp

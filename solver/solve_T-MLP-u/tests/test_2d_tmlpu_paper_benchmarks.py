@@ -38,6 +38,30 @@ def _out_dir():
     return out
 
 
+DOUBLE_MACH_QUICK_GRID = (80, 20)
+DOUBLE_MACH_PAPER_GRID = (480, 120)
+MACH3_STEP_QUICK_GRID = (90, 30)
+MACH3_STEP_PAPER_GRID = (240, 80)
+
+
+def _box_triangle_count(nx, ny):
+    return 2 * nx * ny
+
+
+def _mach3_step_triangle_count(nx, ny, Lx=3.0, Ly=1.0,
+                               step_x=0.6, step_h=0.2):
+    dx = Lx / nx
+    dy = Ly / ny
+    kept = 0
+    for j in range(ny):
+        for i in range(nx):
+            cx = (i + 0.5) * dx
+            cy = (j + 0.5) * dy
+            if not (cx >= step_x and cy < step_h):
+                kept += 1
+    return 2 * kept
+
+
 def _triangles(mesh):
     tris = []
     owners = []
@@ -226,6 +250,54 @@ def _quad_mesh(nx, ny, Lx, Ly, *, origin=(0.0, 0.0), keep=None,
                 continue
             elems.append((node_id[(i, j)], node_id[(i + 1, j)],
                           node_id[(i + 1, j + 1)], node_id[(i, j + 1)]))
+
+    def default_classifier(center, normal):
+        cx, cy = float(center[0]), float(center[1])
+        if cx <= x0 + 1e-9 * Lx:
+            return 1
+        if cx >= x0 + Lx - 1e-9 * Lx:
+            return 2
+        if cy <= y0 + 1e-9 * Ly:
+            return 3
+        if cy >= y0 + Ly - 1e-9 * Ly:
+            return 4
+        return len(patches)
+
+    return build_unstructured_2d(
+        np.asarray(nodes, dtype=float), elems,
+        boundary_classifier=classifier or default_classifier,
+        bc_patches=patches)
+
+
+def _tri_mesh(nx, ny, Lx, Ly, *, origin=(0.0, 0.0), keep=None,
+              classifier=None, patches=('x_min', 'x_max', 'y_min', 'y_max')):
+    """Alternating-diagonal triangular mesh on a logical Cartesian layout."""
+    x0, y0 = origin
+    dx = Lx / nx
+    dy = Ly / ny
+    nodes = []
+    node_id = {}
+    for j in range(ny + 1):
+        for i in range(nx + 1):
+            node_id[(i, j)] = len(nodes)
+            nodes.append((x0 + i * dx, y0 + j * dy))
+    elems = []
+    for j in range(ny):
+        for i in range(nx):
+            cx = x0 + (i + 0.5) * dx
+            cy = y0 + (j + 0.5) * dy
+            if keep is not None and not keep(cx, cy):
+                continue
+            n00 = node_id[(i, j)]
+            n10 = node_id[(i + 1, j)]
+            n11 = node_id[(i + 1, j + 1)]
+            n01 = node_id[(i, j + 1)]
+            if (i + j) % 2 == 0:
+                elems.append((n00, n10, n11))
+                elems.append((n00, n11, n01))
+            else:
+                elems.append((n00, n10, n01))
+                elems.append((n10, n11, n01))
 
     def default_classifier(center, normal):
         cx, cy = float(center[0]), float(center[1])
@@ -442,7 +514,7 @@ def _checker_score(mesh, val):
 
 def run_double_mach(out, quick):
     gamma, pre, post_state = _double_mach_states()
-    nx, ny = (40, 10) if quick else (120, 30)
+    nx, ny = DOUBLE_MACH_QUICK_GRID if quick else DOUBLE_MACH_PAPER_GRID
     Lx, Ly = 4.0, 1.0
 
     def classify(center, normal):
@@ -457,10 +529,10 @@ def run_double_mach(out, quick):
             return 5
         return 2
 
-    mesh = _quad_mesh(nx, ny, Lx, Ly, classifier=classify,
-                      patches=('x_min_postshock', 'x_max_outflow',
-                               'bottom_postshock', 'bottom_reflect',
-                               'top_exact_shock'))
+    mesh = _tri_mesh(nx, ny, Lx, Ly, classifier=classify,
+                     patches=('x_min_postshock', 'x_max_outflow',
+                              'bottom_postshock', 'bottom_reflect',
+                              'top_exact_shock'))
     eq = Euler2D(gamma=gamma)
     rho1, u1, v1, p1 = pre
     rho2, u2, v2, p2 = post_state
@@ -498,6 +570,9 @@ def run_double_mach(out, quick):
             vortex = 0.0
             checker = None
         rows.append(dict(case='double_mach', method=name, ok=r['ok'],
+                         mesh='tri_alternating', logical_nx=nx,
+                         logical_ny=ny, mesh_cells=mesh.n_cells,
+                         mesh_faces=mesh.n_faces,
                          vortex_proxy=vortex, checker=checker,
                          steps=r['steps'], wall=r['wall'], error=r['error']))
     on = next(r for r in rows if r['method'] == 'T-MLP-u ON')
@@ -507,17 +582,17 @@ def run_double_mach(out, quick):
                   and on['checker'] < 0.95)
     if 'T-MLP-u ON' in fields:
         _plot_field(mesh, fields['T-MLP-u ON'], out / 'double_mach_tmlpu_on.png',
-                    f'Double Mach density T-MLP-u ON {nx}x{ny}')
+                    f'Double Mach density T-MLP-u ON tri {nx}x{ny}')
     _plot_scheme_contours(
         mesh, fields, rows, out / 'double_mach_scheme_contours.png',
-        f'Double Mach reflection density: all schemes {nx}x{ny}',
+        f'Double Mach reflection density: all schemes tri {nx}x{ny}',
         metric_keys=('vortex_proxy', 'checker'))
     return passed, rows
 
 
 def run_mach3_step(out, quick):
     gamma = 1.4
-    nx, ny = (42, 14) if quick else (120, 40)
+    nx, ny = MACH3_STEP_QUICK_GRID if quick else MACH3_STEP_PAPER_GRID
     Lx, Ly = 3.0, 1.0
     step_x = 0.6
     step_h = 0.2
@@ -533,8 +608,8 @@ def run_mach3_step(out, quick):
             return 2
         return 3
 
-    mesh = _quad_mesh(nx, ny, Lx, Ly, keep=keep, classifier=classify,
-                      patches=('inflow', 'outflow', 'wall'))
+    mesh = _tri_mesh(nx, ny, Lx, Ly, keep=keep, classifier=classify,
+                     patches=('inflow', 'outflow', 'wall'))
     eq = Euler2D(gamma=gamma)
     rho, p = 1.4, 1.0
     c = np.sqrt(gamma * p / rho)
@@ -566,6 +641,9 @@ def run_mach3_step(out, quick):
             flag = 0.0
             carbuncle = None
         rows.append(dict(case='mach3_step', method=name, ok=r['ok'],
+                         mesh='tri_alternating', logical_nx=nx,
+                         logical_ny=ny, mesh_cells=mesh.n_cells,
+                         mesh_faces=mesh.n_faces,
                          flag_proxy=flag, carbuncle=carbuncle,
                          steps=r['steps'], wall=r['wall'], error=r['error']))
     on = next(r for r in rows if r['method'] == 'T-MLP-u ON')
@@ -575,10 +653,10 @@ def run_mach3_step(out, quick):
                   and on['carbuncle'] < 0.95)
     if 'T-MLP-u ON' in fields:
         _plot_field(mesh, fields['T-MLP-u ON'], out / 'mach3_step_tmlpu_on.png',
-                    f'Mach 3 step density T-MLP-u ON t=4 {nx}x{ny}')
+                    f'Mach 3 step density T-MLP-u ON t=4 tri {nx}x{ny}')
     _plot_scheme_contours(
         mesh, fields, rows, out / 'mach3_step_scheme_contours.png',
-        f'Mach 3 forward-facing step density: all schemes t=4 {nx}x{ny}',
+        f'Mach 3 forward-facing step density: all schemes t=4 tri {nx}x{ny}',
         metric_keys=('flag_proxy', 'carbuncle'))
     return passed, rows
 
@@ -623,6 +701,19 @@ def main():
                 'Woodward-Colella domain [0,4]x[0,1], Mach 10 shock, '
                 'bottom x<=1/6 postshock, bottom x>1/6 reflective, '
                 'top exact moving shock'),
+            'double_mach_mesh': (
+                'unstructured alternating-diagonal triangles from '
+                f'{DOUBLE_MACH_PAPER_GRID[0]}x{DOUBLE_MACH_PAPER_GRID[1]} '
+                'logical cells '
+                f'({_box_triangle_count(*DOUBLE_MACH_PAPER_GRID)} triangles; '
+                f'quick={DOUBLE_MACH_QUICK_GRID[0]}x{DOUBLE_MACH_QUICK_GRID[1]})'),
+            'mach3_step_mesh': (
+                'unstructured alternating-diagonal triangles from '
+                f'{MACH3_STEP_PAPER_GRID[0]}x{MACH3_STEP_PAPER_GRID[1]} '
+                'logical cells with forward-step cutout '
+                f'({_mach3_step_triangle_count(*MACH3_STEP_PAPER_GRID)} '
+                'triangles; '
+                f'quick={MACH3_STEP_QUICK_GRID[0]}x{MACH3_STEP_QUICK_GRID[1]})'),
         },
         'fail_count': int(sum(0 if v else 1 for v in case_status.values())),
         'pass_count': int(sum(1 if v else 0 for v in case_status.values())),

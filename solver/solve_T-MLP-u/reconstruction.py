@@ -156,10 +156,78 @@ class MLPU(Reconstruction):
     """
     name: str = 'mlp_u'
 
-    def reconstruct(self, mesh, W_cell, eq):
-        raise NotImplementedError(
-            "MLPU.reconstruct: not yet implemented. "
-            "Park-Yoon-Kim 2010 vertex-based MLP-u — pending."
+    def reconstruct(self, mesh, W_cell, eq, eval_points=None):
+        return _limited_linear_2d(
+            mesh, W_cell, eq, eval_points=eval_points,
+            limiter='bj',
+            stencil='vertex',
+            vertex_bounds=True,
+            n_rings=1,
+        )
+
+
+@dataclass
+class BarthJespersen(Reconstruction):
+    """Barth-Jespersen cell-wise linear limiter for 2D unstructured grids."""
+    stencil: str = 'face'
+    name: str = 'barth_jespersen'
+
+    def reconstruct(self, mesh, W_cell, eq, eval_points=None):
+        return _limited_linear_2d(
+            mesh, W_cell, eq, eval_points=eval_points,
+            limiter='bj',
+            stencil=self.stencil,
+            vertex_bounds=False,
+            n_rings=1,
+        )
+
+
+@dataclass
+class Venkatakrishnan(Reconstruction):
+    """Venkatakrishnan smooth cell-wise linear limiter for 2D grids."""
+    stencil: str = 'face'
+    K: float = 1.0
+    name: str = 'venkatakrishnan'
+
+    def reconstruct(self, mesh, W_cell, eq, eval_points=None):
+        return _limited_linear_2d(
+            mesh, W_cell, eq, eval_points=eval_points,
+            limiter='venkat',
+            stencil=self.stencil,
+            vertex_bounds=False,
+            n_rings=1,
+            venkat_K=self.K,
+        )
+
+
+@dataclass
+class MLPU1(Reconstruction):
+    """Park-Yoon-Kim-style MLP-u1: vertex bounds, one vertex-neighbour ring."""
+    name: str = 'mlp_u1'
+
+    def reconstruct(self, mesh, W_cell, eq, eval_points=None):
+        return _limited_linear_2d(
+            mesh, W_cell, eq, eval_points=eval_points,
+            limiter='bj',
+            stencil='vertex',
+            vertex_bounds=True,
+            n_rings=1,
+        )
+
+
+@dataclass
+class MLPU2(Reconstruction):
+    """MLP-u2 comparison: two-ring vertex stencil with Venkat smooth limiter."""
+    name: str = 'mlp_u2'
+
+    def reconstruct(self, mesh, W_cell, eq, eval_points=None):
+        return _limited_linear_2d(
+            mesh, W_cell, eq, eval_points=eval_points,
+            limiter='venkat',
+            stencil='vertex2',
+            vertex_bounds=True,
+            n_rings=2,
+            venkat_K=1.0,
         )
 
 
@@ -1176,6 +1244,185 @@ def _build_vertex_neighbours(mesh, n_rings: int = 1):
     return out
 
 
+def _limited_linear_2d(mesh, W_cell, eq, eval_points=None, *,
+                       limiter='bj', stencil='face', vertex_bounds=False,
+                       n_rings=1, venkat_K=1.0):
+    """Shared 2D limited-linear reconstruction for BJ/Venkat/MLP-u baselines."""
+    if mesh.dim != 2:
+        return FirstOrder().reconstruct(mesh, W_cell, eq, eval_points=eval_points)
+    if mesh.kind not in ('structured_2d', 'unstructured_2d'):
+        return FirstOrder().reconstruct(mesh, W_cell, eq, eval_points=eval_points)
+    if eval_points is None:
+        eval_points = mesh.face_centers
+
+    nvar, N = W_cell.shape
+    n_faces = mesh.n_faces
+    owner = mesh.face_owner
+    nei = mesh.face_neighbour
+    cc = mesh.cell_centers
+
+    cache_key = f'_limited_linear_cache_{stencil}_{n_rings}_{int(vertex_bounds)}'
+    ctx = getattr(mesh, cache_key, None)
+    if ctx is None:
+        if stencil in ('vertex', 'vertex2') and getattr(mesh, 'cell_nodes', None):
+            nb_lists = _build_vertex_neighbours(
+                mesh, n_rings=1 if stencil == 'vertex' else 2)
+        else:
+            nb_lists = mesh.cell_neighbours
+        max_nb = max((len(nbs) for nbs in nb_lists), default=1)
+        max_nb = max(max_nb, 1)
+        nb = np.full((N, max_nb), -1, dtype=int)
+        for c, nbs in enumerate(nb_lists):
+            valid = [int(k) for k in nbs if int(k) >= 0]
+            nb[c, :len(valid)] = valid
+        valid = nb >= 0
+        nb_safe = np.where(valid, nb, 0)
+        d = (cc[nb_safe] - cc[:, None, :]) * valid[:, :, None]
+        ATA = np.einsum('cki,ckj->cij', d, d)
+        ATA_inv = np.zeros_like(ATA)
+        det = ATA[:, 0, 0] * ATA[:, 1, 1] - ATA[:, 0, 1] * ATA[:, 1, 0]
+        ok = np.abs(det) > 1e-30
+        det_safe = np.where(ok, det, 1.0)
+        ATA_inv[:, 0, 0] = ATA[:, 1, 1] / det_safe
+        ATA_inv[:, 1, 1] = ATA[:, 0, 0] / det_safe
+        ATA_inv[:, 0, 1] = -ATA[:, 0, 1] / det_safe
+        ATA_inv[:, 1, 0] = -ATA[:, 1, 0] / det_safe
+        ATA_inv = np.where(ok[:, None, None], ATA_inv, 0.0)
+
+        sample_offsets = []
+        sample_vertex_ids = []
+        if getattr(mesh, 'cell_nodes', None):
+            max_v = max(len(vs) for vs in mesh.cell_nodes)
+            vertex_ids = np.full((N, max_v), -1, dtype=int)
+            offsets = np.zeros((N, max_v, 2), dtype=float)
+            for c, vs in enumerate(mesh.cell_nodes):
+                vertex_ids[c, :len(vs)] = vs
+                offsets[c, :len(vs)] = mesh.nodes[vs] - cc[c]
+            sample_offsets = offsets
+            sample_vertex_ids = vertex_ids
+        else:
+            max_f = max((len(fs) for fs in mesh.cell_faces), default=1)
+            offsets = np.zeros((N, max_f, 2), dtype=float)
+            vertex_ids = np.full((N, max_f), -1, dtype=int)
+            for c, fs in enumerate(mesh.cell_faces):
+                pts = mesh.face_centers[fs] - cc[c]
+                offsets[c, :len(fs)] = pts
+                vertex_ids[c, :len(fs)] = np.arange(len(fs))
+            sample_offsets = offsets
+            sample_vertex_ids = vertex_ids
+
+        vertex_cell_safe = None
+        vertex_cell_valid = None
+        if vertex_bounds and getattr(mesh, 'cell_nodes', None):
+            n_nodes = mesh.nodes.shape[0]
+            v2c = [[] for _ in range(n_nodes)]
+            for c, vs in enumerate(mesh.cell_nodes):
+                for v in vs:
+                    v2c[int(v)].append(c)
+            max_v2c = max((len(xs) for xs in v2c), default=1)
+            v2c_arr = np.full((n_nodes, max_v2c), -1, dtype=int)
+            for v, cs in enumerate(v2c):
+                v2c_arr[v, :len(cs)] = cs
+            vertex_cell_valid = v2c_arr >= 0
+            vertex_cell_safe = np.where(vertex_cell_valid, v2c_arr, 0)
+
+        ctx = dict(nb_safe=nb_safe, valid=valid, d=d, ATA_inv=ATA_inv,
+                   sample_offsets=sample_offsets,
+                   sample_vertex_ids=sample_vertex_ids,
+                   vertex_cell_safe=vertex_cell_safe,
+                   vertex_cell_valid=vertex_cell_valid)
+        setattr(mesh, cache_key, ctx)
+
+    nb_safe = ctx['nb_safe']
+    valid = ctx['valid']
+    d = ctx['d']
+    ATA_inv = ctx['ATA_inv']
+    sample_offsets = ctx['sample_offsets']
+    sample_vertex_ids = ctx['sample_vertex_ids']
+
+    W_L = np.empty((nvar, n_faces), dtype=float)
+    W_R = np.empty((nvar, n_faces), dtype=float)
+    n_idx_def = np.maximum(nei, 0)
+    for v in range(nvar):
+        W_L[v] = W_cell[v, owner]
+        W_R[v] = np.where(nei >= 0, W_cell[v, n_idx_def], W_cell[v, owner])
+
+    delta_nb = (W_cell[:, nb_safe] - W_cell[:, :, None]) * valid[None, :, :]
+    rhs = np.einsum('ckj,vck->vcj', d, delta_nb, optimize=True)
+    grad = np.einsum('cij,vcj->vci', ATA_inv, rhs, optimize=True)
+
+    W_self = W_cell[:, :, None]
+    W_nb_filled = np.where(valid[None, :, :], W_cell[:, nb_safe], W_self)
+    W_stencil = np.concatenate([W_self, W_nb_filled], axis=2)
+    phi_min_cell = W_stencil.min(axis=2)
+    phi_max_cell = W_stencil.max(axis=2)
+
+    sample_delta = np.einsum('vci,csi->vcs', grad, sample_offsets,
+                             optimize=True)
+    phi_cell = np.ones((nvar, N), dtype=float)
+    if vertex_bounds and ctx['vertex_cell_safe'] is not None:
+        v2c_safe = ctx['vertex_cell_safe']
+        v2c_valid = ctx['vertex_cell_valid']
+        safe_vertex_ids = np.where(sample_vertex_ids >= 0, sample_vertex_ids, 0)
+        for var in range(nvar):
+            vals = W_cell[var, v2c_safe]
+            vals = np.where(v2c_valid, vals, W_cell[var, v2c_safe[:, :1]])
+            vmin = vals.min(axis=1)
+            vmax = vals.max(axis=1)
+            lo = vmin[safe_vertex_ids]
+            hi = vmax[safe_vertex_ids]
+            phis = _limiter_phi(sample_delta[var], W_cell[var, :, None],
+                                lo, hi, limiter, mesh.cell_volumes,
+                                venkat_K)
+            phis = np.where(sample_vertex_ids >= 0, phis, 1.0)
+            phi_cell[var] = phis.min(axis=1)
+    else:
+        for var in range(nvar):
+            lo = phi_min_cell[var, :, None]
+            hi = phi_max_cell[var, :, None]
+            phis = _limiter_phi(sample_delta[var], W_cell[var, :, None],
+                                lo, hi, limiter, mesh.cell_volumes,
+                                venkat_K)
+            phi_cell[var] = phis.min(axis=1)
+
+    interior = np.where(nei >= 0)[0]
+    if interior.size == 0:
+        return W_L, W_R
+    o = owner[interior]
+    n = nei[interior]
+    dx_o = eval_points[interior] - cc[o]
+    dx_n = eval_points[interior] - cc[n]
+    for var in range(nvar):
+        W_L[var, interior] = (
+            W_cell[var, o]
+            + phi_cell[var, o] * np.einsum('fi,fi->f', grad[var, o], dx_o)
+        )
+        W_R[var, interior] = (
+            W_cell[var, n]
+            + phi_cell[var, n] * np.einsum('fi,fi->f', grad[var, n], dx_n)
+        )
+    return W_L, W_R
+
+
+def _limiter_phi(delta, center, lower, upper, limiter, volumes, venkat_K):
+    eps = 1e-30
+    if limiter == 'venkat':
+        h = np.sqrt(np.maximum(volumes, eps))[:, None]
+        eps2 = (venkat_K * h) ** 3
+        y = np.abs(delta)
+        allowed = np.where(delta >= 0.0, upper - center, center - lower)
+        allowed = np.maximum(allowed, 0.0)
+        num = (allowed * allowed + eps2) * y + 2.0 * y * y * allowed
+        den = y * (allowed * allowed + 2.0 * y * y + allowed * y + eps2)
+        phi = np.where(y > eps, num / np.maximum(den, eps), 1.0)
+    else:
+        allowed = np.where(delta >= 0.0, upper - center, center - lower)
+        phi = np.where(np.abs(delta) > eps,
+                       np.maximum(allowed, 0.0) / np.maximum(np.abs(delta), eps),
+                       1.0)
+    return np.clip(phi, 0.0, 1.0)
+
+
 # ─── Registry helper ───────────────────────────────────────────────────────
 def get_reconstruction(name: str, **kwargs) -> Reconstruction:
     """Construct a Reconstruction object by name."""
@@ -1183,6 +1430,13 @@ def get_reconstruction(name: str, **kwargs) -> Reconstruction:
         'first_order':  FirstOrder,
         'minmod_tvd_1d': MinmodTVD1D,
         'mlp_u':        MLPU,
+        'barth_jespersen': BarthJespersen,
+        'barth':        BarthJespersen,
+        'bj':           BarthJespersen,
+        'venkatakrishnan': Venkatakrishnan,
+        'venkat':       Venkatakrishnan,
+        'mlp_u1':       MLPU1,
+        'mlp_u2':       MLPU2,
         't_mlp_u':      TMLPU,
     }
     name = name.lower()

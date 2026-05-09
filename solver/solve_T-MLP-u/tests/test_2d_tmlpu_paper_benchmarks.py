@@ -246,19 +246,15 @@ def _quad_mesh(nx, ny, Lx, Ly, *, origin=(0.0, 0.0), keep=None,
 
 
 def _tmlpu_leveque():
-    return TMLPU(tvd='downwind', mlp_bound=True,
-                 extremum_relax=True, tvb_M=448.0,
-                 smoothness_threshold=0.10,
-                 smoothness_threshold2=0.05,
+    return TMLPU(tvd='pure_downwind', mlp_bound=True,
+                 extremum_relax=False, tvb_M=0.0,
                  virtual_uu_gradient=True, stencil='vertex2',
-                 order=3, idw_p=6)
+                 order=3, idw_p=6, vertex_mlp=True)
 
 
 def _tmlpu_off_leveque():
-    return TMLPU(tvd='downwind', mlp_bound=False,
-                 extremum_relax=True, tvb_M=448.0,
-                 smoothness_threshold=0.10,
-                 smoothness_threshold2=0.05,
+    return TMLPU(tvd='pure_downwind', mlp_bound=False,
+                 extremum_relax=False, tvb_M=0.0,
                  virtual_uu_gradient=True, stencil='vertex2',
                  order=3, idw_p=6)
 
@@ -370,24 +366,40 @@ def run_leveque(out, quick):
             sharp = float(np.percentile(np.abs(f[mesh.face_owner[mesh.face_neighbour >= 0]]
                                                 - f[mesh.face_neighbour[mesh.face_neighbour >= 0]]), 95))
             rng = [float(np.min(f)), float(np.max(f))]
-            fields[name] = f
+            wiggle = max(0.0, -rng[0]) + max(0.0, rng[1] - 1.0)
+            row_ok = bool(wiggle <= 0.25 and np.isfinite(l1))
+            if row_ok:
+                fields[name] = f
         else:
             l1 = None
             sharp = 0.0
             rng = [None, None]
-        rows.append(dict(case='leveque', method=name, ok=r['ok'], l1=l1,
+            wiggle = None
+            row_ok = False
+        error = r['error']
+        if r['ok'] and not row_ok:
+            error = f"range blow-up: min={rng[0]:.3g}, max={rng[1]:.3g}"
+        rows.append(dict(case='leveque', method=name, ok=row_ok, l1=l1,
                          sharpness=sharp, range_min=rng[0], range_max=rng[1],
-                         steps=r['steps'], wall=r['wall'], error=r['error']))
+                         wiggle=wiggle, steps=r['steps'], wall=r['wall'],
+                         error=error))
     on = next(r for r in rows if r['method'] == 'T-MLP-u ON')
     off = next(r for r in rows if r['method'] == 'T-MLP-u OFF')
     baselines = [r for r in rows if r['method'] not in ('T-MLP-u ON', 'T-MLP-u OFF') and r['ok']]
     best_l1 = min((r['l1'] for r in baselines), default=float('inf'))
     best_sharp = max((r['sharpness'] for r in baselines), default=0.0)
-    on_range_violation = max(0.0, -on['range_min']) + max(0.0, on['range_max'] - 1.0)
-    off_range_violation = max(0.0, -off['range_min']) + max(0.0, off['range_max'] - 1.0)
+
+    def _range_violation(row):
+        if row['range_min'] is None or row['range_max'] is None:
+            return float('inf')
+        return max(0.0, -row['range_min']) + max(0.0, row['range_max'] - 1.0)
+
+    on_range_violation = _range_violation(on)
+    off_range_violation = _range_violation(off)
     passed = bool(on['ok']
                   and on['sharpness'] >= best_sharp
-                  and on['l1'] <= 1.15 * best_l1
+                  and on['l1'] <= best_l1
+                  and on_range_violation <= 1e-8
                   and on_range_violation <= off_range_violation)
     if 'T-MLP-u ON' in fields:
         _plot_field(mesh, fields['T-MLP-u ON'], out / 'leveque_tmlpu_on.png',
@@ -395,7 +407,7 @@ def run_leveque(out, quick):
     _plot_scheme_contours(
         mesh, fields, rows, out / 'leveque_scheme_contours.png',
         f'LeVeque rotation: all schemes N={N}',
-        vmin=0.0, vmax=1.0, metric_keys=('l1', 'sharpness'))
+        vmin=0.0, vmax=1.0, metric_keys=('l1', 'sharpness', 'wiggle'))
     return passed, rows
 
 
@@ -593,17 +605,17 @@ def main():
     with tsv.open('w') as f:
         f.write('\t'.join(keys) + '\n')
         for row in all_rows:
-            f.write('\t'.join(str(row.get(k, '')) for k in keys) + '\n')
+            f.write('\t'.join(str(row.get(k, '')) for k in keys).rstrip('\t') + '\n')
 
     summary = {
         'comparison_definition': {
             'T-MLP-u OFF': 'SUPERBEE TVD-only reconstruction with mlp_bound=False',
             'T-MLP-u ON': 'T-MLP-u wrapper plus SUPERBEE with mlp_bound=True',
-            'LeVeque T-MLP-u OFF': 'downwind TVD-only reconstruction with mlp_bound=False',
-            'LeVeque T-MLP-u ON': 'T-MLP-u wrapper plus downwind with mlp_bound=True',
+            'LeVeque T-MLP-u OFF': 'pure_downwind reconstruction with mlp_bound=False',
+            'LeVeque T-MLP-u ON': 'T-MLP-u wrapper plus pure_downwind with mlp_bound=True',
             'LeVeque gate': (
                 'T-MLP-u ON must be sharper than every non-TMLPU baseline, '
-                'within 15% of best baseline L1, and no less bounded than downwind OFF'),
+                'lower L1 than every non-TMLPU baseline, and wiggle-free within [0,1]'),
             'leveque_flux': 'upwind with central-averaged face velocity',
             'double_mach_flux': 'hllc_adc',
             'mach3_step_flux': 'hllc_adc',

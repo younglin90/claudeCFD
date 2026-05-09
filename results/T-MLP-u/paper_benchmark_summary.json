@@ -5,231 +5,231 @@
   "leveque_ready": 1,
   "mach3_step_ready": 1,
   "pass_count": 3,
-  "quick": true,
+  "quick": false,
   "rows": [
     {
       "case": "leveque",
       "error": null,
-      "l1": 0.11455465247010749,
+      "l1": 0.09755135181501348,
       "method": "first_order",
       "ok": true,
-      "range_max": 0.3873262102925521,
-      "range_min": 4.529345063205816e-07,
-      "sharpness": 0.032772574090942586,
-      "steps": 556,
-      "wall": 1.1414337158203125
+      "range_max": 0.5669862909838189,
+      "range_min": 8.73795821039943e-13,
+      "sharpness": 0.02307524769724017,
+      "steps": 1247,
+      "wall": 9.613241195678711
     },
     {
       "case": "leveque",
       "error": null,
-      "l1": 0.0958190469826667,
+      "l1": 0.0759392880672582,
       "method": "Barth-Jespersen",
       "ok": true,
-      "range_max": 0.5843223674898671,
-      "range_min": 2.7928207451486534e-08,
-      "sharpness": 0.05156333491820448,
-      "steps": 556,
-      "wall": 3.1973445415496826
+      "range_max": 0.6809895558404249,
+      "range_min": 1.7206325675140395e-16,
+      "sharpness": 0.03433591778010245,
+      "steps": 1247,
+      "wall": 38.16289925575256
     },
     {
       "case": "leveque",
       "error": null,
-      "l1": 0.10029173519661193,
+      "l1": 0.08041280778990917,
       "method": "Venkatakrishnan",
       "ok": true,
-      "range_max": 0.546104860926339,
-      "range_min": -0.0007753404820249831,
-      "sharpness": 0.04572042390014989,
-      "steps": 556,
-      "wall": 3.839649200439453
+      "range_max": 0.6688687589340231,
+      "range_min": -0.00023088322441122287,
+      "sharpness": 0.031493774075651,
+      "steps": 1247,
+      "wall": 40.758416175842285
     },
     {
       "case": "leveque",
       "error": null,
-      "l1": 0.06535899012698511,
+      "l1": 0.04111576712232123,
       "method": "MLP-u1",
       "ok": true,
-      "range_max": 0.8012580249904692,
-      "range_min": 1.0951458143257126e-17,
-      "sharpness": 0.08750549230414834,
-      "steps": 556,
-      "wall": 3.7714693546295166
+      "range_max": 0.8472012328989775,
+      "range_min": -2.1461160154917793e-31,
+      "sharpness": 0.060080672363967635,
+      "steps": 1247,
+      "wall": 57.86963248252869
     },
     {
       "case": "leveque",
       "error": null,
-      "l1": 0.08315297829135476,
+      "l1": 0.053363527818910704,
       "method": "MLP-u2",
       "ok": true,
-      "range_max": 0.7179925825950553,
-      "range_min": -0.006118279385620726,
-      "sharpness": 0.06690211704551556,
-      "steps": 556,
-      "wall": 4.700543165206909
+      "range_max": 0.7499888472322915,
+      "range_min": -0.00442918101982654,
+      "sharpness": 0.049827136228432635,
+      "steps": 1247,
+      "wall": 96.10872650146484
     },
     {
       "case": "leveque",
       "error": null,
-      "l1": 0.07313842210063555,
+      "l1": 0.05480239722976986,
       "method": "T-MLP-u OFF",
       "ok": true,
-      "range_max": 1.1774359797936795,
-      "range_min": -0.26235190746072645,
-      "sharpness": 0.16532677097944928,
-      "steps": 556,
-      "wall": 7.211675643920898
+      "range_max": 1.6169957150705572,
+      "range_min": -0.4116689835533906,
+      "sharpness": 0.12263395485512756,
+      "steps": 1247,
+      "wall": 74.7135579586029
     },
     {
       "case": "leveque",
       "error": null,
-      "l1": 0.057477632184220154,
+      "l1": 0.03932735778172617,
       "method": "T-MLP-u ON",
       "ok": true,
-      "range_max": 0.8906023711470037,
-      "range_min": -0.11344313408187665,
-      "sharpness": 0.13357322709429892,
-      "steps": 556,
-      "wall": 7.5165205001831055
+      "range_max": 0.8759682713698231,
+      "range_min": -0.0136927172852436,
+      "sharpness": 0.07291460469840856,
+      "steps": 1247,
+      "wall": 78.46404695510864
     },
     {
       "case": "double_mach",
-      "checker": 0.15501868033168845,
+      "checker": 0.07552832948058343,
       "error": null,
       "method": "first_order",
       "ok": true,
-      "steps": 75,
-      "vortex_proxy": 1.7154098277810519,
-      "wall": 0.08515262603759766
+      "steps": 244,
+      "vortex_proxy": 1.6780151087798612,
+      "wall": 1.1074943542480469
     },
     {
       "case": "double_mach",
-      "checker": 0.28009309674672056,
+      "checker": 0.10973558994649045,
       "error": null,
       "method": "Barth-Jespersen",
       "ok": true,
-      "steps": 81,
-      "vortex_proxy": 4.133092538853875,
-      "wall": 0.21953630447387695
+      "steps": 289,
+      "vortex_proxy": 3.226068664453911,
+      "wall": 4.035629749298096
     },
     {
       "case": "double_mach",
-      "checker": 0.25869442302685636,
+      "checker": 0.10165231152745795,
       "error": null,
       "method": "Venkatakrishnan",
       "ok": true,
-      "steps": 79,
-      "vortex_proxy": 3.6911722205110395,
-      "wall": 0.22706103324890137
+      "steps": 279,
+      "vortex_proxy": 2.9307508225142556,
+      "wall": 4.132370710372925
     },
     {
       "case": "double_mach",
-      "checker": 0.27284169369611255,
+      "checker": 0.10865042990570044,
       "error": null,
       "method": "MLP-u1",
       "ok": true,
-      "steps": 80,
-      "vortex_proxy": 3.9553326719818296,
-      "wall": 0.2569863796234131
+      "steps": 285,
+      "vortex_proxy": 3.185467848912395,
+      "wall": 5.062298774719238
     },
     {
       "case": "double_mach",
-      "checker": 0.24286202348439032,
+      "checker": 0.11506005918727501,
       "error": null,
       "method": "MLP-u2",
       "ok": true,
-      "steps": 78,
-      "vortex_proxy": 3.4156578490579106,
-      "wall": 0.29641008377075195
+      "steps": 277,
+      "vortex_proxy": 2.8902053061026973,
+      "wall": 6.7669126987457275
     },
     {
       "case": "double_mach",
       "checker": null,
-      "error": "FloatingPointError('NaN at step 4, t=0.00589784101344484')",
+      "error": "FloatingPointError('NaN at step 3, t=0.001000575058028677')",
       "method": "T-MLP-u OFF",
       "ok": false,
       "steps": -1,
       "vortex_proxy": 0.0,
-      "wall": 0.0172116756439209
+      "wall": 0.06608867645263672
     },
     {
       "case": "double_mach",
-      "checker": 0.2975314413470029,
+      "checker": 0.13220636203050318,
       "error": null,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 82,
-      "vortex_proxy": 4.782799423198162,
-      "wall": 0.2920563220977783
+      "steps": 300,
+      "vortex_proxy": 4.588806102659977,
+      "wall": 4.701514720916748
     },
     {
-      "carbuncle": 0.13212042295275245,
+      "carbuncle": 0.06575491797307088,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.2552724879209265,
+      "flag_proxy": 0.13919363494085,
       "method": "first_order",
       "ok": true,
-      "steps": 653,
-      "wall": 1.0120227336883545
+      "steps": 1872,
+      "wall": 10.66385531425476
     },
     {
-      "carbuncle": 0.19895279619608264,
+      "carbuncle": 0.07169585846079354,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.5440250675203551,
+      "flag_proxy": 0.2628170799893747,
       "method": "Barth-Jespersen",
       "ok": true,
-      "steps": 659,
-      "wall": 2.168457508087158
+      "steps": 1886,
+      "wall": 31.324490308761597
     },
     {
-      "carbuncle": 0.18316185216355094,
+      "carbuncle": 0.06955306935641822,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.4405882823143754,
+      "flag_proxy": 0.2331678535213665,
       "method": "Venkatakrishnan",
       "ok": true,
-      "steps": 658,
-      "wall": 2.3066282272338867
+      "steps": 1880,
+      "wall": 32.72259330749512
     },
     {
-      "carbuncle": 0.21601133603734396,
+      "carbuncle": 0.07546788069232775,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.5012790418955406,
+      "flag_proxy": 0.26632425934160747,
       "method": "MLP-u1",
       "ok": true,
-      "steps": 657,
-      "wall": 3.0529892444610596
+      "steps": 1884,
+      "wall": 39.53465437889099
     },
     {
-      "carbuncle": 0.19057455738854592,
+      "carbuncle": 0.0734714571610869,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.43751796283435285,
+      "flag_proxy": 0.2384279689614173,
       "method": "MLP-u2",
       "ok": true,
-      "steps": 658,
-      "wall": 3.300215721130371
+      "steps": 1880,
+      "wall": 50.56166887283325
     },
     {
-      "carbuncle": 0.2513216182647758,
+      "carbuncle": null,
       "case": "mach3_step",
-      "error": null,
-      "flag_proxy": 0.8343306167957549,
+      "error": "FloatingPointError('NaN at step 30, t=0.05379129136130722')",
+      "flag_proxy": 0.0,
       "method": "T-MLP-u OFF",
-      "ok": true,
-      "steps": 694,
-      "wall": 2.721501588821411
+      "ok": false,
+      "steps": -1,
+      "wall": 0.5305631160736084
     },
     {
-      "carbuncle": 0.23399155846888978,
+      "carbuncle": 0.10192864195390831,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.6917955167107745,
+      "flag_proxy": 0.35835747417341246,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 666,
-      "wall": 2.8141844272613525
+      "steps": 1943,
+      "wall": 39.24905228614807
     }
   ],
   "total": 3

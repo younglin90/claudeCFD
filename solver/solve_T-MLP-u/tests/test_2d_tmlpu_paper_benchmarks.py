@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -345,22 +346,49 @@ def _tmlpu_off_euler():
                  virtual_uu_gradient=True, stencil='face', order=1)
 
 
-def _comparison_suite(kind):
+def _comparison_specs(kind):
     if kind == 'leveque':
-        t_on = _tmlpu_leveque()
-        t_off = _tmlpu_off_leveque()
+        t_on = 'tmlpu_leveque_on'
+        t_off = 'tmlpu_leveque_off'
     else:
-        t_on = _tmlpu_euler()
-        t_off = _tmlpu_off_euler()
+        t_on = 'tmlpu_euler_on'
+        t_off = 'tmlpu_euler_off'
     return [
         ('first_order', 'first_order'),
-        ('Barth-Jespersen', BarthJespersen(stencil='face')),
-        ('Venkatakrishnan', Venkatakrishnan(stencil='face')),
-        ('MLP-u1', MLPU1()),
-        ('MLP-u2', MLPU2()),
+        ('Barth-Jespersen', 'barth_jespersen'),
+        ('Venkatakrishnan', 'venkatakrishnan'),
+        ('MLP-u1', 'mlp_u1'),
+        ('MLP-u2', 'mlp_u2'),
         ('T-MLP-u OFF', t_off),
         ('T-MLP-u ON', t_on),
     ]
+
+
+def _reconstruction_from_key(key):
+    if key == 'first_order':
+        return 'first_order'
+    if key == 'barth_jespersen':
+        return BarthJespersen(stencil='face')
+    if key == 'venkatakrishnan':
+        return Venkatakrishnan(stencil='face')
+    if key == 'mlp_u1':
+        return MLPU1()
+    if key == 'mlp_u2':
+        return MLPU2()
+    if key == 'tmlpu_leveque_on':
+        return _tmlpu_leveque()
+    if key == 'tmlpu_leveque_off':
+        return _tmlpu_off_leveque()
+    if key == 'tmlpu_euler_on':
+        return _tmlpu_euler()
+    if key == 'tmlpu_euler_off':
+        return _tmlpu_off_euler()
+    raise ValueError(f"unknown reconstruction key {key!r}")
+
+
+def _comparison_suite(kind):
+    return [(name, _reconstruction_from_key(key))
+            for name, key in _comparison_specs(kind)]
 
 
 def _double_mach_states():
@@ -419,7 +447,7 @@ def _run_safely(mesh, eq, U0, recon, bc, *, flux, integrator, cfl,
                     wall=time.time() - t0, error=repr(exc))
 
 
-def run_leveque(out, quick):
+def run_leveque(out, quick, workers=1):
     N = LEVEQUE_QUICK_N if quick else LEVEQUE_PAPER_N
     mesh = criss_cross_box(N, L=1.0)
     eq = Advection(velocity=_rotation_velocity)
@@ -430,38 +458,7 @@ def run_leveque(out, quick):
     U0 = exact[None, :]
     bc = {p: BoundaryCondition('dirichlet', state=(0.0,))
           for p in mesh.bc_patches}
-    rows = []
-    fields = {}
-    for name, recon in _comparison_suite('leveque'):
-        r = _run_safely(mesh, eq, U0, recon, bc, flux='upwind',
-                        integrator='ssp_rk3', cfl=0.4, t_end=1.0,
-                        n_face_quad=2, face_velocity_mode='central_avg')
-        if r['ok']:
-            f = r['W'][0]
-            l1 = float(np.sum(np.abs(f - exact) * V) / np.sum(V))
-            sharp = float(np.percentile(np.abs(f[mesh.face_owner[mesh.face_neighbour >= 0]]
-                                                - f[mesh.face_neighbour[mesh.face_neighbour >= 0]]), 95))
-            rng = [float(np.min(f)), float(np.max(f))]
-            wiggle = max(0.0, -rng[0]) + max(0.0, rng[1] - 1.0)
-            row_ok = bool(wiggle <= 0.25 and np.isfinite(l1))
-            if row_ok:
-                fields[name] = f
-        else:
-            l1 = None
-            sharp = 0.0
-            rng = [None, None]
-            wiggle = None
-            row_ok = False
-        error = r['error']
-        if r['ok'] and not row_ok:
-            error = f"range blow-up: min={rng[0]:.3g}, max={rng[1]:.3g}"
-        rows.append(dict(case='leveque', method=name, ok=row_ok,
-                         mesh='criss_cross_triangles', logical_nx=N,
-                         logical_ny=N, mesh_cells=mesh.n_cells,
-                         mesh_faces=mesh.n_faces, l1=l1,
-                         sharpness=sharp, range_min=rng[0], range_max=rng[1],
-                         wiggle=wiggle, steps=r['steps'], wall=r['wall'],
-                         error=error))
+    rows, fields = _run_case_methods('leveque', quick, 'leveque', workers)
     on = next(r for r in rows if r['method'] == 'T-MLP-u ON')
     off = next(r for r in rows if r['method'] == 'T-MLP-u OFF')
     baselines = [r for r in rows if r['method'] not in ('T-MLP-u ON', 'T-MLP-u OFF') and r['ok']]
@@ -519,7 +516,213 @@ def _checker_score(mesh, val):
     return float(np.percentile(jump, 95) / scale)
 
 
-def run_double_mach(out, quick):
+def _run_case_method_worker(payload):
+    case = payload['case']
+    quick = payload['quick']
+    order = payload['order']
+    name = payload['name']
+    recon = _reconstruction_from_key(payload['recon_key'])
+    try:
+        if case == 'leveque':
+            N = LEVEQUE_QUICK_N if quick else LEVEQUE_PAPER_N
+            mesh = criss_cross_box(N, L=1.0)
+            eq = Advection(velocity=_rotation_velocity)
+            x = mesh.cell_centers[:, 0]
+            y = mesh.cell_centers[:, 1]
+            V = mesh.cell_volumes
+            exact = _leveque_phi0(x, y)
+            U0 = exact[None, :]
+            bc = {p: BoundaryCondition('dirichlet', state=(0.0,))
+                  for p in mesh.bc_patches}
+            r = _run_safely(mesh, eq, U0, recon, bc, flux='upwind',
+                            integrator='ssp_rk3', cfl=0.4, t_end=1.0,
+                            n_face_quad=2,
+                            face_velocity_mode='central_avg')
+            if r['ok']:
+                f = r['W'][0]
+                l1 = float(np.sum(np.abs(f - exact) * V) / np.sum(V))
+                interior = mesh.face_neighbour >= 0
+                jump = np.abs(f[mesh.face_owner[interior]]
+                              - f[mesh.face_neighbour[interior]])
+                sharp = float(np.percentile(jump, 95))
+                rng = [float(np.min(f)), float(np.max(f))]
+                wiggle = max(0.0, -rng[0]) + max(0.0, rng[1] - 1.0)
+                row_ok = bool(wiggle <= 0.25 and np.isfinite(l1))
+                field = f if row_ok else None
+            else:
+                l1 = None
+                sharp = 0.0
+                rng = [None, None]
+                wiggle = None
+                row_ok = False
+                field = None
+            error = r['error']
+            if r['ok'] and not row_ok:
+                error = f"range blow-up: min={rng[0]:.3g}, max={rng[1]:.3g}"
+            row = dict(case='leveque', method=name, ok=row_ok,
+                       mesh='criss_cross_triangles', logical_nx=N,
+                       logical_ny=N, mesh_cells=mesh.n_cells,
+                       mesh_faces=mesh.n_faces, l1=l1,
+                       sharpness=sharp, range_min=rng[0],
+                       range_max=rng[1], wiggle=wiggle,
+                       steps=r['steps'], wall=r['wall'], error=error)
+            return order, name, row, field
+
+        if case == 'double_mach':
+            gamma, pre, post_state = _double_mach_states()
+            nx, ny = DOUBLE_MACH_QUICK_GRID if quick else DOUBLE_MACH_PAPER_GRID
+            Lx, Ly = 4.0, 1.0
+
+            def classify(center, normal):
+                cx, cy = float(center[0]), float(center[1])
+                if cx <= 1e-9 * Lx:
+                    return 1
+                if cx >= Lx - 1e-9 * Lx:
+                    return 2
+                if cy <= 1e-9 * Ly:
+                    return 3 if cx <= 1.0 / 6.0 + 1e-12 else 4
+                if cy >= Ly - 1e-9 * Ly:
+                    return 5
+                return 2
+
+            mesh = _tri_mesh(nx, ny, Lx, Ly, classifier=classify,
+                             patches=('x_min_postshock', 'x_max_outflow',
+                                      'bottom_postshock', 'bottom_reflect',
+                                      'top_exact_shock'))
+            eq = Euler2D(gamma=gamma)
+            rho1, u1, v1, p1 = pre
+            rho2, u2, v2, p2 = post_state
+            x = mesh.cell_centers[:, 0]
+            y = mesh.cell_centers[:, 1]
+            shock_x = 1.0 / 6.0 + y / np.sqrt(3.0)
+            post = x < shock_x
+            W0 = np.vstack([
+                np.where(post, rho2, rho1),
+                np.where(post, u2, u1),
+                np.where(post, v2, v1),
+                np.where(post, p2, p1),
+            ])
+            U0 = eq.prim_to_cons(W0)
+            bc = {
+                'x_min_postshock': BoundaryCondition('dirichlet', state=post_state),
+                'x_max_outflow': BoundaryCondition('transmissive'),
+                'bottom_postshock': BoundaryCondition('dirichlet', state=post_state),
+                'bottom_reflect': BoundaryCondition('reflective'),
+                'top_exact_shock': BoundaryCondition(
+                    'dirichlet_func', state=_double_mach_exact_state),
+            }
+            r = _run_safely(mesh, eq, U0, recon, bc, flux='hllc_adc',
+                            integrator='ssp_rk2', cfl=0.35, t_end=0.2)
+            if r['ok']:
+                W = r['W']
+                rho = W[0]
+                vortex = _density_jump_score(
+                    mesh, rho, mask=lambda xx, yy: (xx > 2.0) & (yy < 0.45))
+                checker = _checker_score(mesh, W[3])
+                field = rho
+            else:
+                vortex = 0.0
+                checker = None
+                field = None
+            row = dict(case='double_mach', method=name, ok=r['ok'],
+                       mesh='tri_alternating', logical_nx=nx,
+                       logical_ny=ny, mesh_cells=mesh.n_cells,
+                       mesh_faces=mesh.n_faces,
+                       vortex_proxy=vortex, checker=checker,
+                       steps=r['steps'], wall=r['wall'], error=r['error'])
+            return order, name, row, field
+
+        if case == 'mach3_step':
+            gamma = 1.4
+            nx, ny = MACH3_STEP_QUICK_GRID if quick else MACH3_STEP_PAPER_GRID
+            Lx, Ly = 3.0, 1.0
+            step_x = 0.6
+            step_h = 0.2
+
+            def keep(cx, cy):
+                return not (cx >= step_x and cy < step_h)
+
+            def classify(center, normal):
+                cx = float(center[0])
+                if cx <= 1e-9 * Lx:
+                    return 1
+                if cx >= Lx - 1e-9 * Lx:
+                    return 2
+                return 3
+
+            mesh = _tri_mesh(nx, ny, Lx, Ly, keep=keep, classifier=classify,
+                             patches=('inflow', 'outflow', 'wall'))
+            eq = Euler2D(gamma=gamma)
+            rho, p = 1.4, 1.0
+            c = np.sqrt(gamma * p / rho)
+            u, v = 3.0 * c, 0.0
+            W0 = np.vstack([
+                np.full(mesh.n_cells, rho),
+                np.full(mesh.n_cells, u),
+                np.full(mesh.n_cells, v),
+                np.full(mesh.n_cells, p),
+            ])
+            U0 = eq.prim_to_cons(W0)
+            bc = {
+                'inflow': BoundaryCondition('dirichlet', state=(rho, u, v, p)),
+                'outflow': BoundaryCondition('transmissive'),
+                'wall': BoundaryCondition('reflective'),
+            }
+            r = _run_safely(mesh, eq, U0, recon, bc, flux='hllc_adc',
+                            integrator='ssp_rk2', cfl=0.35, t_end=4.0)
+            if r['ok']:
+                W = r['W']
+                rho_f = W[0]
+                flag = _density_jump_score(
+                    mesh, rho_f, mask=lambda xx, yy: (xx > step_x) & (yy < 0.55))
+                carbuncle = _checker_score(mesh, W[3])
+                field = rho_f
+            else:
+                flag = 0.0
+                carbuncle = None
+                field = None
+            row = dict(case='mach3_step', method=name, ok=r['ok'],
+                       mesh='tri_alternating', logical_nx=nx,
+                       logical_ny=ny, mesh_cells=mesh.n_cells,
+                       mesh_faces=mesh.n_faces,
+                       flag_proxy=flag, carbuncle=carbuncle,
+                       steps=r['steps'], wall=r['wall'], error=r['error'])
+            return order, name, row, field
+
+        raise ValueError(f"unknown case {case!r}")
+    except Exception as exc:
+        row = dict(case=case, method=name, ok=False, steps=-1,
+                   wall=0.0, error=repr(exc))
+        return order, name, row, None
+
+
+def _run_case_methods(case, quick, kind, workers):
+    specs = _comparison_specs(kind)
+    payloads = [
+        dict(case=case, quick=quick, order=i, name=name, recon_key=recon_key)
+        for i, (name, recon_key) in enumerate(specs)
+    ]
+    n_workers = max(1, min(int(workers), len(payloads)))
+    if n_workers == 1:
+        results = [_run_case_method_worker(p) for p in payloads]
+    else:
+        results = []
+        with ProcessPoolExecutor(max_workers=n_workers) as ex:
+            future_map = {ex.submit(_run_case_method_worker, p): p
+                          for p in payloads}
+            for fut in as_completed(future_map):
+                results.append(fut.result())
+    results.sort(key=lambda item: item[0])
+    rows = []
+    fields = {}
+    for _, name, row, field in results:
+        rows.append(row)
+        if field is not None:
+            fields[name] = field
+    return rows, fields
+
+
+def run_double_mach(out, quick, workers=1):
     gamma, pre, post_state = _double_mach_states()
     nx, ny = DOUBLE_MACH_QUICK_GRID if quick else DOUBLE_MACH_PAPER_GRID
     Lx, Ly = 4.0, 1.0
@@ -562,26 +765,7 @@ def run_double_mach(out, quick):
         'top_exact_shock': BoundaryCondition(
             'dirichlet_func', state=_double_mach_exact_state),
     }
-    rows = []
-    fields = {}
-    for name, recon in _comparison_suite('euler'):
-        r = _run_safely(mesh, eq, U0, recon, bc, flux='hllc_adc',
-                        integrator='ssp_rk2', cfl=0.35, t_end=0.2)
-        if r['ok']:
-            W = r['W']
-            rho = W[0]
-            vortex = _density_jump_score(mesh, rho, mask=lambda xx, yy: (xx > 2.0) & (yy < 0.45))
-            checker = _checker_score(mesh, W[3])
-            fields[name] = rho
-        else:
-            vortex = 0.0
-            checker = None
-        rows.append(dict(case='double_mach', method=name, ok=r['ok'],
-                         mesh='tri_alternating', logical_nx=nx,
-                         logical_ny=ny, mesh_cells=mesh.n_cells,
-                         mesh_faces=mesh.n_faces,
-                         vortex_proxy=vortex, checker=checker,
-                         steps=r['steps'], wall=r['wall'], error=r['error']))
+    rows, fields = _run_case_methods('double_mach', quick, 'euler', workers)
     on = next(r for r in rows if r['method'] == 'T-MLP-u ON')
     baselines = [r for r in rows if r['method'] not in ('T-MLP-u ON', 'T-MLP-u OFF') and r['ok']]
     best_vortex = max((r['vortex_proxy'] for r in baselines), default=0.0)
@@ -597,7 +781,7 @@ def run_double_mach(out, quick):
     return passed, rows
 
 
-def run_mach3_step(out, quick):
+def run_mach3_step(out, quick, workers=1):
     gamma = 1.4
     nx, ny = MACH3_STEP_QUICK_GRID if quick else MACH3_STEP_PAPER_GRID
     Lx, Ly = 3.0, 1.0
@@ -633,26 +817,7 @@ def run_mach3_step(out, quick):
         'outflow': BoundaryCondition('transmissive'),
         'wall': BoundaryCondition('reflective'),
     }
-    rows = []
-    fields = {}
-    for name, recon in _comparison_suite('euler'):
-        r = _run_safely(mesh, eq, U0, recon, bc, flux='hllc_adc',
-                        integrator='ssp_rk2', cfl=0.35, t_end=4.0)
-        if r['ok']:
-            W = r['W']
-            rho_f = W[0]
-            flag = _density_jump_score(mesh, rho_f, mask=lambda xx, yy: (xx > step_x) & (yy < 0.55))
-            carbuncle = _checker_score(mesh, W[3])
-            fields[name] = rho_f
-        else:
-            flag = 0.0
-            carbuncle = None
-        rows.append(dict(case='mach3_step', method=name, ok=r['ok'],
-                         mesh='tri_alternating', logical_nx=nx,
-                         logical_ny=ny, mesh_cells=mesh.n_cells,
-                         mesh_faces=mesh.n_faces,
-                         flag_proxy=flag, carbuncle=carbuncle,
-                         steps=r['steps'], wall=r['wall'], error=r['error']))
+    rows, fields = _run_case_methods('mach3_step', quick, 'euler', workers)
     on = next(r for r in rows if r['method'] == 'T-MLP-u ON')
     baselines = [r for r in rows if r['method'] not in ('T-MLP-u ON', 'T-MLP-u OFF') and r['ok']]
     best_flag = max((r['flag_proxy'] for r in baselines), default=0.0)
@@ -707,6 +872,9 @@ def main():
     ap.add_argument(
         '--artifact-prefix', default=None,
         help="basename for JSON/TSV/comparison PNG; default depends on cases")
+    ap.add_argument(
+        '--workers', type=int, default=1,
+        help="parallel scheme workers per case; use 1 for serial execution")
     args = ap.parse_args()
     out = _out_dir()
     try:
@@ -719,7 +887,7 @@ def main():
     all_rows = []
     case_status = {}
     for name in selected_names:
-        ok, rows = runners[name](out, args.quick)
+        ok, rows = runners[name](out, args.quick, workers=args.workers)
         case_status[name] = bool(ok)
         all_rows.extend(rows)
 
@@ -781,6 +949,7 @@ def main():
             selected_names == [name for name, _ in CASE_RUNNERS]
             and all(case_status.values())),
         'selected_ready': int(all(case_status.values())),
+        'workers': int(args.workers),
         'leveque_ready': int(case_status.get('leveque', False)),
         'double_mach_ready': int(case_status.get('double_mach', False)),
         'mach3_step_ready': int(case_status.get('mach3_step', False)),

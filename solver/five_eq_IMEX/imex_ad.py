@@ -600,7 +600,12 @@ def _slau2_faces_np(W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme,
                     bc_l, bc_r, dt=None, dx=None):
     """SLAU2 pressure-free material face velocity for the IMEX split."""
     alpha_ext, T1_ext, T2_ext, u_ext, p_ext = W_ext
-    if _characteristic_recon_enabled() and primitive_scheme != 'upwind':
+    use_characteristic_recon = (
+        _characteristic_recon_enabled()
+        and primitive_scheme != 'upwind'
+        and not _passive_pressure_equilibrium_transport(W_ext)
+    )
+    if use_characteristic_recon:
         rho_L, rho_R, u_L, u_R, p_L, p_R, _, _ = (
             _characteristic_mixture_lr_states(
                 W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme)
@@ -917,7 +922,12 @@ def _hllc_split_material_fluxes_np(W_ext, c_mix_sq_ext, eos1, eos2,
                                    primitive_scheme, bc_l, bc_r):
     """Mixture HLLC flux split into material/advection and pressure-work parts."""
     alpha_ext, T1_ext, T2_ext, u_ext, p_ext = W_ext
-    if _characteristic_recon_enabled() and primitive_scheme != 'upwind':
+    use_characteristic_recon = (
+        _characteristic_recon_enabled()
+        and primitive_scheme != 'upwind'
+        and not _passive_pressure_equilibrium_transport(W_ext)
+    )
+    if use_characteristic_recon:
         rho_L, rho_R, u_L, u_R, p_L, p_R, rhoe_L, rhoe_R = (
             _characteristic_mixture_lr_states(
                 W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme)
@@ -1077,6 +1087,31 @@ def _tvd_pair(a, b, kind):
 def _characteristic_recon_enabled():
     key = os.environ.get("FIVE_EQ_IMEX_CHARACTERISTIC_RECON", "0")
     return str(key).strip().lower() in {"1", "true", "yes", "on", "char", "characteristic"}
+
+
+def _passive_pressure_equilibrium_transport(W):
+    """Detect p/u-flat material transport where acoustic characteristic
+    reconstruction is not the right variable set.
+
+    In a pressure-equilibrium material advection problem, phase densities and
+    temperatures are passive thermodynamic scalars tied to the transported
+    volume fraction.  Reconstructing mixture acoustic characteristic variables
+    across a sharp or smooth alpha profile can create inconsistent trace-phase
+    q/alpha ratios and therefore ghost temperatures.  The detector uses only
+    physical flatness of p and u, not validation case ids.
+    """
+    alpha = np.asarray(W[0], dtype=float)
+    u = np.asarray(W[3], dtype=float)
+    p = np.asarray(W[4], dtype=float)
+    if alpha.size < 2 or p.size < 2:
+        return False
+    if float(np.max(alpha) - np.min(alpha)) <= 1.0e-10:
+        return False
+    p_scale = max(float(np.max(np.abs(p))), 1.0)
+    u_scale = max(float(np.max(np.abs(u))), 1.0)
+    p_jump = float(np.max(np.abs(np.diff(p)))) / p_scale
+    u_jump = float(np.max(np.abs(np.diff(u)))) / u_scale
+    return p_jump <= 1.0e-10 and u_jump <= 1.0e-10
 
 
 def _characteristic_primitive_slopes(rho, u, p, c, kind):
@@ -1760,7 +1795,12 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     mix_preserve_mask = None
     rho1_f = np.maximum(eos1.density(p_adv_f, T1_f), _EPS)
     rho2_f = np.maximum(eos2.density(p_adv_f, T2_f), _EPS)
-    if _characteristic_recon_enabled() and primitive_scheme != 'upwind':
+    use_characteristic_recon = (
+        _characteristic_recon_enabled()
+        and primitive_scheme != 'upwind'
+        and not _passive_pressure_equilibrium_transport(W_n)
+    )
+    if use_characteristic_recon:
         (rho1_f, rho2_f, u_adv_f, p_adv_f,
          mix_rho_f, mix_y1_f) = _characteristic_mixture_upwind_faces(
             W_ext, c_mix_sq_ext, eos1, eos2, u_star, primitive_scheme,

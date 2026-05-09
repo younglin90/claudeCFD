@@ -273,6 +273,12 @@ class TMLPU(Reconstruction):
     mlp_bound: bool = True   # False ⇒ pure TVD limiter (no LMP wrapper)
     extremum_relax: bool = False   # smooth-region LMP relaxation
     vertex_mlp: bool = False    # PYG2010 vertex-projected polynomial bound
+    vertex_mlp_cap: float = 1.0
+    # Maximum ψ allowed by the vertex-MLP projection.  The canonical
+    # PYG2010 slope limiter uses 1.0.  For T-MLP-u wrapped compressive
+    # TVD schemes, values up to 2.0 can be used while still respecting
+    # the vertex bounds; this preserves SUPERBEE/pure-downwind sharpness
+    # where the local maximum principle permits it.
     tvb_M: float = 0.0   # Cockburn-Shu TVB modulus (M·h² LMP tolerance)
     virtual_uu_gradient: bool = False
     # When True, the slope ratio r = (φ_U − φ_UU)/(φ_D − φ_U) uses a
@@ -767,19 +773,20 @@ class TMLPU(Reconstruction):
                 # divide when ∇φ·δ is tiny vs the local field magnitude.
                 W_scale = max(float(np.max(np.abs(W_C))), 1e-30)
                 eps = 1e-12 * W_scale
-                psi_v_each = np.ones_like(proj)
+                psi_cap = float(np.clip(self.vertex_mlp_cap, 0.0, 2.0))
+                psi_v_each = np.full_like(proj, psi_cap)
                 pos = proj > eps
                 neg = proj < -eps
                 psi_v_each = np.where(
                     pos,
-                    np.minimum(1.0, allowed_max / np.maximum(proj, eps)),
+                    np.minimum(psi_cap, allowed_max / np.maximum(proj, eps)),
                     psi_v_each)
                 psi_v_each = np.where(
                     neg,
-                    np.minimum(1.0, allowed_min / np.minimum(proj, -eps)),
+                    np.minimum(psi_cap, allowed_min / np.minimum(proj, -eps)),
                     psi_v_each)
-                psi_v_each = np.where(cell_node_valid, psi_v_each, 1.0)
-                psi_v_each = np.clip(psi_v_each, 0.0, 1.0)
+                psi_v_each = np.where(cell_node_valid, psi_v_each, psi_cap)
+                psi_v_each = np.clip(psi_v_each, 0.0, psi_cap)
                 psi_vertex_cell[v] = np.min(psi_v_each, axis=1)
 
         # 3) Default first-order (overridden for interior below).

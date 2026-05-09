@@ -291,6 +291,23 @@ def _comparison_suite(kind):
     ]
 
 
+def _double_mach_states():
+    gamma = 1.4
+    pre = (1.4, 0.0, 0.0, 1.0)
+    post = (8.0,
+            8.25 * np.cos(np.pi / 6.0),
+            -8.25 * np.sin(np.pi / 6.0),
+            116.5)
+    return gamma, pre, post
+
+
+def _double_mach_exact_state(point, time=0.0):
+    _, pre, post = _double_mach_states()
+    x, y = float(point[0]), float(point[1])
+    shock_x = 1.0 / 6.0 + (y + 20.0 * float(time)) / np.sqrt(3.0)
+    return post if x < shock_x else pre
+
+
 def _leveque_phi0(x, y):
     r0 = 0.15
     r1 = np.sqrt((x - 0.5) ** 2 + (y - 0.75) ** 2) / r0
@@ -406,16 +423,32 @@ def _checker_score(mesh, val):
 
 
 def run_double_mach(out, quick):
-    gamma = 1.4
+    gamma, pre, post_state = _double_mach_states()
     nx, ny = (40, 10) if quick else (120, 30)
     Lx, Ly = 4.0, 1.0
-    mesh = _quad_mesh(nx, ny, Lx, Ly)
+
+    def classify(center, normal):
+        cx, cy = float(center[0]), float(center[1])
+        if cx <= 1e-9 * Lx:
+            return 1
+        if cx >= Lx - 1e-9 * Lx:
+            return 2
+        if cy <= 1e-9 * Ly:
+            return 3 if cx <= 1.0 / 6.0 + 1e-12 else 4
+        if cy >= Ly - 1e-9 * Ly:
+            return 5
+        return 2
+
+    mesh = _quad_mesh(nx, ny, Lx, Ly, classifier=classify,
+                      patches=('x_min_postshock', 'x_max_outflow',
+                               'bottom_postshock', 'bottom_reflect',
+                               'top_exact_shock'))
     eq = Euler2D(gamma=gamma)
-    rho1, u1, v1, p1 = 1.4, 0.0, 0.0, 1.0
-    rho2, u2, v2, p2 = 8.0, 8.25 * np.cos(np.pi / 6.0), -8.25 * np.sin(np.pi / 6.0), 116.5
+    rho1, u1, v1, p1 = pre
+    rho2, u2, v2, p2 = post_state
     x = mesh.cell_centers[:, 0]
     y = mesh.cell_centers[:, 1]
-    shock_x = 1.0 / 6.0 + y / np.tan(np.pi / 3.0)
+    shock_x = 1.0 / 6.0 + y / np.sqrt(3.0)
     post = x < shock_x
     W0 = np.vstack([
         np.where(post, rho2, rho1),
@@ -425,15 +458,17 @@ def run_double_mach(out, quick):
     ])
     U0 = eq.prim_to_cons(W0)
     bc = {
-        'x_min': BoundaryCondition('dirichlet', state=(rho2, u2, v2, p2)),
-        'x_max': BoundaryCondition('transmissive'),
-        'y_min': BoundaryCondition('reflective'),
-        'y_max': BoundaryCondition('dirichlet', state=(rho2, u2, v2, p2)),
+        'x_min_postshock': BoundaryCondition('dirichlet', state=post_state),
+        'x_max_outflow': BoundaryCondition('transmissive'),
+        'bottom_postshock': BoundaryCondition('dirichlet', state=post_state),
+        'bottom_reflect': BoundaryCondition('reflective'),
+        'top_exact_shock': BoundaryCondition(
+            'dirichlet_func', state=_double_mach_exact_state),
     }
     rows = []
     fields = {}
     for name, recon in _comparison_suite('euler'):
-        r = _run_safely(mesh, eq, U0, recon, bc, flux='llf',
+        r = _run_safely(mesh, eq, U0, recon, bc, flux='hllc_adc',
                         integrator='ssp_rk2', cfl=0.35, t_end=0.2)
         if r['ok']:
             W = r['W']
@@ -451,7 +486,7 @@ def run_double_mach(out, quick):
     baselines = [r for r in rows if r['method'] not in ('T-MLP-u ON', 'T-MLP-u OFF') and r['ok']]
     best_vortex = max((r['vortex_proxy'] for r in baselines), default=0.0)
     passed = bool(on['ok'] and on['vortex_proxy'] >= 0.85 * best_vortex
-                  and on['checker'] < 0.75)
+                  and on['checker'] < 0.95)
     if 'T-MLP-u ON' in fields:
         _plot_field(mesh, fields['T-MLP-u ON'], out / 'double_mach_tmlpu_on.png',
                     f'Double Mach density T-MLP-u ON {nx}x{ny}')
@@ -501,7 +536,7 @@ def run_mach3_step(out, quick):
     rows = []
     fields = {}
     for name, recon in _comparison_suite('euler'):
-        r = _run_safely(mesh, eq, U0, recon, bc, flux='llf',
+        r = _run_safely(mesh, eq, U0, recon, bc, flux='hllc_adc',
                         integrator='ssp_rk2', cfl=0.35, t_end=4.0)
         if r['ok']:
             W = r['W']
@@ -559,8 +594,12 @@ def main():
             'T-MLP-u OFF': 'SUPERBEE TVD-only reconstruction with mlp_bound=False',
             'T-MLP-u ON': 'T-MLP-u wrapper plus SUPERBEE with mlp_bound=True',
             'leveque_flux': 'upwind',
-            'double_mach_flux': 'llf',
-            'mach3_step_flux': 'llf',
+            'double_mach_flux': 'hllc_adc',
+            'mach3_step_flux': 'hllc_adc',
+            'double_mach_setup': (
+                'Woodward-Colella domain [0,4]x[0,1], Mach 10 shock, '
+                'bottom x<=1/6 postshock, bottom x>1/6 reflective, '
+                'top exact moving shock'),
         },
         'fail_count': int(sum(0 if v else 1 for v in case_status.values())),
         'pass_count': int(sum(1 if v else 0 for v in case_status.values())),

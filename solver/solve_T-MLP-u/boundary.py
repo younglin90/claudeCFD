@@ -17,6 +17,7 @@ Built-in patch types (all parameter-free):
   'reflective'   — flips the normal component of velocity (advection.velocity
                    not relevant; for Euler, u_n → −u_n)
   'dirichlet'    — W_R = supplied constant W_state
+  'dirichlet_func' — W_R = state(face_point, time) for exact moving BCs
   'periodic_pair' — internally treated by Mesh builder, listed here only
                    so users can label patches as such.
 
@@ -31,7 +32,7 @@ import numpy as np
 @dataclass
 class BoundaryCondition:
     kind: str                              # 'transmissive' | 'reflective' | 'dirichlet'
-    state: Optional[Sequence[float]] = None  # for dirichlet  (W of the fixed state)
+    state: Optional[object] = None  # fixed W tuple, or callable for dirichlet_func
 
 
 # Helper: per-face vector reflection of velocity component(s).
@@ -60,7 +61,8 @@ def _reflect_velocity(eq, W_in, normal):
     return W
 
 
-def apply_patch_bcs(mesh, eq, W_L, W_R, bc_spec: Dict[str, BoundaryCondition]):
+def apply_patch_bcs(mesh, eq, W_L, W_R, bc_spec: Dict[str, BoundaryCondition],
+                    points=None, time: float = 0.0):
     """Overwrite the W_R column at every boundary face according to the
     patch BC dict.
 
@@ -90,6 +92,15 @@ def apply_patch_bcs(mesh, eq, W_L, W_R, bc_spec: Dict[str, BoundaryCondition]):
             if bc.state is None:
                 raise ValueError(f"BC patch '{patch}': dirichlet requires `state=`.")
             W_R[:, f] = np.asarray(bc.state, dtype=float)
+        elif bc.kind == 'dirichlet_func':
+            if not callable(bc.state):
+                raise ValueError(
+                    f"BC patch '{patch}': dirichlet_func requires callable state.")
+            point = mesh.face_centers[f] if points is None else points[f]
+            try:
+                W_R[:, f] = np.asarray(bc.state(point, time), dtype=float)
+            except TypeError:
+                W_R[:, f] = np.asarray(bc.state(point), dtype=float)
         else:
             raise ValueError(f"unknown BC kind '{bc.kind}' on patch '{patch}'")
     return W_L, W_R

@@ -2,9 +2,10 @@
   "comparison_definition": {
     "T-MLP-u OFF": "SUPERBEE TVD-only reconstruction with mlp_bound=False",
     "T-MLP-u ON": "T-MLP-u wrapper plus SUPERBEE with mlp_bound=True",
-    "double_mach_flux": "llf",
+    "double_mach_flux": "hllc_adc",
+    "double_mach_setup": "Woodward-Colella domain [0,4]x[0,1], Mach 10 shock, bottom x<=1/6 postshock, bottom x>1/6 reflective, top exact moving shock",
     "leveque_flux": "upwind",
-    "mach3_step_flux": "llf"
+    "mach3_step_flux": "hllc_adc"
   },
   "double_mach_ready": 1,
   "evidence_ready": 0,
@@ -24,7 +25,7 @@
       "range_min": 8.73795821039943e-13,
       "sharpness": 0.02307524769724017,
       "steps": 1247,
-      "wall": 10.225504398345947
+      "wall": 9.616663455963135
     },
     {
       "case": "leveque",
@@ -36,7 +37,7 @@
       "range_min": 1.7206325675140395e-16,
       "sharpness": 0.03433591778010245,
       "steps": 1247,
-      "wall": 39.11381649971008
+      "wall": 39.10766005516052
     },
     {
       "case": "leveque",
@@ -48,7 +49,7 @@
       "range_min": -0.00023088322441122287,
       "sharpness": 0.031493774075651,
       "steps": 1247,
-      "wall": 40.47887897491455
+      "wall": 40.91256356239319
     },
     {
       "case": "leveque",
@@ -60,7 +61,7 @@
       "range_min": -2.1461160154917793e-31,
       "sharpness": 0.060080672363967635,
       "steps": 1247,
-      "wall": 60.43958759307861
+      "wall": 58.12216758728027
     },
     {
       "case": "leveque",
@@ -72,7 +73,7 @@
       "range_min": -0.00442918101982654,
       "sharpness": 0.049827136228432635,
       "steps": 1247,
-      "wall": 101.88887786865234
+      "wall": 108.52354407310486
     },
     {
       "case": "leveque",
@@ -84,7 +85,7 @@
       "range_min": -0.0013501745369374368,
       "sharpness": 0.04301760818790716,
       "steps": 1247,
-      "wall": 75.09114360809326
+      "wall": 74.67752861976624
     },
     {
       "case": "leveque",
@@ -96,147 +97,147 @@
       "range_min": -0.00028099240093028494,
       "sharpness": 0.04248884937392682,
       "steps": 1247,
-      "wall": 78.45031929016113
+      "wall": 75.37724733352661
     },
     {
       "case": "double_mach",
-      "checker": 0.07552832948058343,
+      "checker": 0.07881001691201907,
       "error": null,
       "method": "first_order",
       "ok": true,
-      "steps": 244,
-      "vortex_proxy": 1.6780151087798612,
-      "wall": 1.1395740509033203
+      "steps": 285,
+      "vortex_proxy": 1.0283138724556842,
+      "wall": 1.6571509838104248
     },
     {
       "case": "double_mach",
-      "checker": 0.10973558994649045,
+      "checker": 0.07313730162154686,
       "error": null,
       "method": "Barth-Jespersen",
       "ok": true,
-      "steps": 289,
-      "vortex_proxy": 3.226068664453911,
-      "wall": 4.171115398406982
+      "steps": 305,
+      "vortex_proxy": 1.5375750071403482,
+      "wall": 4.633525609970093
     },
     {
       "case": "double_mach",
-      "checker": 0.10165231152745795,
+      "checker": 0.0691929402252384,
       "error": null,
       "method": "Venkatakrishnan",
       "ok": true,
-      "steps": 279,
-      "vortex_proxy": 2.9307508225142556,
-      "wall": 4.136098146438599
+      "steps": 302,
+      "vortex_proxy": 1.3488987095955765,
+      "wall": 4.87861704826355
     },
     {
       "case": "double_mach",
-      "checker": 0.10865042990570044,
+      "checker": 0.07330049524512085,
       "error": null,
       "method": "MLP-u1",
       "ok": true,
-      "steps": 285,
-      "vortex_proxy": 3.185467848912395,
-      "wall": 5.2093117237091064
+      "steps": 297,
+      "vortex_proxy": 1.4495526327743362,
+      "wall": 5.625680923461914
     },
     {
       "case": "double_mach",
-      "checker": 0.11506005918727501,
+      "checker": 0.07617888264768159,
       "error": null,
       "method": "MLP-u2",
       "ok": true,
-      "steps": 277,
-      "vortex_proxy": 2.8902053061026973,
-      "wall": 6.29533576965332
+      "steps": 300,
+      "vortex_proxy": 1.4559200352608843,
+      "wall": 7.965918064117432
     },
     {
       "case": "double_mach",
-      "checker": null,
-      "error": "FloatingPointError('NaN at step 3, t=0.001000575058028677')",
+      "checker": 0.07060722635351911,
+      "error": null,
       "method": "T-MLP-u OFF",
-      "ok": false,
-      "steps": -1,
-      "vortex_proxy": 0.0,
-      "wall": 0.0702064037322998
+      "ok": true,
+      "steps": 312,
+      "vortex_proxy": 1.2572665436670694,
+      "wall": 4.929063320159912
     },
     {
       "case": "double_mach",
-      "checker": 0.13220636203050318,
+      "checker": 0.0728895823386038,
       "error": null,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 300,
-      "vortex_proxy": 4.588806102659977,
-      "wall": 5.731411933898926
+      "steps": 310,
+      "vortex_proxy": 1.3701932525337306,
+      "wall": 5.155954122543335
     },
     {
-      "carbuncle": 0.06575491797307088,
+      "carbuncle": 0.07482092476187928,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.13919363494085,
+      "flag_proxy": 0.2052807170774997,
       "method": "first_order",
       "ok": true,
-      "steps": 1872,
-      "wall": 11.171359539031982
+      "steps": 1877,
+      "wall": 13.004718780517578
     },
     {
-      "carbuncle": 0.07169585846079354,
+      "carbuncle": 0.07303074037542545,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.2628170799893747,
+      "flag_proxy": 0.31351409462295415,
       "method": "Barth-Jespersen",
       "ok": true,
-      "steps": 1886,
-      "wall": 32.01422381401062
+      "steps": 1893,
+      "wall": 33.81883120536804
     },
     {
-      "carbuncle": 0.06955306935641822,
+      "carbuncle": 0.06926859104311796,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.2331678535213665,
+      "flag_proxy": 0.2871189426008907,
       "method": "Venkatakrishnan",
       "ok": true,
-      "steps": 1880,
-      "wall": 33.491305351257324
+      "steps": 1889,
+      "wall": 35.38804864883423
     },
     {
-      "carbuncle": 0.07546788069232775,
+      "carbuncle": 0.07342138007206453,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.26632425934160747,
+      "flag_proxy": 0.3114879243180933,
       "method": "MLP-u1",
       "ok": true,
-      "steps": 1884,
-      "wall": 40.015490770339966
+      "steps": 1895,
+      "wall": 43.017836809158325
     },
     {
-      "carbuncle": 0.0734714571610869,
+      "carbuncle": 0.06997107986725007,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.2384279689614173,
+      "flag_proxy": 0.29739497863324643,
       "method": "MLP-u2",
       "ok": true,
-      "steps": 1880,
-      "wall": 50.731945753097534
+      "steps": 1887,
+      "wall": 52.6016411781311
     },
     {
       "carbuncle": null,
       "case": "mach3_step",
-      "error": "FloatingPointError('NaN at step 30, t=0.05379129136130722')",
+      "error": "FloatingPointError('NaN at step 292, t=0.4327946983878386')",
       "flag_proxy": 0.0,
       "method": "T-MLP-u OFF",
       "ok": false,
       "steps": -1,
-      "wall": 0.5295205116271973
+      "wall": 6.040971755981445
     },
     {
-      "carbuncle": 0.10192864195390831,
+      "carbuncle": 0.08598792807298447,
       "case": "mach3_step",
       "error": null,
-      "flag_proxy": 0.35835747417341246,
+      "flag_proxy": 0.375163951236275,
       "method": "T-MLP-u ON",
       "ok": true,
-      "steps": 1943,
-      "wall": 36.24497985839844
+      "steps": 2020,
+      "wall": 39.61005663871765
     }
   ],
   "total": 3

@@ -134,6 +134,7 @@ def solve(mesh, eq, U0, *,
 
     # Pre-allocated reusable buffers (closure-shared across rhs calls).
     _F_face_buf = np.empty((eq.nvar, mesh.n_faces), dtype=float)
+    current_time = [0.0]
 
     def rhs(U_state):
         """∂t U = − (1/V) Σ_f (∫ F·n dl) — Gauss-quadrature on each face."""
@@ -143,7 +144,9 @@ def solve(mesh, eq, U0, *,
         for k in range(n_face_quad):
             GP_k = gqs[:, k, :]                            # (Nf, 2)
             W_L, W_R = recon.reconstruct(mesh, W, eq, eval_points=GP_k)
-            W_L, W_R = apply_patch_bcs(mesh, eq, W_L, W_R, bc_spec)
+            W_L, W_R = apply_patch_bcs(
+                mesh, eq, W_L, W_R, bc_spec,
+                points=GP_k, time=current_time[0])
             if face_velocity_central is not None:
                 F_k = flux_fn(eq, W_L, W_R, normals, points=GP_k,
                               face_velocity=face_velocity_central)
@@ -183,6 +186,7 @@ def solve(mesh, eq, U0, *,
         if dt <= 0:
             break
 
+        current_time[0] = t
         U = step(U, dt, rhs)
         t += dt
         n_completed = n + 1

@@ -246,7 +246,7 @@ def _quad_mesh(nx, ny, Lx, Ly, *, origin=(0.0, 0.0), keep=None,
 
 
 def _tmlpu_leveque():
-    return TMLPU(tvd='superbee', mlp_bound=True,
+    return TMLPU(tvd='downwind', mlp_bound=True,
                  extremum_relax=True, tvb_M=64.0,
                  smoothness_threshold=0.10,
                  smoothness_threshold2=0.05,
@@ -255,7 +255,7 @@ def _tmlpu_leveque():
 
 
 def _tmlpu_off_leveque():
-    return TMLPU(tvd='superbee', mlp_bound=False,
+    return TMLPU(tvd='downwind', mlp_bound=False,
                  extremum_relax=True, tvb_M=64.0,
                  smoothness_threshold=0.10,
                  smoothness_threshold2=0.05,
@@ -326,12 +326,13 @@ def _rotation_velocity(x, y):
 
 
 def _run_safely(mesh, eq, U0, recon, bc, *, flux, integrator, cfl,
-                t_end, n_face_quad=1):
+                t_end, n_face_quad=1, face_velocity_mode='analytic'):
     t0 = time.time()
     try:
         res = solve(mesh, eq, U0, reconstruction=recon, flux=flux,
                     integrator=integrator, bc=bc, cfl=cfl, t_end=t_end,
-                    max_steps=500_000, n_face_quad=n_face_quad)
+                    max_steps=500_000, n_face_quad=n_face_quad,
+                    face_velocity_mode=face_velocity_mode)
         wall = time.time() - t0
         U = res['U_final']
         W = eq.cons_to_prim(U)
@@ -362,7 +363,7 @@ def run_leveque(out, quick):
     for name, recon in _comparison_suite('leveque'):
         r = _run_safely(mesh, eq, U0, recon, bc, flux='upwind',
                         integrator='ssp_rk3', cfl=0.4, t_end=1.0,
-                        n_face_quad=2)
+                        n_face_quad=2, face_velocity_mode='central_avg')
         if r['ok']:
             f = r['W'][0]
             l1 = float(np.sum(np.abs(f - exact) * V) / np.sum(V))
@@ -593,7 +594,9 @@ def main():
         'comparison_definition': {
             'T-MLP-u OFF': 'SUPERBEE TVD-only reconstruction with mlp_bound=False',
             'T-MLP-u ON': 'T-MLP-u wrapper plus SUPERBEE with mlp_bound=True',
-            'leveque_flux': 'upwind',
+            'LeVeque T-MLP-u OFF': 'downwind TVD-only reconstruction with mlp_bound=False',
+            'LeVeque T-MLP-u ON': 'T-MLP-u wrapper plus downwind with mlp_bound=True',
+            'leveque_flux': 'upwind with central-averaged face velocity',
             'double_mach_flux': 'hllc_adc',
             'mach3_step_flux': 'hllc_adc',
             'double_mach_setup': (

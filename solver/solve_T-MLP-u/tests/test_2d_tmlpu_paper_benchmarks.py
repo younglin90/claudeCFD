@@ -325,8 +325,8 @@ def _tri_mesh(nx, ny, Lx, Ly, *, origin=(0.0, 0.0), keep=None,
 def _tmlpu_leveque():
     return TMLPU(tvd='pure_downwind', mlp_bound=True,
                  extremum_relax=False, tvb_M=0.0,
-                 virtual_uu_gradient=True, stencil='vertex2',
-                 order=3, idw_p=6, vertex_mlp=True,
+                 virtual_uu_gradient=True, stencil='vertex',
+                 order=2, idw_p=6, vertex_mlp=True,
                  vertex_mlp_cap=2.0)
 
 
@@ -340,7 +340,7 @@ def _tmlpu_off_leveque():
 def _tmlpu_euler():
     return TMLPU(tvd='superbee', mlp_bound=True, extremum_relax=False,
                  tvb_M=0.0, vertex_mlp=True, vertex_mlp_cap=2.0,
-                 virtual_uu_gradient=True, stencil='face', order=1)
+                 virtual_uu_gradient=True, stencil='vertex', order=1)
 
 
 def _tmlpu_off_euler():
@@ -968,13 +968,15 @@ def main():
             'T-MLP-u OFF': 'SUPERBEE TVD-only reconstruction with mlp_bound=False',
             'T-MLP-u ON': (
                 'T-MLP-u wrapper plus SUPERBEE with mlp_bound=True, '
-                'vertex_mlp=True, vertex_mlp_cap=2, tvb_M=0, '
-                'extremum_relax=False'),
+                'vertex_mlp=True, vertex_mlp_cap=2, '
+                'virtual_uu_gradient=True, stencil=vertex, order=1, '
+                'tvb_M=0, extremum_relax=False'),
             'LeVeque T-MLP-u OFF': 'pure_downwind reconstruction with mlp_bound=False',
             'LeVeque T-MLP-u ON': (
                 'T-MLP-u wrapper plus pure_downwind with mlp_bound=True, '
-                'vertex_mlp=True, vertex_mlp_cap=2, tvb_M=0, '
-                'extremum_relax=False'),
+                'vertex_mlp=True, vertex_mlp_cap=2, '
+                'virtual_uu_gradient=True, stencil=vertex, order=2, '
+                'tvb_M=0, extremum_relax=False'),
             'LeVeque gate': (
                 'T-MLP-u ON must have lower L1 than every non-TMLPU '
                 'baseline, keep at least 90% of the best interface-jump '

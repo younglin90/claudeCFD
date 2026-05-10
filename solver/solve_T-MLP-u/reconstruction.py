@@ -279,7 +279,7 @@ class TMLPU(Reconstruction):
     # TVD schemes, values up to 2.0 can be used while still respecting
     # the vertex bounds; this preserves SUPERBEE/pure-downwind sharpness
     # where the local maximum principle permits it.
-    vertex_mlp_face_local: bool = True
+    vertex_mlp_face_local: bool = False
     # When face nodes are available, compute the vertex-MLP cap from the
     # two vertices of the reconstructed face rather than the cell-wide
     # minimum over every vertex.  This keeps the PYG vertex bound but avoids

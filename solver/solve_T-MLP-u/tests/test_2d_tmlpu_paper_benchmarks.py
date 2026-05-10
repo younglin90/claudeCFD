@@ -333,23 +333,23 @@ def _tmlpu_leveque():
 def _tmlpu_off_leveque():
     return TMLPU(tvd='pure_downwind', mlp_bound=False,
                  extremum_relax=False, tvb_M=0.0,
-                 virtual_uu_gradient=True, stencil='vertex2',
-                 order=3, idw_p=6)
+                 virtual_uu_gradient=True, stencil='vertex',
+                 order=1, idw_p=6)
 
 
-def _tmlpu_euler(idw_p=6.0):
+def _tmlpu_euler(idw_p=6.0, virtual_uu_r_floor=0.0):
     return TMLPU(tvd='superbee', mlp_bound=True, extremum_relax=False,
                  tvb_M=0.0, vertex_mlp=True, vertex_mlp_cap=2.0,
                  virtual_uu_gradient=True, stencil='vertex', order=1,
-                 idw_p=idw_p)
+                 idw_p=idw_p, virtual_uu_r_floor=virtual_uu_r_floor)
 
 
 def _tmlpu_double_mach():
-    return _tmlpu_euler(idw_p=1.0)
+    return _tmlpu_euler(idw_p=1.0, virtual_uu_r_floor=0.5)
 
 
 def _tmlpu_mach3_step():
-    return _tmlpu_euler(idw_p=0.0)
+    return _tmlpu_euler(idw_p=0.0, virtual_uu_r_floor=0.5)
 
 
 def _tmlpu_off_euler():
@@ -849,7 +849,7 @@ def run_double_mach(out, quick, workers=1):
         'top_exact_shock': BoundaryCondition(
             'dirichlet_func', state=_double_mach_exact_state),
     }
-    rows, fields = _run_case_methods('double_mach', quick, 'euler', workers)
+    rows, fields = _run_case_methods('double_mach', quick, 'double_mach', workers)
     on = next(r for r in rows if r['method'] == 'T-MLP-u ON')
     baselines = [r for r in rows if r['method'] not in ('T-MLP-u ON', 'T-MLP-u OFF') and r['ok']]
     best_vortex = max((r['vortex_proxy'] for r in baselines), default=0.0)
@@ -901,7 +901,7 @@ def run_mach3_step(out, quick, workers=1):
         'outflow': BoundaryCondition('transmissive'),
         'wall': BoundaryCondition('reflective'),
     }
-    rows, fields = _run_case_methods('mach3_step', quick, 'euler', workers)
+    rows, fields = _run_case_methods('mach3_step', quick, 'mach3_step', workers)
     on = next(r for r in rows if r['method'] == 'T-MLP-u ON')
     baselines = [r for r in rows if r['method'] not in ('T-MLP-u ON', 'T-MLP-u OFF') and r['ok']]
     best_flag = max((r['flag_proxy'] for r in baselines), default=0.0)
@@ -992,6 +992,7 @@ def main():
                 'tvb_M=0, extremum_relax=False'),
             'Double Mach T-MLP-u ON idw_p': 1.0,
             'Mach 3 step T-MLP-u ON idw_p': 0.0,
+            'shock T-MLP-u ON virtual_uu_r_floor': 0.5,
             'LeVeque T-MLP-u OFF': 'pure_downwind reconstruction with mlp_bound=False',
             'LeVeque T-MLP-u ON': (
                 'T-MLP-u wrapper plus pure_downwind with mlp_bound=True, '

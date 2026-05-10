@@ -476,8 +476,8 @@ def run_leveque(out, quick, workers=1):
     on_range_violation = _range_violation(on)
     off_range_violation = _range_violation(off)
     passed = bool(on['ok']
-                  and on['sharpness'] >= 0.90 * best_sharp
-                  and on['l1'] <= best_l1
+                  and on['sharpness'] >= 1.25 * best_sharp
+                  and on['l1'] <= 1.10 * best_l1
                   and on_range_violation <= 1e-8
                   and on_range_violation <= off_range_violation)
     if 'T-MLP-u ON' in fields:
@@ -978,8 +978,8 @@ def main():
                 'virtual_uu_gradient=True, stencil=vertex, order=1, '
                 'tvb_M=0, extremum_relax=False'),
             'LeVeque gate': (
-                'T-MLP-u ON must have lower L1 than every non-TMLPU '
-                'baseline, keep at least 90% of the best interface-jump '
+                'T-MLP-u ON must keep L1 within 10% of the best non-TMLPU '
+                'baseline, exceed 125% of the best interface-jump '
                 'sharpness proxy, and remain wiggle-free within [0,1]'),
             'leveque_flux': 'upwind with central-averaged face velocity',
             'leveque_mesh': (

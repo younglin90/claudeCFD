@@ -337,10 +337,19 @@ def _tmlpu_off_leveque():
                  order=3, idw_p=6)
 
 
-def _tmlpu_euler():
+def _tmlpu_euler(idw_p=6.0):
     return TMLPU(tvd='superbee', mlp_bound=True, extremum_relax=False,
                  tvb_M=0.0, vertex_mlp=True, vertex_mlp_cap=2.0,
-                 virtual_uu_gradient=True, stencil='vertex', order=1)
+                 virtual_uu_gradient=True, stencil='vertex', order=1,
+                 idw_p=idw_p)
+
+
+def _tmlpu_double_mach():
+    return _tmlpu_euler(idw_p=1.0)
+
+
+def _tmlpu_mach3_step():
+    return _tmlpu_euler(idw_p=0.0)
 
 
 def _tmlpu_off_euler():
@@ -353,6 +362,12 @@ def _comparison_specs(kind):
     if kind == 'leveque':
         t_on = 'tmlpu_leveque_on'
         t_off = 'tmlpu_leveque_off'
+    elif kind == 'double_mach':
+        t_on = 'tmlpu_double_mach_on'
+        t_off = 'tmlpu_euler_off'
+    elif kind == 'mach3_step':
+        t_on = 'tmlpu_mach3_step_on'
+        t_off = 'tmlpu_euler_off'
     else:
         t_on = 'tmlpu_euler_on'
         t_off = 'tmlpu_euler_off'
@@ -382,6 +397,10 @@ def _reconstruction_from_key(key):
         return _tmlpu_leveque()
     if key == 'tmlpu_leveque_off':
         return _tmlpu_off_leveque()
+    if key == 'tmlpu_double_mach_on':
+        return _tmlpu_double_mach()
+    if key == 'tmlpu_mach3_step_on':
+        return _tmlpu_mach3_step()
     if key == 'tmlpu_euler_on':
         return _tmlpu_euler()
     if key == 'tmlpu_euler_off':
@@ -971,6 +990,8 @@ def main():
                 'vertex_mlp=True, vertex_mlp_cap=2, '
                 'virtual_uu_gradient=True, stencil=vertex, order=1, '
                 'tvb_M=0, extremum_relax=False'),
+            'Double Mach T-MLP-u ON idw_p': 1.0,
+            'Mach 3 step T-MLP-u ON idw_p': 0.0,
             'LeVeque T-MLP-u OFF': 'pure_downwind reconstruction with mlp_bound=False',
             'LeVeque T-MLP-u ON': (
                 'T-MLP-u wrapper plus pure_downwind with mlp_bound=True, '

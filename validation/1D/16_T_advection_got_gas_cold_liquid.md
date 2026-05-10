@@ -76,11 +76,19 @@ type: five_equation_1d_periodic_advection
     alpha_range_ratio > 0.88
     rho_range_ratio > 0.88
     이 케이스는 phase별 온도가 constant이고 rho_exact가 alpha_exact에 의해 직접 정해지므로, rho shape 확산을 엄격하게 잡는다.
+- sharp contact 좌측/upwind-side pre-echo 방지:
+    u0 > 0 이므로 각 material contact face의 좌측 3개 cell을 upwind-side window로 정의한다.
+    이 window에서 max |alpha_num - alpha_exact| < 1.0E-2
+    이 window에서 max |rho_num - rho_exact| / rho_range_exact < 1.0E-2
+    이 window에서 max |T_mixture_num - T_mixture_exact| / T_mixture_scale < 1.0E-2
+    즉 sharp contact의 좌측에 exact에는 없는 foot/plateau/pre-echo가 남으면 FAIL이다.
+    이 기준은 contact 자체의 물리적 jump를 벌점화하는 것이 아니라, jump 바로 앞 upstream plateau가 exact plateau와 붙어 있어야 한다는 조건이다.
 - p/u checkerboard indicator < 1.0E-8
 - T_liquid > 0, T_gas > 0
 
 - 실패 징후 :
     계면 pressure spike : energy flux와 α/mass flux inconsistency
+    contact 좌측 alpha/rho/T_mixture pre-echo : sharp-interface flux/FCT가 upwind plateau를 오염
     T_gas undershoot 또는 T_liquid overshoot : primitive recovery 불안정
     negative temperature : EOS inversion / limiter 문제
     gas mass error 증가 : 작은 gas density에서 flux cancellation 오류

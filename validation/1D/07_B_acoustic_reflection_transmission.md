@@ -87,7 +87,7 @@ $$\delta p(x, 0) = Z_L \cdot u(x, 0) \quad (\text{right-moving acoustic 초기 �
 ## 이산화 (공통 + 케이스별)
 
 - **공통 도메인**: L = **1.5 m**
-- **공통 격자**: **N = 200** (Δx = **7.5 × 10⁻³ m**)  — 사용자 요청 (계산 시간 절감, 정확도는 스킴 고도화로 확보). 모든 sub-case (07-A air-water, 07-B helium-air, 07-C argon-air) 공통 적용.
+- **공통 격자**: **N = 400** (Δx = **3.75 × 10⁻³ m**)  — 07 air-water wave shape 및 peak amplitude 검증을 위해 모든 sub-case (07-A air-water, 07-B helium-air, 07-C argon-air) 공통 적용.
 - **Acoustic CFL**: Co ≈ 0.4
 
 **케이스별 계면 위치·물질 배치·종료 시각**:
@@ -177,14 +177,15 @@ $$\delta p(x, 0) = Z_L \cdot u(x, 0) \quad (\text{right-moving acoustic 초기 �
 - 측정된 δp_incid, δp_refl, δp_trans 를 이론값과 표로 비교
 - 엔트로피 변화 `δs = c_p ln(T₂/T₁) - R ln(p₂/p₁)` 정량 (이상기체-이상기체 조합에서 ≈ 0)
 
-## PASS 기준 (2026-05-03 갱신 — diffusion-aware exact-profile AND)
+## PASS 기준 (2026-05-10 갱신 — diffusion-aware exact-profile AND)
 
 > **목표**: 07 검증은 유체 계면에서 선형 음향 반사/투과를 검증하는 케이스이므로,
 > 단순히 안정하거나 peak 위치만 맞는 결과는 PASS가 아니다. `u`, `p` 프로파일이
-> exact d'Alembert 해와 충분히 가까워야 한다. 다만 N=200 finite-volume 계산에서
+> exact d'Alembert 해와 충분히 가까워야 한다. 다만 N=400 finite-volume 계산에서
 > Air-Water처럼 큰 임피던스 차이로 투과파가 넓게 퍼지는 경우, 고주파 진동이 없고
 > 위치/상관/L2/L1이 양호하면 bounded numerical diffusion으로 인한 peak 감쇠는
-> 제한적으로 허용한다.
+> 제한적으로 허용한다. 2026-05-10 기준은 실제 validator의 strict 기준 대비
+> diffusion 관련 항목만 약 5-10% 완화하며, peak 위치와 고주파 진동 기준은 유지한다.
 
 ### 정량적 PASS 기준 (u, p exact 프로파일 — 거리별 절대값 비교 포함)
 
@@ -197,34 +198,34 @@ $$\delta p(x, 0) = Z_L \cdot u(x, 0) \quad (\text{right-moving acoustic 초기 �
 #### (A) Norm 기준 (파동 진폭 normalize)
 | 지표 | 정의 | 기준 |
 |------|------|------|
-| **L2_p / dp_wave** | `‖p_num − p_exact‖₂ / dp_wave` | **< 0.35** |
-| **L∞_p / dp_wave** | `max\|p_num − p_exact\| / dp_wave` | **< 1.00**; Air-Water는 **< 0.95** |
-| **L2_u / u_peak** | `‖u_num − u_exact‖₂ / u_peak` | **< 0.35** |
-| **L∞_u / u_peak** | `max\|u_num − u_exact\| / u_peak` | **< 1.00**; Air-Water는 **< 0.95** |
+| **L2_p / dp_wave** | `‖p_num − p_exact‖₂ / dp_wave` | **< 0.216** |
+| **L∞_p / dp_wave** | `max\|p_num − p_exact\| / dp_wave` | **< 0.81**; Air-Water는 **< 0.756** |
+| **L2_u / u_peak** | `‖u_num − u_exact‖₂ / u_peak` | **< 0.216** |
+| **L∞_u / u_peak** | `max\|u_num − u_exact\| / u_peak` | **< 0.81**; Air-Water는 **< 0.756** |
 
 #### (B) 거리별 점별 절대값 비교 (Pointwise)
 각 격자점 `x_i`에서 `ε_p(x_i) = \|p_num(x_i) − p_exact(x_i)\|`, `ε_u(x_i) = \|u_num(x_i) − u_exact(x_i)\|` 계산.
 
 | 지표 | 정의 | 기준 | 의미 |
 |------|------|------|------|
-| **frac_p** | cells 중 `ε_p(x) < 0.30 × dp_wave` 비율 | **≥ 0.65** | 65% 이상의 격자점에서 압력이 파동 진폭의 30% 이내로 exact와 일치 |
-| **frac_u** | cells 중 `ε_u(x) < 0.30 × u_peak` 비율 | **≥ 0.65** | 동일, 속도 기준 |
+| **frac_p** | cells 중 `ε_p(x) < 0.30 × dp_wave` 비율 | **≥ 0.76** | 76% 이상의 격자점에서 압력이 파동 진폭의 30% 이내로 exact와 일치 |
+| **frac_u** | cells 중 `ε_u(x) < 0.30 × u_peak` 비율 | **≥ 0.76** | 동일, 속도 기준 |
 
 #### (C) 거리 적분 오차 (L1 integrated)
 수치해와 exact 해의 차이를 전 도메인에서 적분.
 
 | 지표 | 정의 | 기준 | 의미 |
 |------|------|------|------|
-| **L1_p_norm** | `∫\|p_num − p_exact\| dx / ∫\|p_exact − p₀\| dx` | **< 1.25** | finite-N diffusion을 감안하되 오차 적분이 exact 파동 크기와 같은 차수 이내 |
-| **L1_u_norm** | `∫\|u_num − u_exact\| dx / ∫\|u_exact\| dx` | **< 1.25** | 동일, 속도 기준 |
+| **L1_p_norm** | `∫\|p_num − p_exact\| dx / ∫\|p_exact − p₀\| dx` | **< 0.648** | finite-N diffusion을 감안하되 오차 적분을 strict 기준 대비 약 8%만 완화 |
+| **L1_u_norm** | `∫\|u_num − u_exact\| dx / ∫\|u_exact\| dx` | **< 0.648** | 동일, 속도 기준 |
 
 #### (D) 프로파일 형상 일치도 (Pearson correlation)
 수치해 편차와 exact 편차의 모양이 비슷한지 측정 (위상/부호 체크).
 
 | 지표 | 정의 | 기준 | 의미 |
 |------|------|------|------|
-| **corr_p** | `corr(p_num − p₀, p_exact − p₀)` | **> 0.80** | 압력 프로파일 모양/위상/부호가 exact와 강하게 일치 |
-| **corr_u** | `corr(u_num, u_exact)` | **> 0.80** | 속도 프로파일 모양/위상/부호가 exact와 강하게 일치 |
+| **corr_p** | `corr(p_num − p₀, p_exact − p₀)` | **> 0.88** | 압력 프로파일 모양/위상/부호가 exact와 강하게 일치 |
+| **corr_u** | `corr(u_num, u_exact)` | **> 0.88** | 속도 프로파일 모양/위상/부호가 exact와 강하게 일치 |
 
 #### 추가 안정성 기준
 - `finite`: NaN/Inf 없음 (필수)
@@ -236,6 +237,8 @@ $$\delta p(x, 0) = Z_L \cdot u(x, 0) \quad (\text{right-moving acoustic 초기 �
 - `peak_ok`: acoustic peak 위치가 exact d'Alembert 위치와 일치
   - Air-Water는 절대 peak 위치를 `<= 3 cells` 이내로 요구한다.
   - signed max/min peak는 exact signed extremum이 절대 peak의 10% 이상일 때만 `<= 3 cells` 기준을 적용한다.
+- `peak_amp_ok`: acoustic peak 진폭은 diffusion을 고려해 exact peak의 `0.80-1.15` 범위까지 허용한다.
+- `wave_symmetry_ok`: Air-Water를 포함한 각 국소 acoustic wave의 좌우 비대칭도는 `<= 0.38` 이어야 한다.
 
 ### 왜 4가지 metric을 모두 요구하는가
 
@@ -278,15 +281,17 @@ $$\delta p(x, 0) = Z_L \cdot u(x, 0) \quad (\text{right-moving acoustic 초기 �
 | 3 | `osc_ok` (계면 주변 checkerboard/ringing 없음) | 안정성 |
 | 4 | `hf_oscillation_ok` (smooth/sharp 영역 고주파 진동 없음) | 안정성 |
 | 5 | `peak_ok` (필수 peak 위치 `<= 3 cells`) | 안정성/위상 |
-| 6 | `L2_p / dp_wave < 0.35` | (A) Norm |
-| 7 | `L2_u / u_peak < 0.35` | (A) Norm |
-| 8 | `L∞_p / dp_wave < 1.00`, Air-Water는 `< 0.95` | (A) Norm, diffusion-aware peak 감쇠 허용 |
-| 9 | `L∞_u / u_peak < 1.00`, Air-Water는 `< 0.95` | (A) Norm, diffusion-aware peak 감쇠 허용 |
-| 10 | `frac_p ≥ 0.65` | (B) Pointwise |
-| 11 | `frac_u ≥ 0.65` | (B) Pointwise |
-| 12 | `L1_p_norm < 1.25` | (C) L1 integrated |
-| 13 | `L1_u_norm < 1.25` | (C) L1 integrated |
-| 14 | `corr_p > 0.80` AND `corr_u > 0.80` | (D) Shape |
+| 6 | `L2_p / dp_wave < 0.216` | (A) Norm |
+| 7 | `L2_u / u_peak < 0.216` | (A) Norm |
+| 8 | `L∞_p / dp_wave < 0.81`, Air-Water는 `< 0.756` | (A) Norm, diffusion-aware peak 감쇠 허용 |
+| 9 | `L∞_u / u_peak < 0.81`, Air-Water는 `< 0.756` | (A) Norm, diffusion-aware peak 감쇠 허용 |
+| 10 | `frac_p ≥ 0.76` | (B) Pointwise |
+| 11 | `frac_u ≥ 0.76` | (B) Pointwise |
+| 12 | `L1_p_norm < 0.648` | (C) L1 integrated |
+| 13 | `L1_u_norm < 0.648` | (C) L1 integrated |
+| 14 | `corr_p > 0.88` AND `corr_u > 0.88` | (D) Shape |
+| 15 | `0.80 <= peak_amp_ratio <= 1.15` | diffusion-aware peak amplitude |
+| 16 | `wave_symmetry <= 0.38` | wave shape symmetry |
 
 ### 추가 진단 측정 (리포팅 필수, PASS 판단 보조)
 
@@ -304,7 +309,8 @@ $$\delta p(x, 0) = Z_L \cdot u(x, 0) \quad (\text{right-moving acoustic 초기 �
 ### Diffusion-aware 완화 기준의 범위
 
 이 기준은 이전 Round 18의 “diffusion-aware OR PASS”처럼 별도 우회 조건을 두지 않는다.
-완화는 L∞/L1/frac/corr 임계값 자체에만 반영하고, 모든 항목은 여전히 AND로 결합한다.
+완화는 L2/L∞/L1/frac/corr/peak amplitude/wave symmetry 임계값 자체에만 반영하고,
+모든 항목은 여전히 AND로 결합한다.
 
 - 파동 peak 위치와 부호가 맞아도 진폭이 크게 감쇠되면 07의 음향 전달 검증 목적을 만족하지 못한다.
 - `corr>0.50`, `Lip<2.0` 수준의 완화 기준은 사용자가 그래프에서 확인한 심한 수치 diffusion을 PASS시킬 수 있다.
@@ -359,18 +365,18 @@ Argon-Air : L2p=0.0147, Lip=0.0641, L2u=0.0191, Liu=0.0856,
 
 ---
 
-## 솔버 (현재 검증 드라이버, 2026-05-02)
+## 솔버 (현재 검증 드라이버, 2026-05-10)
 
 - **솔버**: `solver.five_eq_IMEX.main.solve(..., time_integrator='imex_ad')`
-- **격자**: N=200 (Δx=7.5mm)
+- **격자**: N=400 (Δx=3.75mm)
 - **CFL**: acoustic/material CFL ≈ 0.4
-- **alpha scheme**: MSTACS sharp-interface advection
+- **alpha scheme**: THINC-BVD sharp-interface advection
 - **primitive scheme**: T-MLP-u + Superbee TVD limiter
 - **acoustic face**: 순수상 acoustic MUSCL reconstruction 활성
 - **acoustic residual**: pressure-wave cell에서 `theta=0.5`
 - **검증 실행**: `.codex-loop/verify_02_07_acceptance.py`의 `verify_07_B()`
-- **PASS 기준**: 2026-05-02 strict exact-profile AND 기준
-- **결과 상태**: 2026-05-02 최종 설정에서 Air-Water, Helium-Air, Argon-Air 모두 PASS
+- **PASS 기준**: 2026-05-10 diffusion-aware exact-profile AND 기준
+- **결과 상태**: diffusion 관련 항목을 strict 기준 대비 5-10% 완화하되, peak 위치/HF oscillation은 strict 유지
 
 ## 결과 산출물
 

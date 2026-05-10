@@ -48,8 +48,10 @@ T_MIX_TRANSPORT_L1_TOL = 5.0e-2
 T_MIX_TRANSPORT_LINF_TOL = 2.5e-1
 T_ACTIVE_HF_TOL = 1.0e-2
 T_ACTIVE_TV_EXCESS_TOL = 1.2e-2
-T_ACTIVE_HF_MAX_TOL = 2.0e-2
-T_ACTIVE_TV_EXCESS_MAX_TOL = 3.0e-2
+T_ACTIVE_HF_MAX_TOL = 1.0e-2
+T_ACTIVE_TV_EXCESS_MAX_TOL = 1.0e-2
+CASE16_UPWIND_CONTACT_TOL = 1.0e-2
+CASE16_UPWIND_CONTACT_WINDOW = 3
 SMOOTH_HF_TOL = 8.0e-3
 SMOOTH_TV_EXCESS_TOL = 8.0e-3
 SMOOTH_HF_MAX_TOL = 1.2e-2
@@ -57,10 +59,17 @@ SMOOTH_TV_EXCESS_MAX_TOL = 2.0e-2
 # 18_T has smooth alpha/rho profiles; visible local wiggle should fail even
 # when the integral diffusion/error is acceptable.  Use separate alpha/rho
 # limits because density is EOS-amplified while alpha is bounded in [0, 1].
-THERMAL_ALPHA_SMOOTH_HF_MAX_TOL = 4.0e-3
-THERMAL_RHO_SMOOTH_HF_MAX_TOL = 8.0e-3
-THERMAL_ALPHA_SMOOTH_TV_EXCESS_MAX_TOL = 9.0e-3
-THERMAL_RHO_SMOOTH_TV_EXCESS_MAX_TOL = 1.8e-2
+THERMAL_ALPHA_SMOOTH_HF_MAX_TOL = 1.0e-3
+THERMAL_RHO_SMOOTH_HF_MAX_TOL = 2.0e-3
+THERMAL_ALPHA_SMOOTH_TV_EXCESS_MAX_TOL = 4.0e-3
+THERMAL_RHO_SMOOTH_TV_EXCESS_MAX_TOL = 9.0e-3
+# 18_T also plots phase temperatures directly.  The general active-phase
+# guards above allow mild diffusion, but visible local ripples in T_liquid or
+# T_gas should fail this smooth manufactured advection test.
+THERMAL_T_ACTIVE_HF_MAX_TOL = 8.0e-4
+THERMAL_T_ACTIVE_TV_EXCESS_MAX_TOL = 2.0e-3
+CASE17_ALPHA_RHO_SMOOTH_HF_MAX_TOL = 2.5e-2
+CASE17_ALPHA_RHO_SMOOTH_TV_EXCESS_MAX_TOL = 5.0e-2
 ALPHA_RHO_GENERAL_L1_TOL = 2.0e-1
 ALPHA_RHO_TRANSPORT_L1_TOL = 7.5e-2
 ALPHA_RHO_TRANSPORT_RANGE_MIN = 0.88
@@ -371,6 +380,61 @@ def _masked_local_tv_excess_max(num, exact, scale, mask=None):
     return float(np.max(excess) / max(abs(float(scale)), 1.0)) if excess.size else 0.0
 
 
+def _case16_upwind_contact_metrics(x, alpha, alpha_exact, rho, rho_exact,
+                                   T_mix, T_mix_exact, rho_scale,
+                                   Tmix_scale):
+    """Detect the one-sided pre-echo at the upstream side of sharp contacts."""
+    x = np.asarray(x, dtype=float)
+    alpha = np.asarray(alpha, dtype=float)
+    alpha_exact = np.asarray(alpha_exact, dtype=float)
+    rho = np.asarray(rho, dtype=float)
+    rho_exact = np.asarray(rho_exact, dtype=float)
+    T_mix = np.asarray(T_mix, dtype=float)
+    T_mix_exact = np.asarray(T_mix_exact, dtype=float)
+    n = alpha.size
+    contacts = np.where(np.abs(np.diff(alpha_exact)) > 0.5)[0]
+    mask = np.zeros(n, dtype=bool)
+    width = max(int(CASE16_UPWIND_CONTACT_WINDOW), 1)
+    for i in contacts:
+        if U0 >= 0.0:
+            lo = max(0, int(i) - width + 1)
+            hi = int(i) + 1
+        else:
+            lo = int(i) + 1
+            hi = min(n, int(i) + 1 + width)
+        mask[lo:hi] = True
+    cells = int(np.count_nonzero(mask))
+    if cells < 1:
+        return {
+            "case16_upwind_contact_cells": 0,
+            "case16_upwind_contact_alpha_error": 0.0,
+            "case16_upwind_contact_rho_error": 0.0,
+            "case16_upwind_contact_Tmix_error": 0.0,
+            "case16_upwind_contact_ok": True,
+            "case16_upwind_contact_tol": float(CASE16_UPWIND_CONTACT_TOL),
+            "case16_upwind_contact_window": int(width),
+        }
+    alpha_err = float(np.max(np.abs(alpha[mask] - alpha_exact[mask])))
+    rho_err = float(np.max(np.abs(rho[mask] - rho_exact[mask]))
+                    / max(float(rho_scale), 1.0))
+    tmix_err = float(np.max(np.abs(T_mix[mask] - T_mix_exact[mask]))
+                     / max(float(Tmix_scale), 1.0))
+    ok = bool(
+        alpha_err < CASE16_UPWIND_CONTACT_TOL
+        and rho_err < CASE16_UPWIND_CONTACT_TOL
+        and tmix_err < CASE16_UPWIND_CONTACT_TOL
+    )
+    return {
+        "case16_upwind_contact_cells": cells,
+        "case16_upwind_contact_alpha_error": alpha_err,
+        "case16_upwind_contact_rho_error": rho_err,
+        "case16_upwind_contact_Tmix_error": tmix_err,
+        "case16_upwind_contact_ok": ok,
+        "case16_upwind_contact_tol": float(CASE16_UPWIND_CONTACT_TOL),
+        "case16_upwind_contact_window": int(width),
+    }
+
+
 def _solve_case(case):
     eos1 = _make_water_nasg()
     eos2 = _make_air_ideal()
@@ -490,7 +554,14 @@ def _solve_case(case):
     )
     metrics["Tmix_has_sharp_jump"] = bool(tmix_has_sharp_jump)
     metrics["Tmix_bounded"] = bool(tmix_bounded)
+    case16_contact_ok = True
+    if case == "16":
+        metrics.update(_case16_upwind_contact_metrics(
+            x, W[0], Wex[0], rho, rho_ex, T_mix, T_mix_ex,
+            rho_scale, Tmix_scale))
+        case16_contact_ok = bool(metrics["case16_upwind_contact_ok"])
     case17_peak_ok = True
+    case17_wiggle_ok = True
     if case == "17":
         alpha_extrema = _extrema_match_metrics(W[0], Wex[0], 1.0)
         rho_extrema = _extrema_match_metrics(rho, rho_ex, rho_scale)
@@ -510,6 +581,8 @@ def _solve_case(case):
             "case17_extrema_error_limit": CASE17_EXTREMA_ERROR_TOL,
             "case17_range_ratio_min": CASE17_RANGE_RATIO_MIN,
             "case17_range_ratio_max": CASE17_RANGE_RATIO_MAX,
+            "case17_alpha_rho_smooth_hf_max_limit": CASE17_ALPHA_RHO_SMOOTH_HF_MAX_TOL,
+            "case17_alpha_rho_smooth_tv_excess_max_limit": CASE17_ALPHA_RHO_SMOOTH_TV_EXCESS_MAX_TOL,
         })
         case17_peak_ok = bool(
             alpha_extrema["max_error_ratio"] < CASE17_EXTREMA_ERROR_TOL
@@ -525,7 +598,14 @@ def _solve_case(case):
             and rho_extrema["range_ratio"] < RHO_PEAK_RATIO_MAX
             and tmix_extrema["range_ratio"] < CASE17_RANGE_RATIO_MAX
         )
+        case17_wiggle_ok = bool(
+            metrics["alpha_smooth_hf_max_error"] < CASE17_ALPHA_RHO_SMOOTH_HF_MAX_TOL
+            and metrics["rho_smooth_hf_max_error"] < CASE17_ALPHA_RHO_SMOOTH_HF_MAX_TOL
+            and metrics["alpha_smooth_tv_excess_max"] < CASE17_ALPHA_RHO_SMOOTH_TV_EXCESS_MAX_TOL
+            and metrics["rho_smooth_tv_excess_max"] < CASE17_ALPHA_RHO_SMOOTH_TV_EXCESS_MAX_TOL
+        )
     metrics["case17_peak_ok"] = bool(case17_peak_ok)
+    metrics["case17_wiggle_ok"] = bool(case17_wiggle_ok)
     alpha_rho_ok = (
         alpha_l1 < ALPHA_RHO_GENERAL_L1_TOL
         and rho_l1 < ALPHA_RHO_GENERAL_L1_TOL
@@ -570,11 +650,17 @@ def _solve_case(case):
         metrics["case18_rho_peak_ok"] = bool(
             RHO_PEAK_RATIO_MIN <= rho_range_ratio <= RHO_PEAK_RATIO_MAX
         )
+        metrics["case18_T_active_hf_max_limit"] = float(THERMAL_T_ACTIVE_HF_MAX_TOL)
+        metrics["case18_T_active_tv_excess_max_limit"] = float(
+            THERMAL_T_ACTIVE_TV_EXCESS_MAX_TOL)
+        metrics["case18_T_wiggle_ok"] = bool(
+            metrics["T1_active_hf_max_error"] < THERMAL_T_ACTIVE_HF_MAX_TOL
+            and metrics["T2_active_hf_max_error"] < THERMAL_T_ACTIVE_HF_MAX_TOL
+            and metrics["T1_active_tv_excess_max"] < THERMAL_T_ACTIVE_TV_EXCESS_MAX_TOL
+            and metrics["T2_active_tv_excess_max"] < THERMAL_T_ACTIVE_TV_EXCESS_MAX_TOL
+        )
         case18_wiggle_ok = bool(
-            metrics["T1_active_hf_max_error"] < T_ACTIVE_HF_MAX_TOL
-            and metrics["T2_active_hf_max_error"] < T_ACTIVE_HF_MAX_TOL
-            and metrics["T1_active_tv_excess_max"] < T_ACTIVE_TV_EXCESS_MAX_TOL
-            and metrics["T2_active_tv_excess_max"] < T_ACTIVE_TV_EXCESS_MAX_TOL
+            metrics["case18_T_wiggle_ok"]
             and metrics["alpha_smooth_hf_max_error"] < THERMAL_ALPHA_SMOOTH_HF_MAX_TOL
             and metrics["rho_smooth_hf_max_error"] < THERMAL_RHO_SMOOTH_HF_MAX_TOL
             and metrics["alpha_smooth_tv_excess_max"] < THERMAL_ALPHA_SMOOTH_TV_EXCESS_MAX_TOL
@@ -601,7 +687,9 @@ def _solve_case(case):
         and metrics["alpha_smooth_tv_excess"] < SMOOTH_TV_EXCESS_TOL
         and metrics["rho_smooth_tv_excess"] < SMOOTH_TV_EXCESS_TOL
         and tmix_transport_ok
+        and case16_contact_ok
         and case17_peak_ok
+        and case17_wiggle_ok
         and case18_wiggle_ok
         and (case != "18" or metrics.get("case18_rho_peak_ok", False))
         and metrics["T1_min"] > 0.0

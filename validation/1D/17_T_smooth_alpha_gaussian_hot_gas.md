@@ -74,6 +74,13 @@ type: five_equation_1d_periodic_smooth_advection
     active-phase T local TV excess < 1.2E-2
     smooth alpha/rho high-frequency error < 8.0E-3
     smooth alpha/rho local TV excess < 8.0E-3
+- 국소 찌글거림/wiggle 방지 guard (17_T 전용):
+    smooth alpha high-frequency max error < 2.5E-2
+    smooth rho high-frequency max error < 2.5E-2
+    smooth alpha local TV excess max < 5.0E-2
+    smooth rho local TV excess max < 5.0E-2
+    L1/range/peak 기준이 Gaussian 전체 형상과 수치확산을 평가한다면, 이 기준은 Gaussian shoulder와 tail에 생기는 국소 ripple 또는 미세 checkerboard를 FAILURE로 잡기 위한 추가 기준이다.
+    단순한 bounded TVD 확산은 허용하지만, exact smooth Gaussian 위에 작게 중첩된 비물리적 고주파 wiggle은 PASS하지 않는다.
 - alpha/rho shape 보존:
     alpha_l1_ratio < 7.5E-2
     rho_l1_ratio < 7.5E-2

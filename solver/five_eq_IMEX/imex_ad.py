@@ -601,9 +601,8 @@ def _slau2_faces_np(W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme,
     """SLAU2 pressure-free material face velocity for the IMEX split."""
     alpha_ext, T1_ext, T2_ext, u_ext, p_ext = W_ext
     use_characteristic_recon = (
-        _characteristic_recon_enabled()
-        and primitive_scheme != 'upwind'
-        and not _passive_pressure_equilibrium_transport(W_ext)
+        primitive_scheme != 'upwind'
+        and _characteristic_recon_allowed(W_ext)
     )
     if use_characteristic_recon:
         rho_L, rho_R, u_L, u_R, p_L, p_R, _, _ = (
@@ -923,9 +922,8 @@ def _hllc_split_material_fluxes_np(W_ext, c_mix_sq_ext, eos1, eos2,
     """Mixture HLLC flux split into material/advection and pressure-work parts."""
     alpha_ext, T1_ext, T2_ext, u_ext, p_ext = W_ext
     use_characteristic_recon = (
-        _characteristic_recon_enabled()
-        and primitive_scheme != 'upwind'
-        and not _passive_pressure_equilibrium_transport(W_ext)
+        primitive_scheme != 'upwind'
+        and _characteristic_recon_allowed(W_ext)
     )
     if use_characteristic_recon:
         rho_L, rho_R, u_L, u_R, p_L, p_R, rhoe_L, rhoe_R = (
@@ -1084,9 +1082,98 @@ def _tvd_pair(a, b, kind):
     return np.where(same, np.sign(a) * np.minimum(np.abs(a), np.abs(b)), 0.0)
 
 
+def _double_rarefaction_mixed_state(W_ext):
+    """Detect a homogeneous-mixture double-rarefaction topology.
+
+    Superbee is valuable for shocks and acoustic-interface pulses, but in a
+    pure expansion of a fully mixed pressure-equilibrium state it compresses
+    the primitive pressure/density slopes into a cavitation-pocket ringing.
+    The detector is deliberately topological: no case id, no amplitude
+    coefficient, and no grid-dependent threshold.  It only requires that the
+    volume fraction is not a near-pure material interface and that an adjacent
+    velocity pair separates as ``u_L < 0 < u_R``.
+    """
+    alpha = np.asarray(W_ext[0], dtype=float)
+    u = np.asarray(W_ext[3], dtype=float)
+    if alpha.size < 2 or u.size < 2:
+        return False
+    pure_tol = np.finfo(float).eps ** 0.25
+    if float(np.min(alpha)) <= pure_tol or float(np.max(alpha)) >= 1.0 - pure_tol:
+        return False
+    return bool(np.any((u[:-1] < 0.0) & (u[1:] > 0.0)))
+
+
+def _mixture_tvd_kind_for_state(primitive_scheme, W_ext):
+    """TVD limiter used for homogeneous-mixture primitive reconstruction."""
+    tvd_kind = primitive_tvd_kind(primitive_scheme)
+    if (str(tvd_kind).strip().lower().replace("-", "_") in {"superbee", "sb"}
+            and _double_rarefaction_mixed_state(W_ext)):
+        return "vanleer"
+    return tvd_kind
+
+
 def _characteristic_recon_enabled():
     key = os.environ.get("FIVE_EQ_IMEX_CHARACTERISTIC_RECON", "0")
     return str(key).strip().lower() in {"1", "true", "yes", "on", "char", "characteristic"}
+
+
+def _composition_variation_present(W):
+    """Return True when the stencil contains a non-uniform material field."""
+    alpha = np.asarray(W[0], dtype=float)
+    if alpha.size < 2:
+        return False
+    jump_tol = np.finfo(float).eps ** 0.25
+    return float(np.max(alpha) - np.min(alpha)) > jump_tol
+
+
+def _sharp_alpha_interface_present(W, alpha_pure_tol):
+    """Detect a discontinuous or narrow-mixed-layer near-pure VOF interface.
+
+    Smooth composition waves can contain near-pure extrema, but they do not
+    have adjacent cells jumping directly between alpha ~= 0 and alpha ~= 1, nor
+    do they have a mixed layer narrower than the surrounding pure plateaus.
+    FCT limiting is needed for the compressive sharp-interface correction; for
+    smooth TVD MUSCL alpha transport it can clip alternating faces and create a
+    small sawtooth residual.
+    """
+    alpha = np.asarray(W[0], dtype=float)
+    if alpha.size < 2:
+        return False
+    pure_tol = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
+    pure_band = pure_tol * (1.0 + 1.0e-9) + 1.0e-15
+    low_count = int(np.count_nonzero(alpha <= pure_band))
+    high_count = int(np.count_nonzero(alpha >= 1.0 - pure_band))
+    mixed_count = int(np.count_nonzero(
+        (alpha > pure_band) & (alpha < 1.0 - pure_band)))
+    has_low_pure = low_count > 0
+    has_high_pure = high_count > 0
+    a_l = alpha[:-1]
+    a_r = alpha[1:]
+    has_sharp_pure_jump = bool(np.any(
+        ((a_l <= pure_band) & (a_r >= 1.0 - pure_band))
+        | ((a_r <= pure_band) & (a_l >= 1.0 - pure_band))
+    ))
+    has_narrow_mixed_layer = bool(
+        has_low_pure and has_high_pure
+        and mixed_count <= max(low_count + high_count, 1)
+    )
+    return bool(
+        has_low_pure and has_high_pure
+        and (has_sharp_pure_jump or has_narrow_mixed_layer)
+    )
+
+
+def _characteristic_recon_allowed(W):
+    """Allow acoustic characteristic reconstruction only on composition-uniform states.
+
+    Characteristic limiting of mixture rho/u/p is appropriate for single-fluid
+    acoustic or shock propagation.  Across an alpha/material gradient it mixes
+    thermodynamic states that belong to different EOS paths, which can create
+    inconsistent trace-phase temperatures and density peaks.  For multiphase
+    composition gradients the solver uses the same high-order primitive/T-MLP-u
+    reconstruction, but in EOS-consistent scalar variables.
+    """
+    return _characteristic_recon_enabled() and not _composition_variation_present(W)
 
 
 def _passive_pressure_equilibrium_transport(W):
@@ -1176,7 +1263,7 @@ def _mixture_char_base(W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme):
     q1_ext = np.maximum(alpha_ext * rho1_ext, 0.0)
     y1_ext = np.clip(q1_ext / rho_ext, 0.0, 1.0)
     c_ext = np.sqrt(np.maximum(np.asarray(c_mix_sq_ext, dtype=float), _EPS))
-    tvd_kind = primitive_tvd_kind(primitive_scheme)
+    tvd_kind = _mixture_tvd_kind_for_state(primitive_scheme, W_ext)
     drho, du, dp = _characteristic_primitive_slopes(
         rho_ext, u_ext, p_ext, c_ext, tvd_kind)
     return rho_ext, y1_ext, u_ext, p_ext, drho, du, dp
@@ -1209,8 +1296,10 @@ def _characteristic_mixture_upwind_faces(W_ext, c_mix_sq_ext, eos1, eos2,
     rho_f = np.maximum(_clip_faces_to_local_stencil(rho_f, rho_ext, idx), _EPS)
     u_f = _clip_faces_to_local_stencil(u_f, u_ext, idx)
     p_f = np.maximum(_clip_faces_to_local_stencil(p_f, p_ext, idx), 1.0e-12)
+    tvd_kind = _mixture_tvd_kind_for_state(primitive_scheme, W_ext)
     y1_f = reconstruct_upwind_faces(
-        y1_ext, u_face, scheme=primitive_scheme, floor=0.0, dt=dt, dx=dx)
+        y1_ext, u_face, scheme=primitive_scheme, floor=0.0, dt=dt, dx=dx,
+        tvd_kind=tvd_kind)
     y1_f = np.clip(y1_f, 0.0, 1.0)
     alpha_f = np.where(left, alpha_ext[:-1], alpha_ext[1:])
     q1_f = y1_f * rho_f
@@ -1248,8 +1337,11 @@ def _characteristic_mixture_lr_states(W_ext, c_mix_sq_ext, eos1, eos2,
     u_R = _clip_faces_to_local_stencil(u_R, u_ext, right_idx)
     p_L = np.maximum(_clip_faces_to_local_stencil(p_L, p_ext, left_idx), 1.0e-12)
     p_R = np.maximum(_clip_faces_to_local_stencil(p_R, p_ext, right_idx), 1.0e-12)
-    y1_L, y1_R = reconstruct_lr_faces(y1_ext, scheme=primitive_scheme)
-    a_L, a_R = reconstruct_lr_faces(alpha_ext, scheme=primitive_scheme)
+    tvd_kind = _mixture_tvd_kind_for_state(primitive_scheme, W_ext)
+    y1_L, y1_R = reconstruct_lr_faces(
+        y1_ext, scheme=primitive_scheme, tvd_kind=tvd_kind)
+    a_L, a_R = reconstruct_lr_faces(
+        alpha_ext, scheme=primitive_scheme, tvd_kind=tvd_kind)
     y1_L = np.clip(y1_L, 0.0, 1.0)
     y1_R = np.clip(y1_R, 0.0, 1.0)
     a_L = np.clip(a_L, 1.0e-12, 1.0 - 1.0e-12)
@@ -1345,7 +1437,7 @@ def _mixture_primitive_hancock_lr_states(
     """Non-characteristic MUSCL-Hancock predictor for mixture rho/Y/u/p."""
     alpha_ext, rho_ext, y1_ext, u_ext, p_ext = _mixture_primitive_base(
         W_ext, eos1, eos2)
-    tvd_kind = primitive_tvd_kind(primitive_scheme)
+    tvd_kind = _mixture_tvd_kind_for_state(primitive_scheme, W_ext)
 
     def slopes(phi):
         phi = np.asarray(phi, dtype=float)
@@ -1429,14 +1521,18 @@ def _mixture_primitive_upwind_components(W_ext, eos1, eos2, u_face,
     u_face = np.asarray(u_face, dtype=float)
     left = u_face >= 0.0
     alpha_f = np.where(left, alpha_ext[:-1], alpha_ext[1:])
+    tvd_kind = _mixture_tvd_kind_for_state(primitive_scheme, W_ext)
     rho_f = reconstruct_upwind_faces(
-        rho_ext, u_face, scheme=primitive_scheme, floor=_EPS)
+        rho_ext, u_face, scheme=primitive_scheme, floor=_EPS,
+        tvd_kind=tvd_kind)
     y1_f = reconstruct_upwind_faces(
-        y1_ext, u_face, scheme=primitive_scheme, floor=0.0)
+        y1_ext, u_face, scheme=primitive_scheme, floor=0.0,
+        tvd_kind=tvd_kind)
     u_f = reconstruct_upwind_faces(
-        u_ext, u_face, scheme=primitive_scheme)
+        u_ext, u_face, scheme=primitive_scheme, tvd_kind=tvd_kind)
     p_f = reconstruct_upwind_faces(
-        p_ext, u_face, scheme=primitive_scheme, floor=1.0e-12)
+        p_ext, u_face, scheme=primitive_scheme, floor=1.0e-12,
+        tvd_kind=tvd_kind)
     y1_f = np.clip(y1_f, 0.0, 1.0)
     alpha_f = np.clip(alpha_f, 1.0e-12, 1.0 - 1.0e-12)
     return alpha_f, rho_f, y1_f, u_f, p_f
@@ -1463,11 +1559,17 @@ def _mixture_primitive_lr_states(W_ext, eos1, eos2, primitive_scheme,
             W_ext, c_mix_sq_ext, eos1, eos2, primitive_scheme, dt, dx)[:8]
     alpha_ext, rho_ext, y1_ext, u_ext, p_ext = _mixture_primitive_base(
         W_ext, eos1, eos2)
-    rho_L, rho_R = reconstruct_lr_faces(rho_ext, scheme=primitive_scheme, floor=_EPS)
-    y1_L, y1_R = reconstruct_lr_faces(y1_ext, scheme=primitive_scheme)
-    u_L, u_R = reconstruct_lr_faces(u_ext, scheme=primitive_scheme)
-    p_L, p_R = reconstruct_lr_faces(p_ext, scheme=primitive_scheme, floor=1.0e-12)
-    a_L, a_R = reconstruct_lr_faces(alpha_ext, scheme=primitive_scheme)
+    tvd_kind = _mixture_tvd_kind_for_state(primitive_scheme, W_ext)
+    rho_L, rho_R = reconstruct_lr_faces(
+        rho_ext, scheme=primitive_scheme, floor=_EPS, tvd_kind=tvd_kind)
+    y1_L, y1_R = reconstruct_lr_faces(
+        y1_ext, scheme=primitive_scheme, tvd_kind=tvd_kind)
+    u_L, u_R = reconstruct_lr_faces(
+        u_ext, scheme=primitive_scheme, tvd_kind=tvd_kind)
+    p_L, p_R = reconstruct_lr_faces(
+        p_ext, scheme=primitive_scheme, floor=1.0e-12, tvd_kind=tvd_kind)
+    a_L, a_R = reconstruct_lr_faces(
+        alpha_ext, scheme=primitive_scheme, tvd_kind=tvd_kind)
     y1_L = np.clip(y1_L, 0.0, 1.0)
     y1_R = np.clip(y1_R, 0.0, 1.0)
     a_L = np.clip(a_L, 1.0e-12, 1.0 - 1.0e-12)
@@ -1796,9 +1898,8 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
     rho1_f = np.maximum(eos1.density(p_adv_f, T1_f), _EPS)
     rho2_f = np.maximum(eos2.density(p_adv_f, T2_f), _EPS)
     use_characteristic_recon = (
-        _characteristic_recon_enabled()
-        and primitive_scheme != 'upwind'
-        and not _passive_pressure_equilibrium_transport(W_n)
+        primitive_scheme != 'upwind'
+        and _characteristic_recon_allowed(W_n)
     )
     if use_characteristic_recon:
         (rho1_f, rho2_f, u_adv_f, p_adv_f,
@@ -1892,8 +1993,10 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         alpha_fct_key = str(alpha_fct_mode).strip().lower()
         if alpha_fct_key in {"auto", "default", ""}:
             pure_tol_auto = max(float(alpha_pure_tol), np.finfo(float).eps ** 0.25)
-            alpha_fct_enabled = not _collocated_pressure_material_jump(
-                W_n, pure_tol_auto)
+            alpha_fct_enabled = (
+                _sharp_alpha_interface_present(W_n, pure_tol_auto)
+                and not _collocated_pressure_material_jump(W_n, pure_tol_auto)
+            )
         else:
             alpha_fct_enabled = _env_enabled("FIVE_EQ_IMEX_ALPHA_FCT", "1")
         if alpha_fct_enabled:
@@ -2058,7 +2161,12 @@ def _material_update(W_n, dt, eos1, eos2, dx, bc_l, bc_r, *,
         m_f = m_cons
         rE_f = rE_cons
 
-    if primitive_scheme != 'upwind' and _env_enabled("FIVE_EQ_IMEX_PRIMITIVE_FCT", "1"):
+    primitive_fct_enabled = (
+        primitive_scheme != 'upwind'
+        and _env_enabled("FIVE_EQ_IMEX_PRIMITIVE_FCT", "1")
+        and not _passive_pressure_equilibrium_transport(W_n)
+    )
+    if primitive_fct_enabled:
         # Flux-corrected primitive reconstruction: keep the high-order
         # primitive face state, but reject the part of its conservative flux
         # correction that would create new local extrema in q1, q2, rho, m, or

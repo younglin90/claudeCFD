@@ -413,14 +413,12 @@ def _adaptive_bvd_alpha_face(alpha_ext, u_face, dt, dx, *, tvd_kind=None,
 
     The candidate set is fixed for every case:
 
-    * no phase-pure cells: THINC-BVD smooth-mixture transport, which suppresses
-      checkerboard-like wiggle in thermal-wave mixture states;
-    * one phase-pure side only: STACS/SUPERBEE NVD transport, a bounded
-      compressive high-resolution branch that preserves localized one-sided
-      smooth volume-fraction pulses better than plain van-Leer without using a
-      case sensor;
-    * both phase-pure sides present in the domain: MSTACS compression, so true
-      VOF material interfaces remain sharp throughout long advection.
+    * adjacent low/high phase-pure cells: CICSAM compression, so true VOF
+      material interfaces remain sharp without the upstream pre-echo observed
+      from the less compressive MSTACS branch in long passive advection;
+    * otherwise: bounded MUSCL-Hancock TVD transport, because a smooth
+      composition wave can contain near-pure extrema without being a
+      discontinuous interface.
 
     This is a single alpha method selected by volume-fraction topology, not by
     validation case id or by flow-variable tuning.
@@ -434,13 +432,28 @@ def _adaptive_bvd_alpha_face(alpha_ext, u_face, dt, dx, *, tvd_kind=None,
     pure_band = pure_tol * (1.0 + 1.0e-9) + 1.0e-15
     has_low_pure = bool(np.min(interior) <= pure_band)
     has_high_pure = bool(np.max(interior) >= 1.0 - pure_band)
+    low_count = int(np.count_nonzero(interior <= pure_band))
+    high_count = int(np.count_nonzero(interior >= 1.0 - pure_band))
+    mixed_count = int(np.count_nonzero(
+        (interior > pure_band) & (interior < 1.0 - pure_band)))
 
-    if not (has_low_pure or has_high_pure):
-        return _thinc_bvd_alpha_face(alpha_ext, u_face, dt, dx, tvd_kind=tvd_kind)
+    a_l = alpha_ext[:-1]
+    a_r = alpha_ext[1:]
+    has_sharp_pure_jump = bool(np.any(
+        ((a_l <= pure_band) & (a_r >= 1.0 - pure_band))
+        | ((a_r <= pure_band) & (a_l >= 1.0 - pure_band))
+    ))
+    has_narrow_mixed_layer = bool(
+        has_low_pure and has_high_pure
+        and mixed_count <= max(low_count + high_count, 1)
+    )
 
-    if has_low_pure and has_high_pure:
-        return _mstacs_alpha_face(alpha_ext, u_face, dt, dx)
-    return _stacs_alpha_face(alpha_ext, u_face)
+    if has_low_pure and has_high_pure and (
+            has_sharp_pure_jump or has_narrow_mixed_layer):
+        return _cicsam_alpha_face(alpha_ext, u_face, dt, dx)
+
+    return _muscl_hancock_alpha_face(
+        alpha_ext, u_face, dt, dx, tvd_kind=tvd_kind)
 
 
 def _alpha_face(alpha_ext, u_face, dt, dx, alpha_scheme, *, tvd_kind=None,

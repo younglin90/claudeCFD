@@ -279,6 +279,15 @@ class TMLPU(Reconstruction):
     # TVD schemes, values up to 2.0 can be used while still respecting
     # the vertex bounds; this preserves SUPERBEE/pure-downwind sharpness
     # where the local maximum principle permits it.
+    vertex_mlp_face_local: bool = True
+    # When face nodes are available, compute the vertex-MLP cap from the
+    # two vertices of the reconstructed face rather than the cell-wide
+    # minimum over every vertex.  This keeps the PYG vertex bound but avoids
+    # a remote vertex over-limiting unrelated face-side TVD increments.
+    vertex_mlp_face_relax: float = 1.0
+    # Safety factor for the face-local vertex cap.  1.0 reproduces the
+    # conservative cell-wide PYG cap; >1 allows limited face-local relaxation
+    # while keeping the original cell-wide cap as a positivity/stability guard.
     tvb_M: float = 0.0   # Cockburn-Shu TVB modulus (M·h² LMP tolerance)
     virtual_uu_gradient: bool = False
     # When True, the slope ratio r = (φ_U − φ_UU)/(φ_D − φ_U) uses a
@@ -287,6 +296,11 @@ class TMLPU(Reconstruction):
     # geometric face-neighbour search and works on any unstructured mesh.
     #     φ_UU_virt = φ_D − 2·∇φ_U · (x_D − x_U)
     #     ⇒ φ_U − φ_UU_virt = −Δ⁺ + 2·∇φ_U · d_UD
+    virtual_uu_r_floor: float = 0.0
+    # Optional floor for the virtual-UU TVD ratio on monotone face jumps.
+    # Default 0 leaves the classical limiter untouched.  Positive values
+    # counteract excessive LSQ smoothing of r on wide vertex stencils; the
+    # vertex/LMP bound still clips the final face value.
     cicsam_full: bool = False
     # Full CICSAM (Ubbink 1997) in NVD framework:
     #   • Hyper-C arm (sharp): φ̃_f^HC = min(1, φ̃_C/Co)
@@ -751,6 +765,8 @@ class TMLPU(Reconstruction):
         # Augmented with TVB (Cockburn-Shu) tolerance M·h² so smooth
         # extrema do not get pinned by the LMP.
         psi_vertex_cell = None
+        psi_vertex_face_o = None
+        psi_vertex_face_n = None
         if self.vertex_mlp and ctx['vertex_offsets'] is not None:
             v2c_safe = ctx['v2c_safe']
             v2c_valid = ctx['v2c_valid']
@@ -758,8 +774,38 @@ class TMLPU(Reconstruction):
                                       ctx['cell_node_arr'], 0)
             cell_node_valid = ctx['cell_node_valid']
             vertex_offsets = ctx['vertex_offsets']  # (N, V, 2)
+            face_node_safe = ctx.get('face_node_int_safe')
+            face_node_valid = ctx.get('face_node_int_valid')
 
             psi_vertex_cell = np.ones((nvar, N), dtype=float)
+            if (self.vertex_mlp_face_local
+                    and face_node_safe is not None
+                    and face_node_valid is not None
+                    and interior.size > 0):
+                psi_vertex_face_o = np.ones((nvar, interior.size), dtype=float)
+                psi_vertex_face_n = np.ones((nvar, interior.size), dtype=float)
+
+            def _vertex_psi_from_projection(proj, W_C, phi_min_at_node,
+                                            phi_max_at_node, valid_mask,
+                                            psi_cap):
+                allowed_max = phi_max_at_node - W_C[..., None] + tvb_eps
+                allowed_min = phi_min_at_node - W_C[..., None] - tvb_eps
+                W_scale = max(float(np.max(np.abs(W_C))), 1e-30)
+                eps = 1e-12 * W_scale
+                psi_each = np.full_like(proj, psi_cap)
+                pos = proj > eps
+                neg = proj < -eps
+                psi_each = np.where(
+                    pos,
+                    np.minimum(psi_cap, allowed_max / np.maximum(proj, eps)),
+                    psi_each)
+                psi_each = np.where(
+                    neg,
+                    np.minimum(psi_cap, allowed_min / np.minimum(proj, -eps)),
+                    psi_each)
+                psi_each = np.where(valid_mask, psi_each, psi_cap)
+                return np.clip(psi_each, 0.0, psi_cap)
+
             for v in range(nvar):
                 W_at_vc = W_cell[v, v2c_safe]                  # (Nnodes, max_v2c)
                 # Use np.where + min/max instead of nanmin/max (slow).
@@ -776,28 +822,34 @@ class TMLPU(Reconstruction):
                 W_C = W_cell[v]
                 phi_min_at_node = phi_min_v[cell_node_safe]    # (N, V)
                 phi_max_at_node = phi_max_v[cell_node_safe]
-                # ─── Fix 2: TVB tolerance M·h² added to bounds ──────────
-                allowed_max = phi_max_at_node - W_C[:, None] + tvb_eps
-                allowed_min = phi_min_at_node - W_C[:, None] - tvb_eps
-                # Field-relative epsilon (not absolute 1e-30) — guards
-                # divide when ∇φ·δ is tiny vs the local field magnitude.
-                W_scale = max(float(np.max(np.abs(W_C))), 1e-30)
-                eps = 1e-12 * W_scale
                 psi_cap = float(np.clip(self.vertex_mlp_cap, 0.0, 2.0))
-                psi_v_each = np.full_like(proj, psi_cap)
-                pos = proj > eps
-                neg = proj < -eps
-                psi_v_each = np.where(
-                    pos,
-                    np.minimum(psi_cap, allowed_max / np.maximum(proj, eps)),
-                    psi_v_each)
-                psi_v_each = np.where(
-                    neg,
-                    np.minimum(psi_cap, allowed_min / np.minimum(proj, -eps)),
-                    psi_v_each)
-                psi_v_each = np.where(cell_node_valid, psi_v_each, psi_cap)
-                psi_v_each = np.clip(psi_v_each, 0.0, psi_cap)
+                # ─── Fix 2: TVB tolerance M·h² added to bounds ──────────
+                psi_v_each = _vertex_psi_from_projection(
+                    proj, W_C, phi_min_at_node, phi_max_at_node,
+                    cell_node_valid, psi_cap)
                 psi_vertex_cell[v] = np.min(psi_v_each, axis=1)
+                if psi_vertex_face_o is not None:
+                    face_vertex_xy = mesh.nodes[face_node_safe]
+                    int_o_idx = owner[interior]
+                    int_n_idx = nei[interior]
+
+                    off_o = face_vertex_xy - mesh.cell_centers[int_o_idx, None, :]
+                    proj_o = (grad_x[int_o_idx, None] * off_o[..., 0]
+                              + grad_y[int_o_idx, None] * off_o[..., 1])
+                    phi_min_face = phi_min_v[face_node_safe]
+                    phi_max_face = phi_max_v[face_node_safe]
+                    psi_o_each = _vertex_psi_from_projection(
+                        proj_o, W_cell[v, int_o_idx], phi_min_face,
+                        phi_max_face, face_node_valid, psi_cap)
+                    psi_vertex_face_o[v] = np.min(psi_o_each, axis=1)
+
+                    off_n = face_vertex_xy - mesh.cell_centers[int_n_idx, None, :]
+                    proj_n = (grad_x[int_n_idx, None] * off_n[..., 0]
+                              + grad_y[int_n_idx, None] * off_n[..., 1])
+                    psi_n_each = _vertex_psi_from_projection(
+                        proj_n, W_cell[v, int_n_idx], phi_min_face,
+                        phi_max_face, face_node_valid, psi_cap)
+                    psi_vertex_face_n[v] = np.min(psi_n_each, axis=1)
 
         # 3) Default first-order (overridden for interior below).
         W_L = np.empty((nvar, n_faces), dtype=float)
@@ -920,12 +972,19 @@ class TMLPU(Reconstruction):
             else:
                 delta_minus = np.where(valid_o, phi_U - phi_UU, 0.0)
             r = delta_minus / safe_dp
+            if self.virtual_uu_r_floor > 0.0:
+                r = np.maximum(r, float(self.virtual_uu_r_floor))
             psi_tvd = self._psi_tvd(r)
             psi_tvd = np.where(is_zero_dp, 2.0, psi_tvd)
 
             if self.mlp_bound:
                 if psi_vertex_cell is not None:
-                    psi_v_o = psi_vertex_cell[v, o_idx]
+                    if psi_vertex_face_o is not None:
+                        relax = max(float(self.vertex_mlp_face_relax), 1.0)
+                        psi_v_o = np.minimum(psi_vertex_face_o[v],
+                                             relax * psi_vertex_cell[v, o_idx])
+                    else:
+                        psi_v_o = psi_vertex_cell[v, o_idx]
                     psi_lmp = np.minimum(psi_tvd, psi_v_o)
                 else:
                     phi_min = phi_min_cell[v, o_idx] - tvb_eps
@@ -988,12 +1047,19 @@ class TMLPU(Reconstruction):
             else:
                 delta_minus = np.where(valid_n, phi_U - phi_UU, 0.0)
             r = delta_minus / safe_dp
+            if self.virtual_uu_r_floor > 0.0:
+                r = np.maximum(r, float(self.virtual_uu_r_floor))
             psi_tvd = self._psi_tvd(r)
             psi_tvd = np.where(is_zero_dp, 2.0, psi_tvd)
 
             if self.mlp_bound:
                 if psi_vertex_cell is not None:
-                    psi_v_n = psi_vertex_cell[v, n_idx]
+                    if psi_vertex_face_n is not None:
+                        relax = max(float(self.vertex_mlp_face_relax), 1.0)
+                        psi_v_n = np.minimum(psi_vertex_face_n[v],
+                                             relax * psi_vertex_cell[v, n_idx])
+                    else:
+                        psi_v_n = psi_vertex_cell[v, n_idx]
                     psi_lmp = np.minimum(psi_tvd, psi_v_n)
                 else:
                     phi_min = phi_min_cell[v, n_idx] - tvb_eps
@@ -1201,11 +1267,27 @@ class TMLPU(Reconstruction):
                 v2c_padded[vi, :len(cs)] = cs
             v2c_valid = v2c_padded >= 0
             v2c_safe = np.where(v2c_valid, v2c_padded, 0)
+            fn = getattr(mesh, 'face_nodes', None)
+            if fn and interior.size > 0:
+                n_v_per_face = max(len(vs) for vs in fn)
+                face_node_arr = np.full((mesh.n_faces, n_v_per_face), -1,
+                                        dtype=int)
+                for f, vs in enumerate(fn):
+                    face_node_arr[f, :len(vs)] = vs
+                face_node_int = face_node_arr[interior]
+                face_node_int_valid = face_node_int >= 0
+                face_node_int_safe = np.where(face_node_int_valid,
+                                              face_node_int, 0)
+            else:
+                face_node_int_safe = None
+                face_node_int_valid = None
         else:
             cell_node_arr = None
             cell_node_valid = None
             vertex_offsets = None
             v2c_padded = v2c_safe = v2c_valid = None
+            face_node_int_safe = None
+            face_node_int_valid = None
 
         ctx = dict(
             nb_padded=nb_padded, nb_safe=nb_safe, valid_nb=valid_nb,
@@ -1219,6 +1301,8 @@ class TMLPU(Reconstruction):
             cell_node_valid=cell_node_valid,
             vertex_offsets=vertex_offsets,
             v2c_safe=v2c_safe, v2c_valid=v2c_valid,
+            face_node_int_safe=face_node_int_safe,
+            face_node_int_valid=face_node_int_valid,
         )
         setattr(mesh, cache_key, ctx)
         return ctx

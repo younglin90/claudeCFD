@@ -78,14 +78,15 @@ type: five_equation_1d_periodic_thermal_advection
     smooth alpha/rho high-frequency error < 8.0E-3
     smooth alpha/rho local TV excess < 8.0E-3
 - 국소 찌글거림/wiggle 방지 guard (18_T 전용):
-    active-phase T high-frequency max error < 2.0E-2
-    active-phase T local TV excess max < 3.0E-2
-    smooth alpha high-frequency max error < 4.0E-3
-    smooth rho high-frequency max error < 8.0E-3
-    smooth alpha local TV excess max < 9.0E-3
-    smooth rho local TV excess max < 1.8E-2
+    active-phase T_liquid/T_gas high-frequency max error < 8.0E-4
+    active-phase T_liquid/T_gas local TV excess max < 2.0E-3
+    smooth alpha high-frequency max error < 1.0E-3
+    smooth rho high-frequency max error < 2.0E-3
+    smooth alpha local TV excess max < 4.0E-3
+    smooth rho local TV excess max < 9.0E-3
     기존 RMS/mean guard가 전체적으로 작은 고주파 에러만 보던 한계를 보완하여, alpha1, rho, T_liquid, T_gas 중 일부 구간에서만 나타나는 미세 떨림을 FAILURE로 잡는다.
-    2026-05-06 기준 현재 좋은 결과처럼 alpha1과 rho의 visible wiggle이 거의 없어야 PASS이며, 약한 수치확산은 허용하되 국소 고주파 찌글거림은 허용하지 않는다.
+    alpha1과 rho의 visible wiggle이 거의 없어야 PASS이며, 약한 수치확산은 허용하되 국소 고주파 찌글거림은 허용하지 않는다.
+    특히 T_liquid/T_gas는 smooth manufactured wave이므로 exact 대비 residual에 작게 남는 local ripple도 FAILURE로 잡기 위해 2026-05-10부터 별도의 active-phase T local max 기준을 사용한다.
 - smooth thermal-wave shape preservation:
     alpha_l1_ratio < 2.5E-2
     rho_l1_ratio < 2.5E-2

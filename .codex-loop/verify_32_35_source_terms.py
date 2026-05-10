@@ -295,7 +295,7 @@ def run_33():
         )
     eos_liq = _make_water_nasg()
     eos_gas = _make_air_ideal()
-    n = int(float(os.environ.get("FIVE_EQ_IMEX_SOURCE33_N", "400")))
+    n = int(float(os.environ.get("FIVE_EQ_IMEX_SOURCE33_N", "800")))
     L = 12.0
     dx = L / n
     x = (np.arange(n) + 0.5) * dx

@@ -122,11 +122,12 @@ M ≫ 1, 압력비 10³~10⁶. Strong shock capture + positivity.
 
 시간 간격 주의:
 - 16_T의 기본 설정은 `N=100`, `dt_fixed=0.0005`, `t_end=0.1`, material CFL `u0*dt/dx=0.5`이다.
-- 17_T의 기본 설정은 `N=190`, `dt_fixed=0.0005`, `t_end=0.1`, material CFL `u0*dt/dx=0.95`이다.
+- 17_T의 기본 설정은 Gaussian peak 보존과 smooth residual wiggle guard를 위해 `N=550`, `dt_fixed=0.0001`, `t_end=0.1`, material CFL `u0*dt/dx=0.55`이다.
 - 18_T의 기본 설정은 smooth alpha/rho wiggle guard와 98% rho amplitude guard를 위해 `N=550`, `dt_fixed=1/11000`, `t_end=0.1`, material CFL `u0*dt/dx=0.5`이다. Co=1이 되는 exact-remap성 설정은 기본 PASS 설정으로 사용하지 않는다.
 - `dt=0.01`은 01/02 pressure-equilibrium advection 검증에서 사용한 값이며, 온도차 suite의 기본값이 아니다.
 - 온도차 suite에서는 `dt=dx/u0` 자동 선택으로 Co=1이 되게 하는 exact cell-transit 설정을 사용하지 않는다.
-- PASS 기준은 수치확산 허용형이다. `p/u` 보존과 음의 온도 방지는 엄격하게 유지하되, 200-step periodic advection에서 생기는 제한적인 alpha/rho/T shape diffusion은 허용한다. 단, active-phase T high-frequency/local-TV guard와 smooth alpha/rho high-frequency/local-TV guard로 비물리적 checkerboard성 미세진동은 계속 차단한다.
+- PASS 기준은 수치확산 허용형이다. `p/u` 보존과 음의 온도 방지는 엄격하게 유지하되, periodic advection에서 생기는 제한적인 alpha/rho/T shape diffusion은 허용한다. 단, active-phase T high-frequency/local-TV guard와 smooth alpha/rho high-frequency/local-TV guard로 비물리적 checkerboard성 미세진동은 계속 차단한다.
+- 17_T/18_T는 exact 대비 residual에 작게 남는 local ripple도 잡기 위해 local max high-frequency 및 local max TV-excess 기준을 별도로 둔다. 이 기준은 평균 error가 작아도 alpha1/rho/T에 visible wiggle이 있으면 FAIL 처리한다.
 
 ---
 

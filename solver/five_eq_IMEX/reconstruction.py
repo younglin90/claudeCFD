@@ -197,7 +197,7 @@ def reconstruct_upwind_faces(phi_ext, u_face, *, scheme="upwind", floor=None,
     return face
 
 
-def reconstruct_lr_faces(phi_ext, *, scheme="upwind", floor=None):
+def reconstruct_lr_faces(phi_ext, *, scheme="upwind", floor=None, tvd_kind=None):
     """Return left/right primitive states at each face for conservative solvers."""
     scheme = normalise_primitive_scheme(scheme)
     phi_ext = np.asarray(phi_ext, dtype=float)
@@ -208,7 +208,7 @@ def reconstruct_lr_faces(phi_ext, *, scheme="upwind", floor=None):
         left = mid.copy()
         right = mid.copy()
     elif scheme in ("tmlpu", "weno3") or is_tvd_primitive_scheme(scheme):
-        tvd_kind = primitive_tvd_kind(scheme)
+        tvd_kind = primitive_tvd_kind(scheme) if tvd_kind is None else tvd_kind
         n_face = len(left)
         n_ext = len(phi_ext)
         for f in range(n_face):

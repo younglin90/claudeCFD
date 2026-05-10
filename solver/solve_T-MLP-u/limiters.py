@@ -7,6 +7,8 @@ slope ratio r = Δ_-/Δ_+ and return ψ(r) ∈ [0, 2].
   minmod     : ψ_MM(r)    = max(0, min(1, r))                        Roe 1986
   van_leer   : ψ_VL(r)    = (r + |r|)/(1 + |r|)  ≡ 2r/(1+r) for r>0  van Leer 1974
   superbee   : ψ_SB(r)    = max(0, min(2r,1), min(r,2))              Roe 1986
+  modified_superbee:
+                ψ_MSB(r) = max(0, min(1.5r,1), min(r,1.5))
   van_albada : ψ_VA(r)    = (r²+r)/(r²+1)                            van Albada 1982
   mc         : ψ_MC(r)    = max(0, min(2r, ½(1+r), 2))               monotonized central
   umist      : ψ_UMIST(r) = max(0, min(2r, ¼+¾r, ¾+¼r, 2))           Lien-Leschziner 1994
@@ -41,7 +43,8 @@ import numpy as np
 
 
 __all__ = [
-    'minmod', 'van_leer', 'superbee', 'van_albada', 'mc', 'umist',
+    'minmod', 'van_leer', 'superbee', 'modified_superbee',
+    'van_albada', 'mc', 'umist',
     'downwind',
     'minmod2',
     't_mlp_u_face_value',
@@ -70,6 +73,14 @@ def van_leer(r):
 def superbee(r):
     a = np.minimum(2.0 * r, 1.0)
     b = np.minimum(r, 2.0)
+    return np.maximum(0.0, np.maximum(a, b))
+
+
+def modified_superbee(r):
+    """Less-compressive SUPERBEE variant with Sweby cap beta=1.5."""
+    beta = 1.5
+    a = np.minimum(beta * r, 1.0)
+    b = np.minimum(r, beta)
     return np.maximum(0.0, np.maximum(a, b))
 
 
@@ -178,6 +189,8 @@ TVD_LIMITERS = {
     'minmod':       minmod,
     'van_leer':     van_leer,
     'superbee':     superbee,
+    'modified_superbee': modified_superbee,
+    'superbee15':   modified_superbee,
     'van_albada':   van_albada,
     'mc':           mc,
     'umist':        umist,

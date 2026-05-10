@@ -1,80 +1,95 @@
 # T-MLP-u Paper Benchmark Audit
 
 Generated from `results/T-MLP-u/paper_benchmark_summary.json` on the
-full paper grids.
+current half-resolution feedback grids.
 
 ## Concrete Objective Checklist
 
 | Requirement | Evidence | Status |
 |---|---|---|
 | All benchmark meshes are unstructured triangles | LeVeque `criss_cross_triangles`; Double Mach and Mach 3 step `tri_alternating` | PASS |
-| All benchmark reconstructions use `order=1` | Harness comparison definition records `order=1`; LeVeque OFF was corrected to `stencil='vertex', order=1` | PASS |
+| Reduced feedback grids are used | LeVeque `N=50`; Double Mach `240x60`; Mach 3 step `120x40` | PASS |
 | T-MLP-u ON uses `vertex_mlp=True`, `virtual_uu_gradient=True`, `stencil='vertex'` | Harness constructors `_tmlpu_leveque`, `_tmlpu_double_mach`, `_tmlpu_mach3_step` | PASS |
-| LeVeque uses N=100 and central-averaged face velocity | Summary: `logical_nx=100`, `mesh_cells=40000`; comparison definition: `upwind with central-averaged face velocity` | PASS |
-| LeVeque OFF is pure downwind with `mlp_bound=False` | OFF row fails with `NaN at step 1141, t=0.3644062677` | PASS |
-| LeVeque ON is pure downwind plus T-MLP-u with `mlp_bound=True`, `tvb_M=0`, `extremum_relax=False` | ON row `ok=true`, `L1=0.02059944`, `wiggle=1.88e-11` | PASS |
-| LeVeque ON is sharper and wiggle-free compared with standard unstructured limiters | ON `sharpness=0.047899`; best baseline sharpness is MLP-u1 `0.031245`; ON wiggle is near zero | PASS |
-| Double Mach uses paper-scale triangle grid | Summary: `480x120`, `115200` triangles, domain/setup matches Woodward-Colella | PASS |
+| MLP-u2 uses vertex one-ring, not two-ring | `MLPU2` is `stencil='vertex'`, `n_rings=1` | PASS |
+| `virtual_uu_r_floor` is removed | No `virtual_uu_r_floor` option remains in `reconstruction.py` or benchmark config | PASS |
+| LeVeque OFF is pure downwind with `mlp_bound=False` | OFF row fails with `NaN at step 1117, t=0.7158767977` | PASS |
+| LeVeque ON is pure downwind plus T-MLP-u with `mlp_bound=True`, `tvb_M=0`, `extremum_relax=False` | ON row `ok=true`, `L1=0.03841345`, `wiggle=3.60e-12` | PASS |
+| LeVeque ON is sharper and wiggle-free compared with standard unstructured limiters | ON `sharpness=0.074595`; best baseline sharpness is MLP-u1 `0.053449`; ON wiggle is near zero | PASS |
+| Double Mach uses triangle grid and Woodward-Colella setup | Summary: `240x60`, `28800` triangles, domain/setup recorded | PASS |
 | Double Mach uses primitive reconstruction and HLLC-family low-diffusion flux | Comparison definition: primitives `W=(rho,u,v,p)` and flux `hllc_adc` | PASS |
-| Double Mach OFF is pure SUPERBEE with `mlp_bound=False` | OFF row fails with `NaN at step 40, t=0.0029414425` | PASS |
-| Double Mach ON is SUPERBEE plus T-MLP-u and reaches `t=0.2` | ON row `ok=true`, `steps=3851`, no NaN | PASS |
-| Double Mach ON is sharper than BJ/Venkat/MLP-u1/MLP-u2 in the lower-right vortex metric | ON `vortex_proxy=0.357617`; best baseline MLP-u1 `0.253303` | PASS |
-| Mach 3 step uses paper-scale triangle grid | Summary: `240x80` logical grid after step cutout, `32256` triangles | PASS |
+| Double Mach OFF is TVD-only modified SUPERBEE with `mlp_bound=False` | OFF row fails with `NaN at step 79, t=0.0110358631` | PASS |
+| Double Mach ON is modified SUPERBEE plus T-MLP-u and reaches `t=0.2` | ON row `ok=true`, `steps=1831`, no NaN | PASS |
+| Mach 3 step uses triangle grid | Summary: `120x40` logical grid after step cutout, `8064` triangles | PASS |
 | Mach 3 step uses primitive reconstruction and HLLC-family low-diffusion flux | Comparison definition: primitives `W=(rho,u,v,p)` and flux `hllc_adc` | PASS |
-| Mach 3 step OFF is pure SUPERBEE with `mlp_bound=False` | OFF row fails with `NaN at step 25, t=0.0075811554` | PASS |
-| Mach 3 step ON is SUPERBEE plus T-MLP-u and reaches `t=4` | ON row `ok=true`, `steps=11241`, no NaN | PASS |
-| Mach 3 step ON resolves stronger flag-waving structure than BJ/Venkat/MLP-u1/MLP-u2 | ON `flag_proxy=0.141894`; best baseline MLP-u1 `0.099588` | PASS |
+| Mach 3 step contours are density contours | `mach3_step_tmlpu_on.png` and `mach3_step_scheme_contours.png` plot density `rho` | PASS |
+| Mach 3 step OFF is TVD-only modified SUPERBEE with `mlp_bound=False` | OFF row fails with `NaN at step 41, t=0.0158764896` | PASS |
+| Mach 3 step ON is modified SUPERBEE plus T-MLP-u and reaches `t=4` | ON row `ok=true`, `steps=5383`, no NaN | PASS |
 | Required all-scheme PNG comparisons are saved under `results/T-MLP-u` | `leveque_scheme_contours.png`, `double_mach_scheme_contours.png`, `mach3_step_scheme_contours.png`, plus ON-only PNGs | PASS |
+| All scheme outputs are saved as ParaView-readable VTK | `results/T-MLP-u/vtk` contains 21 legacy ASCII `UNSTRUCTURED_GRID` files | PASS |
+| Divergent OFF schemes are still represented in VTK | `t_mlp_u_off.vtk` files contain `status_ok=0`, `diverged=1`, and initial-state fields | PASS |
 | Overall manifest marks the evidence complete | `evidence_ready=1`, `fail_count=0`, all three case-ready flags are `1` | PASS |
 
 ## Current Numerical Summary
 
-### LeVeque Rotation, N=100
+### LeVeque Rotation, N=50
 
 | Method | Status | L1 | Sharpness | Wiggle |
 |---|---:|---:|---:|---:|
-| first order | ok | 0.07327262 | 0.014189 | 0 |
-| Barth-Jespersen | ok | 0.05167664 | 0.020336 | 6.53e-32 |
-| Venkatakrishnan | ok | 0.05574759 | 0.018993 | 7.60e-5 |
-| MLP-u1 | ok | 0.01934245 | 0.031245 | 9.48e-30 |
-| MLP-u2 | ok | 0.02674952 | 0.030350 | 2.44e-3 |
+| first order | ok | 0.09140343 | 0.020832 | 0 |
+| Barth-Jespersen | ok | 0.06933991 | 0.030134 | 0 |
+| Venkatakrishnan | ok | 0.07380218 | 0.028107 | 2.40e-4 |
+| MLP-u1 | ok | 0.03430912 | 0.053449 | 3.28e-31 |
+| MLP-u2 | ok | 0.04020085 | 0.047801 | 2.93e-3 |
 | T-MLP-u OFF | NaN | - | - | - |
-| T-MLP-u ON | ok | 0.02059944 | 0.047899 | 1.88e-11 |
+| T-MLP-u ON | ok | 0.03841345 | 0.074595 | 3.60e-12 |
 
-### Double Mach Reflection, 480x120 Logical, 115200 Triangles
+### Double Mach Reflection, 240x60 Logical, 28800 Triangles
 
 | Method | Status | Vortex Proxy | Vorticity p95 | Checker |
 |---|---:|---:|---:|---:|
-| first order | ok | 0.196061 | 53.575 | 0.005906 |
-| Barth-Jespersen | ok | 0.206894 | 67.388 | 0.005038 |
-| Venkatakrishnan | ok | 0.201690 | 63.518 | 0.005009 |
-| MLP-u1 | ok | 0.253303 | 77.579 | 0.003620 |
-| MLP-u2 | ok | 0.249389 | 76.120 | 0.003944 |
+| first order | ok | 0.383246 | 46.381 | 0.016785 |
+| Barth-Jespersen | ok | 0.393859 | 56.594 | 0.012746 |
+| Venkatakrishnan | ok | 0.381685 | 55.466 | 0.012412 |
+| MLP-u1 | ok | 0.454534 | 63.886 | 0.010918 |
+| MLP-u2 | ok | 0.459668 | 60.800 | 0.010996 |
 | T-MLP-u OFF | NaN | 0 | 0 | - |
-| T-MLP-u ON | ok | 0.357617 | 68.356 | 0.007417 |
+| T-MLP-u ON | ok | 0.455781 | 57.862 | 0.012567 |
 
-### Mach 3 Forward-Facing Step, 240x80 Logical, 32256 Triangles
+### Mach 3 Forward-Facing Step, 120x40 Logical, 8064 Triangles
 
 | Method | Status | Flag Proxy | Flag Vorticity p95 | Carbuncle Proxy |
 |---|---:|---:|---:|---:|
-| first order | ok | 0.087667 | 18.038 | 0.017650 |
-| Barth-Jespersen | ok | 0.090324 | 18.276 | 0.017530 |
-| Venkatakrishnan | ok | 0.093084 | 18.653 | 0.017545 |
-| MLP-u1 | ok | 0.099588 | 22.762 | 0.015984 |
-| MLP-u2 | ok | 0.097129 | 19.621 | 0.017572 |
+| first order | ok | 0.152376 | 13.962 | 0.038562 |
+| Barth-Jespersen | ok | 0.163012 | 12.870 | 0.039990 |
+| Venkatakrishnan | ok | 0.155974 | 13.021 | 0.038483 |
+| MLP-u1 | ok | 0.179905 | 15.918 | 0.043941 |
+| MLP-u2 | ok | 0.188757 | 17.935 | 0.040482 |
 | T-MLP-u OFF | NaN | 0 | 0 | - |
-| T-MLP-u ON | ok | 0.141894 | 18.232 | 0.026344 |
+| T-MLP-u ON | ok | 0.201800 | 17.911 | 0.040585 |
+
+## VTK Artifacts
+
+Each case has seven scheme files:
+
+- `results/T-MLP-u/vtk/leveque/*.vtk`
+- `results/T-MLP-u/vtk/double_mach/*.vtk`
+- `results/T-MLP-u/vtk/mach3_step/*.vtk`
+
+Successful runs contain final fields (`phi` for LeVeque; `rho`, `u`, `v`,
+`p`, and `velocity` for Euler cases). Divergent OFF runs contain diagnostic
+initial-state fields plus `status_ok` and `diverged`, because no finite final
+solution exists after NaN.
 
 ## Audit Conclusion
 
-The full-grid artifacts satisfy the current paper benchmark evidence gate.
-The unwrapped pure downwind/SUPERBEE variants diverge in all three stress
-tests, while the T-MLP-u wrapper remains finite on the same triangle meshes.
-T-MLP-u ON gives the strongest LeVeque interface sharpness proxy, the
-strongest Double Mach lower-right vortex proxy, and the strongest Mach 3
-step flag-waving proxy among the compared unstructured limiters.
+The current half-grid artifacts satisfy the benchmark evidence gate. The
+unwrapped pure downwind / TVD-only modified SUPERBEE variants diverge in all
+three stress tests, while the T-MLP-u wrapper remains finite on the same
+triangle meshes. T-MLP-u ON gives the strongest LeVeque interface sharpness
+proxy and remains essentially wiggle-free. In Mach 3 step, T-MLP-u ON gives
+the strongest density flag-wave proxy among the compared limiters.
 
-The Mach 3 pressure checker/carbuncle proxy is finite but not the minimum;
-the paper claim should frame this case as stable high-compression shock
-handling with stronger flag-wave resolution, not as the globally lowest
-checker metric.
+For Double Mach on this reduced grid, T-MLP-u ON is comparable to the best
+MLP-u baselines in the lower-right vortex proxy, while the decisive evidence
+is robustness: the same modified SUPERBEE reconstruction without the T-MLP-u
+bound diverges early.

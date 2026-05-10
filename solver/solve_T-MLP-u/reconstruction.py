@@ -217,16 +217,16 @@ class MLPU1(Reconstruction):
 
 @dataclass
 class MLPU2(Reconstruction):
-    """MLP-u2 comparison: two-ring vertex stencil with Venkat smooth limiter."""
+    """MLP-u2 comparison: one-ring vertex stencil with Venkat smooth limiter."""
     name: str = 'mlp_u2'
 
     def reconstruct(self, mesh, W_cell, eq, eval_points=None):
         return _limited_linear_2d(
             mesh, W_cell, eq, eval_points=eval_points,
             limiter='venkat',
-            stencil='vertex2',
+            stencil='vertex',
             vertex_bounds=True,
-            n_rings=2,
+            n_rings=1,
             venkat_K=1.0,
         )
 
@@ -296,11 +296,6 @@ class TMLPU(Reconstruction):
     # geometric face-neighbour search and works on any unstructured mesh.
     #     φ_UU_virt = φ_D − 2·∇φ_U · (x_D − x_U)
     #     ⇒ φ_U − φ_UU_virt = −Δ⁺ + 2·∇φ_U · d_UD
-    virtual_uu_r_floor: float = 0.0
-    # Optional floor for the virtual-UU TVD ratio on monotone face jumps.
-    # Default 0 leaves the classical limiter untouched.  Positive values
-    # counteract excessive LSQ smoothing of r on wide vertex stencils; the
-    # vertex/LMP bound still clips the final face value.
     cicsam_full: bool = False
     # Full CICSAM (Ubbink 1997) in NVD framework:
     #   • Hyper-C arm (sharp): φ̃_f^HC = min(1, φ̃_C/Co)
@@ -972,8 +967,6 @@ class TMLPU(Reconstruction):
             else:
                 delta_minus = np.where(valid_o, phi_U - phi_UU, 0.0)
             r = delta_minus / safe_dp
-            if self.virtual_uu_r_floor > 0.0:
-                r = np.maximum(r, float(self.virtual_uu_r_floor))
             psi_tvd = self._psi_tvd(r)
             psi_tvd = np.where(is_zero_dp, 2.0, psi_tvd)
 
@@ -1047,8 +1040,6 @@ class TMLPU(Reconstruction):
             else:
                 delta_minus = np.where(valid_n, phi_U - phi_UU, 0.0)
             r = delta_minus / safe_dp
-            if self.virtual_uu_r_floor > 0.0:
-                r = np.maximum(r, float(self.virtual_uu_r_floor))
             psi_tvd = self._psi_tvd(r)
             psi_tvd = np.where(is_zero_dp, 2.0, psi_tvd)
 

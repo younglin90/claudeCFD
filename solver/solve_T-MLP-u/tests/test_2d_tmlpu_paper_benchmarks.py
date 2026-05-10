@@ -326,7 +326,8 @@ def _tmlpu_leveque():
     return TMLPU(tvd='pure_downwind', mlp_bound=True,
                  extremum_relax=False, tvb_M=0.0,
                  virtual_uu_gradient=True, stencil='vertex2',
-                 order=3, idw_p=6, vertex_mlp=True)
+                 order=3, idw_p=6, vertex_mlp=True,
+                 vertex_mlp_cap=2.0)
 
 
 def _tmlpu_off_leveque():
@@ -972,7 +973,7 @@ def main():
             'LeVeque T-MLP-u OFF': 'pure_downwind reconstruction with mlp_bound=False',
             'LeVeque T-MLP-u ON': (
                 'T-MLP-u wrapper plus pure_downwind with mlp_bound=True, '
-                'vertex_mlp=True, vertex_mlp_cap=1, tvb_M=0, '
+                'vertex_mlp=True, vertex_mlp_cap=2, tvb_M=0, '
                 'extremum_relax=False'),
             'LeVeque gate': (
                 'T-MLP-u ON must have lower L1 than every non-TMLPU '

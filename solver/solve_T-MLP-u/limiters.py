@@ -197,7 +197,8 @@ TVD_LIMITERS = {
 
 # ─── T-MLP-u face-value helper ─────────────────────────────────────────────
 def t_mlp_u_face_value(phi_UU, phi_U, phi_D, psi_tvd_fn,
-                       hancock_courant: float = 0.0):
+                       hancock_courant: float = 0.0,
+                       alpha_f: float = 0.5):
     """Return the T-MLP-u-limited reconstructed face value.
 
     Inputs may be scalars, 1D arrays (per-face), or 2D arrays (nvar, n_faces).
@@ -205,7 +206,7 @@ def t_mlp_u_face_value(phi_UU, phi_U, phi_D, psi_tvd_fn,
 
     Steps:
         Δ_+ = φ_D − φ_U
-        δ   = ½ (1 − C_f) Δ_+
+        δ   = α_f (1 − C_f) Δ_+
         r   = (φ_U − φ_UU) / Δ_+    (safe-guarded against 0)
         ψ_TVD = psi_tvd_fn(r)
         ψ_MLP = (φ_max − φ_U)/δ if δ > 0 else (φ_min − φ_U)/δ
@@ -215,7 +216,7 @@ def t_mlp_u_face_value(phi_UU, phi_U, phi_D, psi_tvd_fn,
     Returns φ_face with shape determined by broadcasting.
     """
     delta_plus = phi_D - phi_U
-    delta = 0.5 * (1.0 - hancock_courant) * delta_plus
+    delta = alpha_f * (1.0 - hancock_courant) * delta_plus
 
     # Slope ratio for the TVD limiter — guard against |Δ_+| = 0.
     sign_dp = np.where(delta_plus >= 0.0, 1.0, -1.0)

@@ -577,13 +577,14 @@ class TMLPU(Reconstruction):
     def _reconstruct_unstructured_2d(self, mesh, W_cell, eq, eval_points=None):
         """T-MLP-u extended to unstructured 2D grids — fully vectorised.
 
-        Per cell C, an unlimited least-squares gradient ∇W_C is computed
-        from the face-neighbour data.  At face f owned by C the candidate
-        reconstruction is W̃_face = W_C + ∇W_C · (x_f − x_C).  We pair
-        this geometric δ with the user's TVD ratio r and the MLP bound:
+        Per cell C, an unlimited least-squares polynomial is computed from
+        the chosen stencil.  For standard TVD/T-MLP-u limiting, the face
+        increment is the cell-to-cell jump scaled by the geometric face
+        location coefficient α_f:
 
-            δ        = (1 − C_f) · ∇W_C · (x_f − x_C)
+            α_f      = ((x_f − x_U) · (x_D − x_U)) / |x_D − x_U|²
             Δ_+      = W_N − W_C            (cell-to-cell along U → D)
+            δ        = (1 − C_f) · α_f · Δ_+
             Δ_-      = W_C − W_UU
             r        = Δ_- / Δ_+
             ψ_TVD    = self._psi_tvd(r)
@@ -593,8 +594,9 @@ class TMLPU(Reconstruction):
             ψ_final  = max(0, min(2, ψ_TVD, ψ_MLP))
             W_face   = W_C + ψ_final · δ
 
-        Reduces to the 1D / 2D-Cartesian formulae on uniform structured
-        grids (since ∇W_C · (x_face − x_C) = ½ Δ_+ there).
+        α_f is clipped to [0, 1] for skewed unstructured faces.  It reduces
+        to the 1D / 2D-Cartesian formulae on uniform structured grids
+        because the face midpoint has α_f = 0.5.
 
         UU is chosen per face as the face-neighbour of C whose centroid
         offset is most *opposite* the downstream direction (x_D − x_C).
@@ -632,6 +634,14 @@ class TMLPU(Reconstruction):
             eval_points = mesh.face_centers
         dx_fo = eval_points[interior] - mesh.cell_centers[mesh.face_owner[interior]]
         dx_fn = eval_points[interior] - mesh.cell_centers[mesh.face_neighbour[interior]]
+        d_sq = np.einsum('ij,ij->i', d_o_int, d_o_int, optimize=True)
+        safe_d_sq = np.maximum(d_sq, 1e-30)
+        alpha_o = np.einsum('ij,ij->i', dx_fo, d_o_int,
+                            optimize=True) / safe_d_sq
+        alpha_n = np.einsum('ij,ij->i', dx_fn, -d_o_int,
+                            optimize=True) / safe_d_sq
+        alpha_o = np.clip(alpha_o, 0.0, 1.0)
+        alpha_n = np.clip(alpha_n, 0.0, 1.0)
 
         # 1) phi_min / phi_max per cell over (self ∪ chosen stencil).
         # Avoid np.nanmin/nanmax by replacing invalid neighbour slots with
@@ -859,10 +869,9 @@ class TMLPU(Reconstruction):
             phi_U  = W_cell[v, o_idx]
             phi_D  = W_cell[v, n_idx]
             phi_UU = W_cell[v, UU_o_safe]
-            delta_unl = _poly_at(coeffs[v, o_idx], dx_fo)
-            delta = one_minus_C * delta_unl
 
             delta_plus = phi_D - phi_U
+            delta = one_minus_C * alpha_o * delta_plus
             abs_dp = np.abs(delta_plus)
             is_zero_dp = abs_dp <= _EPS
             safe_dp = np.where(is_zero_dp,
@@ -962,10 +971,9 @@ class TMLPU(Reconstruction):
             phi_U  = W_cell[v, n_idx]
             phi_D  = W_cell[v, o_idx]
             phi_UU = W_cell[v, UU_n_safe]
-            delta_unl = _poly_at(coeffs[v, n_idx], dx_fn)
-            delta = one_minus_C * delta_unl
 
             delta_plus = phi_D - phi_U
+            delta = one_minus_C * alpha_n * delta_plus
             abs_dp = np.abs(delta_plus)
             is_zero_dp = abs_dp <= _EPS
             safe_dp = np.where(is_zero_dp,

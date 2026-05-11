@@ -77,6 +77,18 @@ their reported PE error for the air-water advection benchmark is
    (p, u) is uniform.  Already partly implemented in
    `_acid_rH_face` for energy but not for momentum/mass blocks.
 2. Anderson acceleration on the outer Picard loop.
-3. CICSAM/THINC-BVD slope limiter for alpha (user spec).
+3. ~~CICSAM/THINC-BVD slope limiter for alpha (user spec).~~
+   ❌ Hyper-C (CICSAM compressive arm) tried in iter 13.  At case 02
+   N=20 5 steps the compressive slope produced
+   p_rel = 1.1e-4 (vs minmod 6.5e-5, ~2x worse) and
+   psi_advected = 5.9e-5 (vs minmod 1.0e-4, ~2x less).  The
+   compressive face value amplifies the outer Picard overshoot
+   that the iter-12 relaxation was already fighting, and the
+   per-step alpha motion is smaller because Hyper-C tries to keep
+   the interface confined to a single cell.  Reverted.
 4. Material-flux upgrade to HLLC/SLAU2 with MWI face velocity
    (user spec).
+5. van Leer slope for alpha (less compressive than Hyper-C, smoother
+   than minmod) — to be tried next.
+6. Newton-Krylov / JFNK with diagonal preconditioner — relieves the
+   O(N^2) autograd Jacobian cost for larger N=100 spec runs.

@@ -329,6 +329,43 @@ def make_residual_prim_ad(
     _theta = anp.array(theta_lag)
     _K     = anp.array(K_lag)
 
+    # ---------- Physics-based residual normalization scales ----------
+    # The 4 residual blocks (mass1, momentum, energy, alpha) carry
+    # natural physical magnitudes that differ by ~10 orders of magnitude
+    # for air at 1 atm.  Without normalization the LM-regularized linear
+    # solve produces a dW whose mass/energy components are O(1) but
+    # whose alpha component is O(1e-4), so the volume fraction barely
+    # advects between Newton iterations even when the iterate has
+    # otherwise converged on the PE manifold.
+    #
+    # We rescale each residual block by an old-time, cell-wise reference
+    # quantity:
+    #   R_m1   /= rho_n                    (phase-1 mass density)
+    #   R_mom  /= rho_n * c_n              (momentum flux scale)
+    #   R_en   /= rho_n * c_n^2 + p_n      (energy flux scale)
+    #   R_a1   /= 1.0                      (already O(1))
+    #
+    # Scales are *lagged* (from W_n only), so they are constants for
+    # the autograd graph and add no Jacobian cost.  The Newton system
+    # is mathematically equivalent up to a fixed row scaling; the
+    # converged solution is unchanged, but the descent direction at
+    # each iteration now puts equal weight on the alpha equation.
+    _g1, _pinf1 = float(ph1_params[1]), float(ph1_params[2])
+    _g2, _pinf2 = float(ph2_params[1]), float(ph2_params[2])
+    _rho1_n_phys = _eos_rho_anp(_p_n, _T_n, ph1_params)
+    _rho2_n_phys = _eos_rho_anp(_p_n, _T_n, ph2_params)
+    _a1_n_safe   = anp.maximum(anp.minimum(_a1_n, 1.0 - 1e-10), 1e-10)
+    _rho_n_phys  = (_a1_n_safe * _rho1_n_phys
+                    + (1.0 - _a1_n_safe) * _rho2_n_phys)
+    _c1_sq = anp.maximum(_g1 * (_p_n + _pinf1) / (_rho1_n_phys + 1e-300), 1.0)
+    _c2_sq = anp.maximum(_g2 * (_p_n + _pinf2) / (_rho2_n_phys + 1e-300), 1.0)
+    _c_n_phys = anp.sqrt(anp.maximum(_c1_sq, _c2_sq))
+
+    _scale_m1  = anp.maximum(_rho_n_phys, 1e-3)
+    _scale_mom = anp.maximum(_rho_n_phys * _c_n_phys, 1.0)
+    _scale_en  = anp.maximum(_rho_n_phys * _c_n_phys * _c_n_phys + _p_n, 1.0)
+    _scale_a1  = anp.ones(N)
+
     # Precompute integer index arrays for ghost-extended array access.
     # We use ng=2 ghost layers so 2nd-order TVD reconstruction at every
     # face has a full 3-cell stencil (phi_UU, phi_U, phi_D) available.
@@ -664,6 +701,14 @@ def make_residual_prim_ad(
                 + (flux_a1_R - flux_a1_L) / dx
                 - a1_k * div_theta
                 - _K * div_theta)
+
+        # Apply lagged per-block residual scaling so the four blocks
+        # contribute on comparable footing in the LM normal equations
+        # (Marquardt 1963; Knoll & Keyes 2004 §3.5).
+        R_m1  = R_m1  / _scale_m1
+        R_mom = R_mom / _scale_mom
+        R_en  = R_en  / _scale_en
+        R_a1  = R_a1  / _scale_a1
 
         return anp.concatenate([R_m1, R_mom, R_en, R_a1])
 

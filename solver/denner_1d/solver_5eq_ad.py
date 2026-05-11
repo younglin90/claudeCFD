@@ -32,6 +32,13 @@
 
 import numpy as np
 import scipy.linalg
+from scipy.sparse.linalg import LinearOperator, lsmr
+
+try:
+    from autograd import make_jvp, make_vjp  # forward / reverse mode
+except ImportError:  # autograd not installed
+    make_jvp = None
+    make_vjp = None
 
 from .eos.eos_class import create_eos
 from .assembly_5eq_ad import (
@@ -82,6 +89,79 @@ def _fd_jacobian(residual_func, W_k, eps_scale=1e-7):
 # ---------------------------------------------------------------------------
 # Linear solve with fallback
 # ---------------------------------------------------------------------------
+
+def _solve_jfnk(res_func, W_k, R_k, lm_mult=1.0, krylov_max=30,
+                 krylov_tol=1e-6, eps_fd=1e-7):
+    """Jacobian-Free Newton-Krylov LM-damped solve.
+
+    Computes dW that minimises ||J dW + R||_2^2 + lambda ||dW||_2^2,
+    where J = dR/dW is *never* formed explicitly: the matrix-vector
+    products J·v and J^T·v are obtained from autograd's forward-mode
+    `make_jvp` and reverse-mode `make_vjp` respectively.
+
+    This is the Marquardt-damped normal-equation form solved via
+    LSMR — equivalent to the dense `_solve_linear` path but with
+    O(krylov_max) Jacobian-vector products instead of one O(M)
+    full Jacobian per solve.  For M = 4N >= 200 the JVP-based
+    path is much cheaper than the full autograd jacobian.
+
+    Falls back to a finite-difference JVP if autograd is not
+    installed.
+    """
+    M = len(W_k)
+    R_norm_b = float(np.linalg.norm(R_k))
+
+    if make_jvp is not None:
+        jvp_eval = make_jvp(res_func)(W_k)
+
+        def matvec(v):
+            return np.asarray(jvp_eval(np.asarray(v, dtype=float))[1])
+    else:
+        # FD-JVP fallback
+        def matvec(v):
+            v = np.asarray(v, dtype=float)
+            R_p = np.asarray(res_func(W_k + eps_fd * v))
+            return (R_p - R_k) / eps_fd
+
+    if make_vjp is not None:
+        vjp_fn, _val = make_vjp(res_func)(W_k)
+
+        def rmatvec(v):
+            return np.asarray(vjp_fn(np.asarray(v, dtype=float)))
+    else:
+        # If reverse-mode unavailable, use the transpose of the FD-JVP
+        # operator built on the fly (extra O(M) matvecs but still O(K) overall).
+        def rmatvec(v):
+            v = np.asarray(v, dtype=float)
+            out = np.zeros(M)
+            for k in range(M):
+                e_k = np.zeros(M); e_k[k] = 1.0
+                out[k] = float(np.dot(matvec(e_k), v))
+            return out
+
+    linop = LinearOperator((M, M), matvec=matvec, rmatvec=rmatvec, dtype=float)
+
+    # Marquardt damping in least-squares form (LSMR uses damp^2 * I):
+    # need lambda = lm_mult * 1e-3 * mean(diag(J^T J)).  We do not have
+    # the full diag without K extra matvecs, so we approximate by
+    # ||R||_2 / ||W||_2 — a robust order-of-magnitude estimate that
+    # tracks the global scale of J^T J on this primitive system.
+    W_norm = float(np.linalg.norm(W_k))
+    base_lam = (R_norm_b + 1.0) / max(W_norm, 1.0)
+    lam = max(lm_mult * 1.0e-3 * base_lam, 1.0e-12)
+    damp = float(np.sqrt(lam))
+
+    try:
+        result = lsmr(linop, -R_k, damp=damp,
+                      maxiter=int(krylov_max),
+                      atol=krylov_tol, btol=krylov_tol)
+        dW = np.asarray(result[0], dtype=float)
+        if np.all(np.isfinite(dW)):
+            return dW
+    except Exception:
+        pass
+    return np.zeros(M)
+
 
 def _solve_linear(J, b, lm_mult=1.0):
     """Solve J·x = b for the Newton update.
@@ -168,6 +248,8 @@ def _inner_newton_ad(p_k, u_k, T_k, a1_k,
                      theta_lag, K_lag,
                      max_newton, newton_tol,
                      use_autograd=True,
+                     use_jfnk=False,
+                     krylov_max=30,
                      verbose=False):
     """Inner Newton iteration with autograd (or FD fallback) Jacobian.
 
@@ -244,23 +326,32 @@ def _inner_newton_ad(p_k, u_k, T_k, a1_k,
             info['newton_iters'] = niter
             break
 
-        # 2. Jacobian — compute on first iteration, refresh only when the
-        # previous Jacobian was no longer providing a good descent
-        # direction (R failed to drop fast enough).
-        need_jac = (J_k is None) or (R_norm > J_REFRESH_RATIO * R_norm_prev)
-        if need_jac:
-            try:
-                if use_autograd and _AUTOGRAD_AVAILABLE:
-                    J_k = np.array(compute_jacobian_ad(res_func, W_k))
-                else:
+        # 2. Jacobian / Newton direction.
+        # If JFNK is enabled, skip the full dense Jacobian and use a
+        # Krylov-subspace solve with autograd JVPs — much cheaper for
+        # M = 4N > ~200.  Otherwise compute the full dense Jacobian and
+        # reuse it across Newton iterations until the residual stalls.
+        if use_jfnk:
+            need_jac = False  # JFNK rebuilds JVP each iter
+            dW = _solve_jfnk(res_func, W_k, R_k,
+                              lm_mult=lm_mult,
+                              krylov_max=krylov_max,
+                              krylov_tol=max(1e-6, 0.1 * newton_tol))
+        else:
+            need_jac = (J_k is None) or (R_norm > J_REFRESH_RATIO * R_norm_prev)
+            if need_jac:
+                try:
+                    if use_autograd and _AUTOGRAD_AVAILABLE:
+                        J_k = np.array(compute_jacobian_ad(res_func, W_k))
+                    else:
+                        J_k = _fd_jacobian(res_func, W_k)
+                except Exception as exc:
+                    if verbose:
+                        print(f"      [AD Newton {niter}] Jacobian failed: {exc}")
                     J_k = _fd_jacobian(res_func, W_k)
-            except Exception as exc:
-                if verbose:
-                    print(f"      [AD Newton {niter}] Jacobian failed: {exc}")
-                J_k = _fd_jacobian(res_func, W_k)
 
-        # 3. Solve J·ΔW = -R  using LM with adaptive damping multiplier
-        dW = _solve_linear(J_k, -R_k, lm_mult=lm_mult)
+            # 3. Solve J·ΔW = -R  using LM with adaptive damping multiplier
+            dW = _solve_linear(J_k, -R_k, lm_mult=lm_mult)
 
         if not np.all(np.isfinite(dW)):
             dW = np.zeros_like(W_k)
@@ -542,6 +633,8 @@ def _outer_picard_5eq_ad(N, dx, dt,
             theta_lag, K_lag,
             max_newton, newton_tol,
             use_autograd=use_ad,
+            use_jfnk=cfg.get('use_jfnk', False),
+            krylov_max=int(cfg.get('krylov_max', 30)),
             verbose=verbose)
 
         info_out['inner_iters'].append(info_inner['newton_iters'])

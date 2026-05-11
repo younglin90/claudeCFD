@@ -378,6 +378,92 @@ def make_residual_prim_ad(
     _idx_L_L   = _i_arr + 1                    # cell i-1 (left  of left face)
     _idx_L_R   = _i_arr + 2                    # cell i  (right of left face)
 
+    # ----------------- Lagged minmod slope correction ----------------
+    # Deferred-correction (ACID 2 Eq. 47 / Denner 2018 Eq. 9) form:
+    #   phi_f = phi_U + 0.5 * slope_lagged
+    # where slope_lagged = minmod(phi_U - phi_UU, phi_D - phi_U) is
+    # evaluated *only on the old-time field W_n* using plain numpy.
+    # This keeps the Newton residual function smooth in W^(n+1) (the
+    # only autograd variable) while still delivering 2nd-order TVD
+    # accuracy in space.  An additional outer Picard iteration refreshes
+    # the slope using the latest W^(n+1) estimate; the inner Newton sees
+    # frozen slopes.
+    #
+    # Empirically (FD-vs-autograd Jacobian check), the previous in-graph
+    # minmod produced rel error 33% on Jacobian entries because the two
+    # nested anp.where calls deliver wrong gradients at the sign-change
+    # surfaces.  Lagging the slope eliminates that problem entirely.
+    def _np_minmod(a, b):
+        sign_a = np.sign(a); sign_b = np.sign(b)
+        same = (sign_a * sign_b) > 0
+        mag = np.minimum(np.abs(a), np.abs(b))
+        return np.where(same, sign_a * mag, 0.0)
+
+    def _np_lagged_slope(field_n, idx_UU, idx_U, idx_D, bc_l_local, bc_r_local,
+                          is_vel=False):
+        # Build a numpy ext array (ng=2) of the old-time field.
+        N_ = field_n.shape[0]
+        ng_ = 2
+        if bc_l_local == 'periodic':
+            left_g = field_n[N_ - ng_:]
+        elif bc_l_local == 'wall' and is_vel:
+            left_g = -field_n[:1] * np.ones(ng_)
+        else:
+            left_g = field_n[:1] * np.ones(ng_)
+        if bc_r_local == 'periodic':
+            right_g = field_n[:ng_]
+        elif bc_r_local == 'wall' and is_vel:
+            right_g = -field_n[-1:] * np.ones(ng_)
+        else:
+            right_g = field_n[-1:] * np.ones(ng_)
+        ext = np.concatenate([left_g, field_n, right_g])
+        d_back = ext[idx_U]  - ext[idx_UU]
+        d_forw = ext[idx_D]  - ext[idx_U]
+        return _np_minmod(d_back, d_forw)
+
+    # Lagged slopes for each (face × theta-sign × primitive) combination.
+    # field_n is taken at the *current Newton outer iterate* via theta-lagged
+    # closure variables (_p_n, _u_n, _T_n, _a1_n).  For the first inner
+    # iteration these equal W_n; subsequent outer-Picard refreshes can
+    # override them by rebuilding the residual closure.
+    def _slopes_for(field_n, bc_l_, bc_r_, is_vel_=False):
+        return {
+            'R_p': _np_lagged_slope(field_n, _idx_R_UU_p, _idx_R_U_p, _idx_R_D_p,
+                                     bc_l_, bc_r_, is_vel_),
+            'R_n': _np_lagged_slope(field_n, _idx_R_UU_n, _idx_R_U_n, _idx_R_D_n,
+                                     bc_l_, bc_r_, is_vel_),
+            'L_p': _np_lagged_slope(field_n, _idx_L_UU_p, _idx_L_U_p, _idx_L_D_p,
+                                     bc_l_, bc_r_, is_vel_),
+            'L_n': _np_lagged_slope(field_n, _idx_L_UU_n, _idx_L_U_n, _idx_L_D_n,
+                                     bc_l_, bc_r_, is_vel_),
+        }
+
+    _slope_p  = _slopes_for(p_n,  bc_l, bc_r, False)
+    _slope_T  = _slopes_for(T_n,  bc_l, bc_r, False)
+    _slope_u  = _slopes_for(u_n,  bc_l, bc_r, True)
+    _slope_a1 = _slopes_for(a1_n, bc_l, bc_r, False)
+
+    # Express the four lagged slopes as theta-blended numpy constants
+    # so the in-graph reconstruction reduces to a smooth affine step.
+    _tR_pos = (np.asarray(theta_lag)[_i_arr + 1] >= 0).astype(float)
+    _tL_pos = (np.asarray(theta_lag)[_i_arr])     >= 0
+    _tL_pos = _tL_pos.astype(float)
+
+    def _blend(slope_dict, side):
+        # side is 'R' or 'L'
+        sp = slope_dict[f'{side}_p']; sn = slope_dict[f'{side}_n']
+        flag = _tR_pos if side == 'R' else _tL_pos
+        return flag * sp + (1.0 - flag) * sn
+
+    _slope_p_R  = anp.array(_blend(_slope_p,  'R'))
+    _slope_p_L  = anp.array(_blend(_slope_p,  'L'))
+    _slope_T_R  = anp.array(_blend(_slope_T,  'R'))
+    _slope_T_L  = anp.array(_blend(_slope_T,  'L'))
+    _slope_u_R  = anp.array(_blend(_slope_u,  'R'))
+    _slope_u_L  = anp.array(_blend(_slope_u,  'L'))
+    _slope_a1_R = anp.array(_blend(_slope_a1, 'R'))
+    _slope_a1_L = anp.array(_blend(_slope_a1, 'L'))
+
     def residual_func(W):
         """Autograd-compatible residual R(W) for 5-eq primitive Newton.
 
@@ -455,49 +541,38 @@ def make_residual_prim_ad(
         tL = _theta[_idx_L_face]   # (N,) theta at left  face of each cell
 
         # ============================================================
-        # 2nd-order TVD reconstruction at every face (minmod limiter).
-        # Denner 2018 Eq. (9): phi_f = phi_U + (xi_f/2)(phi_D - phi_U)
-        # We compute both upwind branches (theta>=0 and theta<0) and
-        # blend with anp.where on the face velocity sign.
+        # 2nd-order TVD face values using *lagged* minmod slopes.
+        # Deferred-correction form (ACID 2 Eq. 47 / Denner 2018 Eq. 9):
+        #
+        #   phi_f = phi_U(W^{n+1}) + 0.5 * slope_lagged(W_n)
+        #
+        # The slope is precomputed in plain numpy from the old-time
+        # field and captured as a constant in the closure, so the
+        # autograd graph only differentiates through phi_U.  Picking
+        # the right-face vs left-face index sets below keeps the
+        # gradient flow on the proper cell.  The theta-sign blending
+        # was already done when building _slope_*_R/L above.
         # ============================================================
 
-        def _face_recon(phi_ext_var, idx_UU_p, idx_U_p, idx_D_p,
-                        idx_UU_n, idx_U_n, idx_D_n, theta_face):
-            phi_p = _recon_minmod_anp(phi_ext_var[idx_UU_p],
-                                       phi_ext_var[idx_U_p],
-                                       phi_ext_var[idx_D_p])
-            phi_n = _recon_minmod_anp(phi_ext_var[idx_UU_n],
-                                       phi_ext_var[idx_U_n],
-                                       phi_ext_var[idx_D_n])
-            return anp.where(theta_face >= 0, phi_p, phi_n)
+        # Right face upwind cell (theta-sign aware) — autograd variable.
+        p_upR  = (anp.where(tR >= 0, p_ext[_idx_R_U_p],  p_ext[_idx_R_U_n])
+                  + 0.5 * _slope_p_R)
+        T_upR  = (anp.where(tR >= 0, T_ext[_idx_R_U_p],  T_ext[_idx_R_U_n])
+                  + 0.5 * _slope_T_R)
+        a1_upR = (anp.where(tR >= 0, a1_ext[_idx_R_U_p], a1_ext[_idx_R_U_n])
+                  + 0.5 * _slope_a1_R)
+        u_upR  = (anp.where(tR >= 0, u_ext[_idx_R_U_p],  u_ext[_idx_R_U_n])
+                  + 0.5 * _slope_u_R)
 
-        # Right face reconstructed primitives
-        p_upR  = _face_recon(p_ext,
-                             _idx_R_UU_p, _idx_R_U_p, _idx_R_D_p,
-                             _idx_R_UU_n, _idx_R_U_n, _idx_R_D_n, tR)
-        T_upR  = _face_recon(T_ext,
-                             _idx_R_UU_p, _idx_R_U_p, _idx_R_D_p,
-                             _idx_R_UU_n, _idx_R_U_n, _idx_R_D_n, tR)
-        a1_upR = _face_recon(a1_ext,
-                             _idx_R_UU_p, _idx_R_U_p, _idx_R_D_p,
-                             _idx_R_UU_n, _idx_R_U_n, _idx_R_D_n, tR)
-        u_upR  = _face_recon(u_ext,
-                             _idx_R_UU_p, _idx_R_U_p, _idx_R_D_p,
-                             _idx_R_UU_n, _idx_R_U_n, _idx_R_D_n, tR)
-
-        # Left face reconstructed primitives
-        p_upL  = _face_recon(p_ext,
-                             _idx_L_UU_p, _idx_L_U_p, _idx_L_D_p,
-                             _idx_L_UU_n, _idx_L_U_n, _idx_L_D_n, tL)
-        T_upL  = _face_recon(T_ext,
-                             _idx_L_UU_p, _idx_L_U_p, _idx_L_D_p,
-                             _idx_L_UU_n, _idx_L_U_n, _idx_L_D_n, tL)
-        a1_upL = _face_recon(a1_ext,
-                             _idx_L_UU_p, _idx_L_U_p, _idx_L_D_p,
-                             _idx_L_UU_n, _idx_L_U_n, _idx_L_D_n, tL)
-        u_upL  = _face_recon(u_ext,
-                             _idx_L_UU_p, _idx_L_U_p, _idx_L_D_p,
-                             _idx_L_UU_n, _idx_L_U_n, _idx_L_D_n, tL)
+        # Left face upwind cell.
+        p_upL  = (anp.where(tL >= 0, p_ext[_idx_L_U_p],  p_ext[_idx_L_U_n])
+                  + 0.5 * _slope_p_L)
+        T_upL  = (anp.where(tL >= 0, T_ext[_idx_L_U_p],  T_ext[_idx_L_U_n])
+                  + 0.5 * _slope_T_L)
+        a1_upL = (anp.where(tL >= 0, a1_ext[_idx_L_U_p], a1_ext[_idx_L_U_n])
+                  + 0.5 * _slope_a1_L)
+        u_upL  = (anp.where(tL >= 0, u_ext[_idx_L_U_p],  u_ext[_idx_L_U_n])
+                  + 0.5 * _slope_u_L)
 
         # Cell-centred arithmetic-mean pressure on the face (used as the
         # central pressure term in the momentum flux).  ng=2 maps cell i

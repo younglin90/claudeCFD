@@ -191,6 +191,13 @@ def _inner_newton_ad(p_k, u_k, T_k, a1_k,
                 print(f"      [AD Newton {niter}] non-finite residual")
             break
 
+        # Early exit: residual already at machine precision (e.g. PE-static
+        # cases where W_k matches the steady state exactly).
+        if R_norm < newton_tol * max(1.0, float(np.linalg.norm(W_k))):
+            info['converged'] = True
+            info['newton_iters'] = niter
+            break
+
         # 2. Jacobian
         try:
             if use_autograd and _AUTOGRAD_AVAILABLE:

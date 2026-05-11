@@ -156,6 +156,45 @@ def _eos_evol_anp(p, T, params):
 
 
 # ---------------------------------------------------------------------------
+# 2nd-order TVD reconstruction (autograd-compatible)
+# ---------------------------------------------------------------------------
+# Denner 2018 (JCP 348) Eq. (9) / ACID 2 (JCP 367) Eq. (40):
+#   phi_f = phi_U + (xi_f / 2) (phi_D - phi_U)
+# with the minmod flux limiter xi(r) acting on the upwind slope ratio
+#   r = (phi_U - phi_UU) / (phi_D - phi_U)
+# This is the canonical 2nd-order TVD reconstruction.  We express it
+# directly in the symmetric two-slope form
+#   phi_f = phi_U + 0.5 * minmod(phi_U - phi_UU, phi_D - phi_U)
+# which is equivalent for the minmod limiter and avoids dividing by a
+# potentially tiny denominator inside the autograd graph.
+
+
+def _minmod_anp(a, b):
+    """Two-argument symmetric minmod, autograd-compatible.
+
+    Returns 0 if a and b have opposite signs; otherwise the smaller-
+    magnitude value with the common sign.
+    """
+    # anp.sign returns -1, 0, +1.  Use .where for the sign-agreement test
+    # so the autograd graph stays smooth.
+    same_sign = (a * b) > 0
+    sign = anp.where(a >= 0, 1.0, -1.0)
+    mag = anp.minimum(anp.abs(a), anp.abs(b))
+    return anp.where(same_sign, sign * mag, 0.0)
+
+
+def _recon_minmod_anp(phi_UU, phi_U, phi_D):
+    """2nd-order TVD reconstruction at a face using the minmod limiter.
+
+    Inputs may be scalars or arrays.  Returns phi_face = phi_U + 0.5 * slope
+    where slope = minmod(phi_U - phi_UU, phi_D - phi_U).
+    """
+    d_back = phi_U - phi_UU
+    d_forw = phi_D - phi_U
+    return phi_U + 0.5 * _minmod_anp(d_back, d_forw)
+
+
+# ---------------------------------------------------------------------------
 # ACID energy flux helper (standard numpy, for conservative residual)
 # ---------------------------------------------------------------------------
 
@@ -291,20 +330,53 @@ def make_residual_prim_ad(
     _K     = anp.array(K_lag)
 
     # Precompute integer index arrays for ghost-extended array access.
-    # With ng=1, extended size = N+2, indices 0..N+1.
-    # For right face of cell i (f_R = i+1):
-    #   left-of-face ext index  = f_R     = i+1
-    #   right-of-face ext index = f_R+1   = i+2
-    # For left face of cell i (f_L = i):
-    #   left-of-face ext index  = f_L     = i
-    #   right-of-face ext index = f_L+1   = i+1
+    # We use ng=2 ghost layers so 2nd-order TVD reconstruction at every
+    # face has a full 3-cell stencil (phi_UU, phi_U, phi_D) available.
+    # Extended size = N + 2*ng = N + 4, indices 0..N+3.
+    # Cell i maps to ext index i + ng = i + 2.
+    #
+    # Right face of cell i is f_R = i + 1/2 with theta index f_R = i+1.
+    #   If theta[f_R] >= 0:  upwind=cell i, downwind=cell i+1
+    #     stencil ext indices:  UU=i+1, U=i+2, D=i+3
+    #   If theta[f_R] <  0:  upwind=cell i+1, downwind=cell i
+    #     stencil ext indices:  UU=i+4, U=i+3, D=i+2
+    #
+    # Left face of cell i is f_L = i - 1/2 with theta index f_L = i.
+    #   If theta[f_L] >= 0:  upwind=cell i-1, downwind=cell i
+    #     stencil ext indices:  UU=i,   U=i+1, D=i+2
+    #   If theta[f_L] <  0:  upwind=cell i,   downwind=cell i-1
+    #     stencil ext indices:  UU=i+3, U=i+2, D=i+1
     _i_arr     = np.arange(N, dtype=int)       # 0..N-1
-    _idx_R_L   = _i_arr + 1                    # left-of-right-face ext index
-    _idx_R_R   = _i_arr + 2                    # right-of-right-face ext index
-    _idx_L_L   = _i_arr                        # left-of-left-face ext index
-    _idx_L_R   = _i_arr + 1                    # right-of-left-face ext index
-    _idx_R_face = _i_arr + 1                   # right face index in theta (=f_R=i+1)
-    _idx_L_face = _i_arr                       # left  face index in theta (=f_L=i)
+
+    # Right face — positive theta branch (upwind = cell i)
+    _idx_R_UU_p = _i_arr + 1
+    _idx_R_U_p  = _i_arr + 2
+    _idx_R_D_p  = _i_arr + 3
+    # Right face — negative theta branch (upwind = cell i+1)
+    _idx_R_UU_n = _i_arr + 4
+    _idx_R_U_n  = _i_arr + 3
+    _idx_R_D_n  = _i_arr + 2
+
+    # Left face — positive theta branch (upwind = cell i-1)
+    _idx_L_UU_p = _i_arr
+    _idx_L_U_p  = _i_arr + 1
+    _idx_L_D_p  = _i_arr + 2
+    # Left face — negative theta branch (upwind = cell i)
+    _idx_L_UU_n = _i_arr + 3
+    _idx_L_U_n  = _i_arr + 2
+    _idx_L_D_n  = _i_arr + 1
+
+    # Face indices in the (N+1,) theta array.
+    _idx_R_face = _i_arr + 1                   # right face of cell i (= i+1/2)
+    _idx_L_face = _i_arr                       # left  face of cell i (= i-1/2)
+
+    # Backwards-compatible index aliases used further down for cell-centred
+    # arithmetic averages of pressure on the face (still safe with ng=2:
+    # the immediate face neighbours are still ext idx i+2, i+3).
+    _idx_R_L   = _i_arr + 2                    # cell i  (left  of right face)
+    _idx_R_R   = _i_arr + 3                    # cell i+1 (right of right face)
+    _idx_L_L   = _i_arr + 1                    # cell i-1 (left  of left face)
+    _idx_L_R   = _i_arr + 2                    # cell i  (right of left face)
 
     def residual_func(W):
         """Autograd-compatible residual R(W) for 5-eq primitive Newton.
@@ -356,12 +428,11 @@ def make_residual_prim_ad(
         ru_n = rho_n * _u_n
 
         # --------------- Ghost cell extensions ---------------
-        # ng=1: extended size = N+2, indices 0..(N+1)
-        # Cell i maps to ext index i+1 (ng=1).
-        # Face f: left-of-face ext = f,  right-of-face ext = f+1
-        # Right face of cell i (f_R=i+1): left_ext=i+1, right_ext=i+2
-        # Left  face of cell i (f_L=i  ): left_ext=i,   right_ext=i+1
-        ng = 1
+        # ng=2: extended size = N+4, indices 0..(N+3)
+        # Cell i maps to ext index i+2 (ng=2).
+        # The extra ghost layer is needed for the 3-cell stencil
+        # (phi_UU, phi_U, phi_D) of the 2nd-order TVD reconstruction.
+        ng = 2
         p_ext  = _ghost_extend_anp(p_k,  bc_l, bc_r, ng)
         T_ext  = _ghost_extend_anp(T_k,  bc_l, bc_r, ng)
         a1_ext = _ghost_extend_anp(a1_k, bc_l, bc_r, ng)
@@ -383,30 +454,65 @@ def make_residual_prim_ad(
         tR = _theta[_idx_R_face]   # (N,) theta at right face of each cell
         tL = _theta[_idx_L_face]   # (N,) theta at left  face of each cell
 
-        # Gather left/right primitives at right face of cell i
+        # ============================================================
+        # 2nd-order TVD reconstruction at every face (minmod limiter).
+        # Denner 2018 Eq. (9): phi_f = phi_U + (xi_f/2)(phi_D - phi_U)
+        # We compute both upwind branches (theta>=0 and theta<0) and
+        # blend with anp.where on the face velocity sign.
+        # ============================================================
+
+        def _face_recon(phi_ext_var, idx_UU_p, idx_U_p, idx_D_p,
+                        idx_UU_n, idx_U_n, idx_D_n, theta_face):
+            phi_p = _recon_minmod_anp(phi_ext_var[idx_UU_p],
+                                       phi_ext_var[idx_U_p],
+                                       phi_ext_var[idx_D_p])
+            phi_n = _recon_minmod_anp(phi_ext_var[idx_UU_n],
+                                       phi_ext_var[idx_U_n],
+                                       phi_ext_var[idx_D_n])
+            return anp.where(theta_face >= 0, phi_p, phi_n)
+
+        # Right face reconstructed primitives
+        p_upR  = _face_recon(p_ext,
+                             _idx_R_UU_p, _idx_R_U_p, _idx_R_D_p,
+                             _idx_R_UU_n, _idx_R_U_n, _idx_R_D_n, tR)
+        T_upR  = _face_recon(T_ext,
+                             _idx_R_UU_p, _idx_R_U_p, _idx_R_D_p,
+                             _idx_R_UU_n, _idx_R_U_n, _idx_R_D_n, tR)
+        a1_upR = _face_recon(a1_ext,
+                             _idx_R_UU_p, _idx_R_U_p, _idx_R_D_p,
+                             _idx_R_UU_n, _idx_R_U_n, _idx_R_D_n, tR)
+        u_upR  = _face_recon(u_ext,
+                             _idx_R_UU_p, _idx_R_U_p, _idx_R_D_p,
+                             _idx_R_UU_n, _idx_R_U_n, _idx_R_D_n, tR)
+
+        # Left face reconstructed primitives
+        p_upL  = _face_recon(p_ext,
+                             _idx_L_UU_p, _idx_L_U_p, _idx_L_D_p,
+                             _idx_L_UU_n, _idx_L_U_n, _idx_L_D_n, tL)
+        T_upL  = _face_recon(T_ext,
+                             _idx_L_UU_p, _idx_L_U_p, _idx_L_D_p,
+                             _idx_L_UU_n, _idx_L_U_n, _idx_L_D_n, tL)
+        a1_upL = _face_recon(a1_ext,
+                             _idx_L_UU_p, _idx_L_U_p, _idx_L_D_p,
+                             _idx_L_UU_n, _idx_L_U_n, _idx_L_D_n, tL)
+        u_upL  = _face_recon(u_ext,
+                             _idx_L_UU_p, _idx_L_U_p, _idx_L_D_p,
+                             _idx_L_UU_n, _idx_L_U_n, _idx_L_D_n, tL)
+
+        # Cell-centred arithmetic-mean pressure on the face (used as the
+        # central pressure term in the momentum flux).  ng=2 maps cell i
+        # to ext idx i+2, so _idx_R_L / _idx_R_R etc. were rebuilt above.
         p_ext_R_L  = p_ext[_idx_R_L];   p_ext_R_R  = p_ext[_idx_R_R]
-        T_ext_R_L  = T_ext[_idx_R_L];   T_ext_R_R  = T_ext[_idx_R_R]
-        a1_ext_R_L = a1_ext[_idx_R_L];  a1_ext_R_R = a1_ext[_idx_R_R]
-        u_ext_R_L  = u_ext[_idx_R_L];   u_ext_R_R  = u_ext[_idx_R_R]
-
-        # Gather left/right primitives at left face of cell i
         p_ext_L_L  = p_ext[_idx_L_L];   p_ext_L_R  = p_ext[_idx_L_R]
-        T_ext_L_L  = T_ext[_idx_L_L];   T_ext_L_R  = T_ext[_idx_L_R]
+
+        # Also need a1_ext at the immediate face neighbours for the
+        # non-conservative alpha-advection term below.  Keep these as
+        # plain upwind selects (1st-order) for the alpha source — the
+        # 2nd-order reconstruction is already used for the conservative
+        # flux above; mixing recon styles on the alpha source previously
+        # had no analytical justification in Allaire/Kapila.
+        a1_ext_R_L = a1_ext[_idx_R_L];  a1_ext_R_R = a1_ext[_idx_R_R]
         a1_ext_L_L = a1_ext[_idx_L_L];  a1_ext_L_R = a1_ext[_idx_L_R]
-        u_ext_L_L  = u_ext[_idx_L_L];   u_ext_L_R  = u_ext[_idx_L_R]
-
-        # Upwind select using anp.where (autograd-differentiable)
-        # Right face: upwind = left-of-face if tR>=0, else right-of-face
-        p_upR  = anp.where(tR >= 0, p_ext_R_L,  p_ext_R_R)
-        T_upR  = anp.where(tR >= 0, T_ext_R_L,  T_ext_R_R)
-        a1_upR = anp.where(tR >= 0, a1_ext_R_L, a1_ext_R_R)
-        u_upR  = anp.where(tR >= 0, u_ext_R_L,  u_ext_R_R)
-
-        # Left face: upwind = left-of-face if tL>=0, else right-of-face
-        p_upL  = anp.where(tL >= 0, p_ext_L_L,  p_ext_L_R)
-        T_upL  = anp.where(tL >= 0, T_ext_L_L,  T_ext_L_R)
-        a1_upL = anp.where(tL >= 0, a1_ext_L_L, a1_ext_L_R)
-        u_upL  = anp.where(tL >= 0, u_ext_L_L,  u_ext_L_R)
 
         # Upwind phase densities and volumetric internal energies
         r1_upR = _eos_rho_anp(p_upR, T_upR, ph1_params)

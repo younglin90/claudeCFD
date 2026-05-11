@@ -19,23 +19,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import signal
+import subprocess
 import sys
 import time
 import traceback
 from pathlib import Path
 
-# Per-case wall budget so baseline run stays bounded.  PASS still requires
-# the case to (a) converge within the budget and (b) hit physics PASS metric.
+# Per-case wall budget enforced via subprocess (SIGALRM is unreliable inside
+# autograd / scipy C extensions, so we run each case in a fresh python child
+# and SIGKILL it on timeout).
 CASE_WALL_BUDGET_SEC = float(os.environ.get('DENNER_CASE_BUDGET_SEC', '90'))
-
-
-class _WallBudgetExceeded(RuntimeError):
-    pass
-
-
-def _alarm_handler(signum, frame):  # noqa: ARG001
-    raise _WallBudgetExceeded(f"wall budget {CASE_WALL_BUDGET_SEC:.0f}s exceeded")
 
 import numpy as np
 import matplotlib
@@ -455,13 +448,68 @@ CASES = [
 ]
 
 
+def _worker_main(cid: str) -> int:
+    """Run a single case in-process; emit one CASE_JSON line."""
+    fn_map = dict(CASES)
+    fn = fn_map.get(cid)
+    if fn is None:
+        print("CASE_JSON " + json.dumps(
+            {'case': cid, 'pass': False, 'reason': 'unknown-case-id'}))
+        return 1
+    try:
+        r = fn()
+    except Exception as exc:  # noqa: BLE001
+        r = {'case': cid, 'pass': False, 'crash': str(exc),
+             'trace': traceback.format_exc(limit=5)}
+    print("CASE_JSON " + json.dumps(r, default=str))
+    return 0 if bool(r.get('pass', False)) else 1
+
+
+def _run_case_subproc(cid: str) -> dict:
+    """Launch the runner script in --worker mode under a wall timeout."""
+    cmd = [sys.executable, '-u', str(Path(__file__).resolve()),
+           '--worker', cid]
+    t0 = time.time()
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True,
+            timeout=CASE_WALL_BUDGET_SEC + 5.0,  # small grace
+            cwd=str(ROOT),
+        )
+    except subprocess.TimeoutExpired:
+        return {'case': cid, 'pass': False,
+                'reason': f'wall budget {CASE_WALL_BUDGET_SEC:.0f}s exceeded',
+                'wall': time.time() - t0}
+    wall = time.time() - t0
+    out = (proc.stdout or '').strip().splitlines()
+    for line in reversed(out):
+        if line.startswith('CASE_JSON '):
+            try:
+                r = json.loads(line[len('CASE_JSON '):])
+                r.setdefault('wall', wall)
+                return r
+            except Exception:  # noqa: BLE001
+                break
+    return {'case': cid, 'pass': False,
+            'reason': f'no CASE_JSON output (exit={proc.returncode})',
+            'wall': wall,
+            'stderr_tail': (proc.stderr or '')[-400:]}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="denner_1d 17-case validation runner")
     parser.add_argument("--only", type=str, default=None,
                         help="comma-separated case ids (e.g. 01,02,13)")
     parser.add_argument("--json", action="store_true",
                         help="emit per-case JSON to stdout")
+    parser.add_argument("--worker", type=str, default=None,
+                        help="(internal) run a single case and print CASE_JSON")
+    parser.add_argument("--inline", action="store_true",
+                        help="run cases in-process (no subprocess budget)")
     args = parser.parse_args()
+
+    if args.worker is not None:
+        return _worker_main(args.worker)
 
     only = set(args.only.split(',')) if args.only else None
     results = []
@@ -470,17 +518,14 @@ def main() -> int:
     for cid, fn in CASES:
         if only is not None and cid not in only:
             continue
-        signal.signal(signal.SIGALRM, _alarm_handler)
-        signal.alarm(int(CASE_WALL_BUDGET_SEC))
-        try:
-            r = fn()
-        except _WallBudgetExceeded as exc:
-            r = {'case': cid, 'pass': False, 'reason': str(exc)}
-        except Exception as exc:  # noqa: BLE001
-            r = {'case': cid, 'pass': False, 'crash': str(exc),
-                 'trace': traceback.format_exc(limit=5)}
-        finally:
-            signal.alarm(0)
+        if args.inline:
+            try:
+                r = fn()
+            except Exception as exc:  # noqa: BLE001
+                r = {'case': cid, 'pass': False, 'crash': str(exc),
+                     'trace': traceback.format_exc(limit=5)}
+        else:
+            r = _run_case_subproc(cid)
         results.append(r)
         is_pass = bool(r.get('pass', False))
         pass_count += int(is_pass)
@@ -488,7 +533,7 @@ def main() -> int:
         reason = r.get('reason') or r.get('crash') or ''
         wall = r.get('wall', None)
         wall_s = f" wall={wall:.2f}s" if isinstance(wall, (int, float)) else ""
-        print(f"[{status}] case {cid}{wall_s}  {reason}")
+        print(f"[{status}] case {cid}{wall_s}  {reason}", flush=True)
 
     total = len(results)
     print(f"\nAUTORESEARCH_METRIC pass_count={pass_count} total={total}")

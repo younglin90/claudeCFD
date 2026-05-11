@@ -241,6 +241,23 @@ def _inner_newton_ad(p_k, u_k, T_k, a1_k,
         if not np.all(np.isfinite(dW)):
             dW = np.zeros_like(W_k)
 
+        # 3b. Trust-region clip on Newton step.
+        # Even when the Jacobian is numerically exact, the primitive-
+        # variable Newton system is mildly ill-conditioned because the
+        # mass and energy block diagonals differ by ~10 orders of
+        # magnitude (e.g. d/dp(rho_water) ~ 1e-7 vs d/dT(rho_water) ~
+        # 1e-3).  Solving J dW = -R can therefore produce a dW whose
+        # ∞-norm exceeds W by many orders of magnitude — typically the
+        # velocity component blows up by 10^5x because the momentum
+        # block is the most singular.  We cap the per-iteration
+        # relative state change at TR_REL so that the line search
+        # operates within the radius of quadratic convergence.
+        TR_REL = 0.05  # 5% max relative change per Newton iter
+        ratios = np.abs(dW) / (np.abs(W_k) + 1e-10)
+        rmax = float(np.max(ratios))
+        if rmax > TR_REL:
+            dW = dW * (TR_REL / rmax)
+
         # 4. Backtracking line search (8 halvings)
         omega = 1.0
         ls_improved = False

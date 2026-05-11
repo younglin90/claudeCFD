@@ -83,21 +83,17 @@ def _fd_jacobian(residual_func, W_k, eps_scale=1e-7):
 # Linear solve with fallback
 # ---------------------------------------------------------------------------
 
-def _solve_linear(J, b):
+def _solve_linear(J, b, lm_mult=1.0):
     """Solve J·x = b for the Newton update.
 
     Approach:
     1) Row + column equilibration so the row/col max is O(1).
     2) Solve the scaled system using the *Levenberg-Marquardt damped
        normal equations*:  (J^T J + lambda I) x = J^T b,  with
-       lambda = damping_frac * mean(|diag(J^T J)|).
-       This bounds dW automatically even when J has a near-zero
-       singular value: along that direction the solution is now
-       J^T b / (eigval^2 + lambda), so the worst-case amplification
-       is 1/lambda, not 1/eigval.  For our primitive-variable Jacobian
-       eigval can be 1e-5 of the dominant scale, so the previous direct
-       solve produced dW with one component ~1e5x its physical value;
-       the LM solve eliminates that pathology in a single step.
+       lambda = lm_mult * 1e-3 * mean(|diag(J^T J)|).
+       lm_mult is the Marquardt adaptive damping multiplier carried
+       by the calling Newton loop: 1.0 by default, scaled up after a
+       residual-increasing step, scaled down after a successful step.
     3) If LM produces NaN or fails, fall back to a least-squares
        pseudo-inverse for finite output.
     """
@@ -127,7 +123,7 @@ def _solve_linear(J, b):
         JtJ = J_sc.T @ J_sc
         Jtb = J_sc.T @ b_s
         diag_mean = float(np.mean(np.abs(np.diag(JtJ))))
-        lam = max(1.0e-3 * diag_mean, 1.0e-12)
+        lam = max(lm_mult * 1.0e-3 * diag_mean, 1.0e-12)
         x_s = scipy.linalg.solve(JtJ + lam * np.eye(JtJ.shape[0]), Jtb,
                                   assume_a='sym')
         x = x_s / col_scale
@@ -205,6 +201,26 @@ def _inner_newton_ad(p_k, u_k, T_k, a1_k,
     W_k = pack_W(p_k, u_k, T_k, a1_k)
     info = {'converged': False, 'newton_iters': 0, 'residuals': []}
 
+    # Modified-Newton state: cache the autograd Jacobian and reuse it
+    # across iterations while the residual is still decreasing.
+    # Refresh only when R fails to drop below J_REFRESH_RATIO of the
+    # previous iteration's residual (standard lagged-Newton heuristic,
+    # Knoll & Keyes 2004 §4.5).
+    J_k = None
+    R_norm_prev = float('inf')
+    J_REFRESH_RATIO = 0.9  # if R/R_prev > 0.9 the Jacobian is "stale"
+
+    # Marquardt adaptive damping state.  We carry a multiplier on the
+    # base LM lambda chosen inside _solve_linear: if a Newton step
+    # increases the residual the multiplier is multiplied by 10 (more
+    # damping, smaller next dW); if it decreases the residual the
+    # multiplier is divided by 10 (less damping, larger next dW).
+    # This is the textbook Marquardt 1963 §V update rule, free of
+    # tunable parameters, and lets the LM solve converge to a Newton
+    # step where the local quadratic model is reliable while damping
+    # heavily wherever it is not.
+    lm_mult = 1.0
+
     for niter in range(max_newton):
         # 1. Residual at current iterate
         try:
@@ -228,19 +244,23 @@ def _inner_newton_ad(p_k, u_k, T_k, a1_k,
             info['newton_iters'] = niter
             break
 
-        # 2. Jacobian
-        try:
-            if use_autograd and _AUTOGRAD_AVAILABLE:
-                J_k = np.array(compute_jacobian_ad(res_func, W_k))
-            else:
+        # 2. Jacobian — compute on first iteration, refresh only when the
+        # previous Jacobian was no longer providing a good descent
+        # direction (R failed to drop fast enough).
+        need_jac = (J_k is None) or (R_norm > J_REFRESH_RATIO * R_norm_prev)
+        if need_jac:
+            try:
+                if use_autograd and _AUTOGRAD_AVAILABLE:
+                    J_k = np.array(compute_jacobian_ad(res_func, W_k))
+                else:
+                    J_k = _fd_jacobian(res_func, W_k)
+            except Exception as exc:
+                if verbose:
+                    print(f"      [AD Newton {niter}] Jacobian failed: {exc}")
                 J_k = _fd_jacobian(res_func, W_k)
-        except Exception as exc:
-            if verbose:
-                print(f"      [AD Newton {niter}] Jacobian failed: {exc}")
-            J_k = _fd_jacobian(res_func, W_k)
 
-        # 3. Solve J·ΔW = -R
-        dW = _solve_linear(J_k, -R_k)
+        # 3. Solve J·ΔW = -R  using LM with adaptive damping multiplier
+        dW = _solve_linear(J_k, -R_k, lm_mult=lm_mult)
 
         if not np.all(np.isfinite(dW)):
             dW = np.zeros_like(W_k)
@@ -394,9 +414,26 @@ def _inner_newton_ad(p_k, u_k, T_k, a1_k,
         dW_rel = np.max(np.abs(omega * dW) / (np.abs(W_k) + 1e-10))
         info['newton_iters'] = niter + 1
 
+        # Marquardt adaptive damping: tighten lambda after a failed
+        # step, loosen it after a successful one.  R_norm is the
+        # *pre-step* residual; we compare with the post-step R using
+        # the freshly-computed res_func on W_k (which has just been
+        # updated in the line-search branch above).
+        try:
+            R_after = float(np.linalg.norm(np.array(res_func(W_k))))
+        except Exception:
+            R_after = float('inf')
+        if np.isfinite(R_after) and R_after < R_norm:
+            lm_mult = max(lm_mult * 0.1, 1.0e-6)
+        else:
+            lm_mult = min(lm_mult * 10.0, 1.0e6)
+
+        R_norm_prev = R_norm  # for the next iteration's stale-J test
+
         if verbose and (niter < 5 or niter % 10 == 0):
-            print(f"      [AD Newton {niter:3d}]: |R|={R_norm:.3e}  "
-                  f"|ΔW|_rel={dW_rel:.3e}  ω={omega:.3f}")
+            tag = '*' if need_jac else ' '
+            print(f"      [AD Newton {niter:3d}]{tag}: |R|={R_norm:.3e}  "
+                  f"|ΔW|_rel={dW_rel:.3e}  ω={omega:.3f}  lm_mult={lm_mult:.1e}")
 
         if dW_rel < newton_tol and omega > 0:
             info['converged'] = True

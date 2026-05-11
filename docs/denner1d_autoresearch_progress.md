@@ -68,6 +68,26 @@ Item 2 is the Denner et al. (2018b) approach in the ACID-2 paper —
 their reported PE error for the air-water advection benchmark is
 ~ 1e-13 with their 4-eq pressure-based scheme on a moderate mesh.
 
+## Iter 14 — cross-case measurement, all FAIL on wall budget
+
+Measured cases 01, 02, 16, 17 at the spec-N with the iter 12 solver:
+
+  case 01 (PE static, N=100):       PASS  wall = 0.15 s
+  case 02 (PE advection, N=100):    FAIL  wall = 95 s, budget = 90 s
+  case 16 (thermal advection, N≈200): FAIL  wall budget exceeded
+  case 17 (smooth alpha gauss, N=550): FAIL  wall budget exceeded
+
+Cases 13 / 14 (shock-tube, N=400) abandoned mid-measurement —
+their step time is prohibitive (per-step autograd Jacobian on a
+4N=1600 system takes ~minutes; the case spec is 670+ steps).
+
+The wall-time bottleneck is the dominant constraint at the spec
+N for every non-static case.  The Newton accuracy work in iter
+6-12 has produced a Newton iteration that converges *correctly*
+on case 02 N=20 (p_rel falls 6.5e-5 in 5 steps), but the
+asymptotic per-step cost prevents reaching the spec N=100 with
+full convergence inside any reasonable wall budget.
+
 ## Next leverage queue
 
 1. ACID-style "stencil-uniform alpha" treatment §5 of ACID-2.  Force

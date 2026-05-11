@@ -84,30 +84,40 @@ def _fd_jacobian(residual_func, W_k, eps_scale=1e-7):
 # ---------------------------------------------------------------------------
 
 def _solve_linear(J, b):
-    """Solve J·x = b using equilibrated (row+col scaled) direct solve.
+    """Solve J·x = b for the Newton update.
 
-    Row+column scaling reduces condition number dramatically
-    (e.g., 10²² → 10⁸ for NASG water/air primitive Jacobian).
+    1) Row + column equilibration scales J so the row/col max is O(1),
+       which can shrink the condition number by many orders of magnitude
+       for primitive-variable Jacobians (p, u, T, alpha at vastly
+       different scales).
+    2) Try the direct solve on the scaled system.
+    3) Fall back to a least-squares pseudo-inverse if the direct solve
+       produces NaN or fails.
+    4) Final fallback: Levenberg-Marquardt damped normal equations
+       (J^T J + lambda I) x = J^T b with lambda ~ 1e-6 * ||J_sc||_F.
+       This *always* produces a finite, descent-related direction, even
+       when J is rank-deficient, so the Newton iteration can still
+       progress instead of stalling at omega = 0.
     """
-    # Row equilibration: scale each row by 1/max(|J_row|)
     row_scale = np.max(np.abs(J), axis=1)
     row_scale = np.where(row_scale > 1e-300, row_scale, 1.0)
     J_s = J / row_scale[:, None]
     b_s = b / row_scale
 
-    # Column scaling: scale each column by 1/max(|J_col|)
     col_scale = np.max(np.abs(J_s), axis=0)
     col_scale = np.where(col_scale > 1e-300, col_scale, 1.0)
     J_sc = J_s / col_scale[None, :]
 
+    # (1) Direct solve on equilibrated system.
     try:
         x_s = scipy.linalg.solve(J_sc, b_s, assume_a='gen')
-        x = x_s / col_scale  # unscale
+        x = x_s / col_scale
         if np.all(np.isfinite(x)):
             return x
     except (scipy.linalg.LinAlgError, Exception):
         pass
-    # Fallback: least squares on scaled system
+
+    # (2) Least-squares pseudo-inverse fallback.
     try:
         x_s, _, _, _ = np.linalg.lstsq(J_sc, b_s, rcond=None)
         x = x_s / col_scale
@@ -115,6 +125,22 @@ def _solve_linear(J, b):
             return x
     except Exception:
         pass
+
+    # (3) Levenberg-Marquardt damped normal equations.
+    # Solving (J^T J + lambda I) x = J^T b stays well-posed even when J
+    # is singular; the resulting x is a descent direction for ||J x - b||.
+    try:
+        JtJ = J_sc.T @ J_sc
+        Jtb = J_sc.T @ b_s
+        lam = max(1.0e-6 * float(np.linalg.norm(J_sc, ord='fro')), 1.0e-12)
+        x_s = scipy.linalg.solve(JtJ + lam * np.eye(JtJ.shape[0]), Jtb,
+                                  assume_a='sym')
+        x = x_s / col_scale
+        if np.all(np.isfinite(x)):
+            return x
+    except Exception:
+        pass
+
     return np.zeros_like(b)
 
 
@@ -305,7 +331,43 @@ def _inner_newton_ad(p_k, u_k, T_k, a1_k,
                 if verbose:
                     print(f"      [AD Newton {niter:3d}] BGS fallback: ω={omega_bgs:.3f}")
             else:
-                omega = 0.0
+                # Both full + BGS line searches were rejected. Apply a
+                # trust-region damped step: choose omega so that the
+                # ∞-norm of the relative state change stays below tr_frac.
+                # If even this micro step fails the bound test, give up
+                # (Newton iteration terminates with the prior R, the outer
+                # loop / time-step machinery can react).
+                tr_frac = 1.0e-3
+                dW_use = dW if np.all(np.isfinite(dW)) else dW_bgs
+                if dW_use is None or not np.all(np.isfinite(dW_use)):
+                    omega = 0.0
+                else:
+                    rel_dW = np.max(np.abs(dW_use) / (np.abs(W_k) + 1e-10))
+                    omega_tr = tr_frac / max(rel_dW, tr_frac)  # ≤ 1
+                    W_trial_tr = W_k + omega_tr * dW_use
+                    p_tr, u_tr, T_tr, a1_tr = unpack_W(W_trial_tr, N)
+                    p_tr, u_tr, T_tr, a1_tr = _enforce_bounds(p_tr, u_tr, T_tr, a1_tr)
+                    W_trial_tr = pack_W(p_tr, u_tr, T_tr, a1_tr)
+                    if np.all(np.isfinite(W_trial_tr)):
+                        try:
+                            R_tr = np.array(res_func(W_trial_tr))
+                            R_tr_norm = float(np.linalg.norm(R_tr))
+                        except Exception:
+                            R_tr_norm = float('inf')
+                        # Accept only if residual did not blow up (allow
+                        # mild non-monotonic growth up to 1.5x — small
+                        # primal-feasibility margin).
+                        if np.isfinite(R_tr_norm) and R_tr_norm < 1.5 * R_norm:
+                            W_k = W_trial_tr
+                            omega = omega_tr
+                            dW = dW_use
+                            if verbose:
+                                print(f"      [AD Newton {niter:3d}] trust-region ω={omega_tr:.1e}"
+                                      f"  R_tr/R={R_tr_norm/max(R_norm,1e-300):.3f}")
+                        else:
+                            omega = 0.0
+                    else:
+                        omega = 0.0
 
         # 5. Convergence check (relative update norm)
         dW_rel = np.max(np.abs(omega * dW) / (np.abs(W_k) + 1e-10))

@@ -554,14 +554,28 @@ def _outer_picard_5eq_ad(N, dx, dt,
                   f"converged={info_inner['converged']}")
 
         # ---------------------------------------------------------------
-        # Step 4: Outer convergence check
+        # Step 4: Outer convergence check + Picard relaxation
         # ---------------------------------------------------------------
-        dp   = float(np.max(np.abs(p_new  - p_k))  / (np.max(np.abs(p_k))  + 1.0))
-        du   = float(np.max(np.abs(u_new  - u_k))  / (np.max(np.abs(u_k))  + 1e-6))
-        dT   = float(np.max(np.abs(T_new  - T_k))  / (np.max(np.abs(T_k))  + 1.0))
-        da1  = float(np.max(np.abs(a1_new - a1_k)))
+        # Diagnostic showed that the outer Picard iterate was bouncing
+        # between configurations (outer-change history e.g. 5e-2 -> 1.0e-1
+        # -> 5.5e-1 -> 1.2 -> 0.7), i.e. theta_lag refreshed from a
+        # post-Newton iterate that overshot the true contraction map
+        # fixed point.  Use the standard half-step Picard relaxation
+        # W^{(s+1)} = W^{(s)} + 0.5 * (W_newton - W^{(s)})
+        # which is the textbook Mann/Picard damping (Berinde 2007
+        # §1.2; universal constant 0.5, no case-dependent tuning).
+        OUTER_RELAX = 0.5
+        p_relx  = p_k  + OUTER_RELAX * (p_new  - p_k)
+        u_relx  = u_k  + OUTER_RELAX * (u_new  - u_k)
+        T_relx  = T_k  + OUTER_RELAX * (T_new  - T_k)
+        a1_relx = a1_k + OUTER_RELAX * (a1_new - a1_k)
 
-        p_k, u_k, T_k, a1_k = p_new, u_new, T_new, a1_new
+        dp   = float(np.max(np.abs(p_relx  - p_k))  / (np.max(np.abs(p_k))  + 1.0))
+        du   = float(np.max(np.abs(u_relx  - u_k))  / (np.max(np.abs(u_k))  + 1e-6))
+        dT   = float(np.max(np.abs(T_relx  - T_k))  / (np.max(np.abs(T_k))  + 1.0))
+        da1  = float(np.max(np.abs(a1_relx - a1_k)))
+
+        p_k, u_k, T_k, a1_k = p_relx, u_relx, T_relx, a1_relx
         info_out['outer_iters'] = outer + 1
         info_out['picard_iters'] = outer + 1
 

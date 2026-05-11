@@ -86,18 +86,20 @@ def _fd_jacobian(residual_func, W_k, eps_scale=1e-7):
 def _solve_linear(J, b):
     """Solve J·x = b for the Newton update.
 
-    1) Row + column equilibration scales J so the row/col max is O(1),
-       which can shrink the condition number by many orders of magnitude
-       for primitive-variable Jacobians (p, u, T, alpha at vastly
-       different scales).
-    2) Try the direct solve on the scaled system.
-    3) Fall back to a least-squares pseudo-inverse if the direct solve
-       produces NaN or fails.
-    4) Final fallback: Levenberg-Marquardt damped normal equations
-       (J^T J + lambda I) x = J^T b with lambda ~ 1e-6 * ||J_sc||_F.
-       This *always* produces a finite, descent-related direction, even
-       when J is rank-deficient, so the Newton iteration can still
-       progress instead of stalling at omega = 0.
+    Approach:
+    1) Row + column equilibration so the row/col max is O(1).
+    2) Solve the scaled system using the *Levenberg-Marquardt damped
+       normal equations*:  (J^T J + lambda I) x = J^T b,  with
+       lambda = damping_frac * mean(|diag(J^T J)|).
+       This bounds dW automatically even when J has a near-zero
+       singular value: along that direction the solution is now
+       J^T b / (eigval^2 + lambda), so the worst-case amplification
+       is 1/lambda, not 1/eigval.  For our primitive-variable Jacobian
+       eigval can be 1e-5 of the dominant scale, so the previous direct
+       solve produced dW with one component ~1e5x its physical value;
+       the LM solve eliminates that pathology in a single step.
+    3) If LM produces NaN or fails, fall back to a least-squares
+       pseudo-inverse for finite output.
     """
     row_scale = np.max(np.abs(J), axis=1)
     row_scale = np.where(row_scale > 1e-300, row_scale, 1.0)
@@ -108,33 +110,35 @@ def _solve_linear(J, b):
     col_scale = np.where(col_scale > 1e-300, col_scale, 1.0)
     J_sc = J_s / col_scale[None, :]
 
-    # (1) Direct solve on equilibrated system.
+    # (1) Levenberg-Marquardt damped normal equations — primary path.
+    # Solving (J^T J + lambda I) x = J^T b stays well-posed even when J
+    # is singular; the resulting x is a descent direction for ||J x - b||.
+    #
+    # Lambda choice (Marquardt 1963 §V):
+    #   lam = damping_frac * mean(diag(J^T J))
+    # The previous 1e-6 * ||J||_F was orders of magnitude too small for
+    # the primitive-variable Jacobian: J had one tiny singular value
+    # (the velocity-momentum coupling), so (J^T J + 1e-6 lam) inverted
+    # by ~1e5 along that direction and dW blew up by 1e5 in u.
+    # Using the diagonal scale of J^T J as the lambda seed makes the
+    # damping commensurate with the Jacobian's own scaling and bounds
+    # the worst-case singular inversion by 1/damping_frac.
     try:
-        x_s = scipy.linalg.solve(J_sc, b_s, assume_a='gen')
-        x = x_s / col_scale
-        if np.all(np.isfinite(x)):
-            return x
-    except (scipy.linalg.LinAlgError, Exception):
-        pass
-
-    # (2) Least-squares pseudo-inverse fallback.
-    try:
-        x_s, _, _, _ = np.linalg.lstsq(J_sc, b_s, rcond=None)
+        JtJ = J_sc.T @ J_sc
+        Jtb = J_sc.T @ b_s
+        diag_mean = float(np.mean(np.abs(np.diag(JtJ))))
+        lam = max(1.0e-3 * diag_mean, 1.0e-12)
+        x_s = scipy.linalg.solve(JtJ + lam * np.eye(JtJ.shape[0]), Jtb,
+                                  assume_a='sym')
         x = x_s / col_scale
         if np.all(np.isfinite(x)):
             return x
     except Exception:
         pass
 
-    # (3) Levenberg-Marquardt damped normal equations.
-    # Solving (J^T J + lambda I) x = J^T b stays well-posed even when J
-    # is singular; the resulting x is a descent direction for ||J x - b||.
+    # (2) Least-squares pseudo-inverse — final safety net.
     try:
-        JtJ = J_sc.T @ J_sc
-        Jtb = J_sc.T @ b_s
-        lam = max(1.0e-6 * float(np.linalg.norm(J_sc, ord='fro')), 1.0e-12)
-        x_s = scipy.linalg.solve(JtJ + lam * np.eye(JtJ.shape[0]), Jtb,
-                                  assume_a='sym')
+        x_s, _, _, _ = np.linalg.lstsq(J_sc, b_s, rcond=None)
         x = x_s / col_scale
         if np.all(np.isfinite(x)):
             return x

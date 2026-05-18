@@ -74,7 +74,48 @@
 
 ## SCI Paper Update
 
-Iter5 change makes paper claim stronger:
+## ROUND 2 (iter 16-30) — Balanced focus, 15 iter
+
+| # | change | composite | mean | worst err | decision |
+|---|---|---|---|---|---|
+| 17 | per-component eta (mass 5e-2, momentum 1e-1) | **29.63** | 35.72 | 3.41e-2 | KEEP |
+| 18 | momentum eta → 1.5e-1 | 6.81 | 7.37 | 1.54e-2 | discard (catastrophic) |
+| 19 | mass eta → 3e-2 | 29.35 | 35.72 | 3.57e-2 | discard |
+| 20 | AP coeff 0.4 | 19.58 | 21.31 | 1.62e-2 | discard |
+| 21 | GMRES maxiter=1, restart=2x | **33.91** | 42.27 | 3.96e-2 | **KEEP ★** |
+| 22 | restart 3x | 33.68 | 41.99 | 3.96e-2 | discard |
+| 23 | alpha 0.95 | 11.79 | 12.95 | 1.79e-2 | discard (catastrophic) |
+| 24 | omega-dep eta | 33.87 | 42.27 | 3.97e-2 | discard |
+| 25 | always-accept (skip safeguard) | **34.97** | 43.60 | 3.96e-2 | **KEEP ★** best |
+| 26 | 0.7x kinetic | 23.57 | 29.38 | 3.96e-2 | discard |
+| 27 | 0.85x kinetic | 21.93 | 27.34 | 3.96e-2 | discard |
+| 28 | 1.2x kinetic | 31.99 | 39.88 | 3.96e-2 | discard |
+| 29 | GMRES atol 1e-1 | 34.97 | 43.60 | 3.96e-2 | neutral (revert) |
+| 30 | restart 4x | 34.71 | 43.27 | 3.96e-2 | discard |
+
+## Round-2 결과
+
+**Baseline (round 2 start) → Best**: **29.46 → 34.97 (+18.7%)**
+
+**전체 (round 1+2)**: **20.06 → 34.97 (+74%)**
+
+### Round-2 Kept changes
+1. **per-component eta** (mass 5e-2, momentum 1e-1) — iter17
+2. **GMRES maxiter=1, restart=2×krylov_max** — iter21 (+14% 단일)
+3. **always-accept (skip safeguard check)** — iter25 (+3%)
+
+### Round-2 Per-case 결과 (vs round1 finish 29.46)
+
+| Case | round1 | round2 final | improvement |
+|---|---|---|---|
+| Kolmogorov | 6.76× | 10.51× | +56% |
+| Channel | 18.33× | 21.45× | +17% |
+| Couette | 145.72× | **176.64×** | +21% |
+| Cavity Re=100 | 5.57× | 5.87× | +5% |
+| Multi-cylinder | 3.15× | 3.51× | +11% |
+| **mean** | **35.91×** | **43.60×** | **+21%** |
+
+## Iter5 change makes paper claim stronger:
 - "Single line `eta=5e-2 + AP coeff × 0.5` fix improves all 5 benchmark cases simultaneously"
 - "Multi-cylinder speedup 1.05× → 3.15× (3× improvement on hardest case)"
 - "Cavity Re=100 speedup 1.49× → 5.57× (3.7× improvement)"

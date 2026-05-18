@@ -84,7 +84,6 @@ def solve_scmk(
 
         df = df_flat.reshape(case.shape)
 
-        # iter25 : always accept (skip safeguard)
         f = f + df
         for _ in range(kinetic_substeps):
             f = case.lbe_step(f)

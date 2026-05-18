@@ -206,7 +206,7 @@ def build_spectral_schur(N, omega=None, mode="ap"):
         MA2T = np.einsum("ai,ib,ijk->abjk", M_mat, T_mat, phase2)
         # (MAT)^2 : 3x3 matrix product per mode
         MAT2 = np.einsum("abjk,bcjk->acjk", MAT, MAT)
-        coeff = (1.0 - omega) / omega
+        coeff = 0.5 * (1.0 - omega) / omega  # iter5
         S_U = S_U - coeff * (MA2T - MAT2)
 
     # batch invert (N, N, 3, 3) with Tikhonov regularization for singular modes

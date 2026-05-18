@@ -209,7 +209,6 @@ def build_spectral_schur(N, omega=None, mode="ap"):
 
     # batch invert (N, N, 3, 3) with Tikhonov regularization for singular modes
     S_U_t = np.transpose(S_U, (2, 3, 0, 1))  # (N, N, 3, 3)
-    # add small diagonal regularization to all modes (helps singular and ill-conditioned)
     eta = 5e-2
     I3 = np.eye(3, dtype=np.complex128)
     S_U_reg = S_U_t + eta * I3[None, None, :, :]

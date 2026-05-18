@@ -216,8 +216,12 @@ def build_spectral_schur(N, omega=None, mode="ap"):
     I3 = np.eye(3, dtype=np.complex128)
     S_U_reg = S_U_t + eta * I3[None, None, :, :]
     S_inv = np.linalg.inv(S_U_reg)
-    # mode (0,0): pass macro residual through unchanged (let kinetic LBE handle mean)
-    S_inv[0, 0] = np.eye(3, dtype=np.complex128)
+    # iter4 : mode (0,0) -> diag(0, 1, 1). mass mean is conserved, no correction;
+    # only momentum mean gets passthrough (let kinetic LBE handle)
+    mode00 = np.zeros((3, 3), dtype=np.complex128)
+    mode00[1, 1] = 1.0
+    mode00[2, 2] = 1.0
+    S_inv[0, 0] = mode00
     return S_inv
 
 

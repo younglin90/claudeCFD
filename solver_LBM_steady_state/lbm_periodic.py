@@ -209,7 +209,11 @@ def build_spectral_schur(N, omega=None, mode="ap"):
 
     # iter17 : momentum eta larger
     S_U_t = np.transpose(S_U, (2, 3, 0, 1))
-    eta_diag = np.diag([5e-2, 1e-1, 1e-1]).astype(np.complex128)
+    # iter6 : adaptive eta from spectrum (parameter-free target kappa=1e3)
+    sing = np.linalg.svd(S_U_t, compute_uv=False)
+    sigma_max = sing.max()
+    eta_auto = float(sigma_max / 100.0)  # iter7
+    eta_diag = (eta_auto * np.eye(3)).astype(np.complex128)
     S_U_reg = S_U_t + eta_diag[None, None, :, :]
     S_inv = np.linalg.inv(S_U_reg)
     # iter4 : mode (0,0) -> diag(0, 1, 1). mass mean is conserved, no correction;

@@ -73,8 +73,8 @@ def solve_scmk(
             M=Mop,
             rtol=krylov_tol,
             atol=krylov_tol * np.linalg.norm(rhs) * 1e-3,
-            maxiter=2,
-            restart=krylov_max,
+            maxiter=1,  # iter21 : larger single Krylov space
+            restart=2 * krylov_max,
         )
         lbe_calls += probe_count[0]
 

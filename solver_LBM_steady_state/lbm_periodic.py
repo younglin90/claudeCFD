@@ -204,7 +204,9 @@ def build_spectral_schur(N, omega=None, mode="ap"):
         phase2 = phase * phase
         MA2T = np.einsum("ai,ib,ijk->abjk", M_mat, T_mat, phase2)
         MAT2 = np.einsum("abjk,bcjk->acjk", MAT, MAT)
-        coeff = 0.5 * (1.0 - omega) / omega
+        # iter13 : clipped magnitude
+        raw = (1.0 - omega) / omega
+        coeff = 0.5 * np.sign(raw) * min(0.5, abs(raw))
         S_U = S_U - coeff * (MA2T - MAT2)
 
     # iter17 : momentum eta larger
@@ -212,12 +214,13 @@ def build_spectral_schur(N, omega=None, mode="ap"):
     # iter6 : adaptive eta from spectrum (parameter-free target kappa=1e3)
     sing = np.linalg.svd(S_U_t, compute_uv=False)
     sigma_max = sing.max()
-    eta_auto = float(sigma_max / 50.0)  # iter8
+    eta_auto = float(sigma_max / 50.0)
     eta_diag = (eta_auto * np.eye(3)).astype(np.complex128)
     S_U_reg = S_U_t + eta_diag[None, None, :, :]
     S_inv = np.linalg.inv(S_U_reg)
     # iter4 : mode (0,0) -> diag(0, 1, 1). mass mean is conserved, no correction;
     # only momentum mean gets passthrough (let kinetic LBE handle)
+    # mode (0,0) = mass conservation : no Newton step on rho mean
     mode00 = np.zeros((3, 3), dtype=np.complex128)
     mode00[1, 1] = 1.0
     mode00[2, 2] = 1.0

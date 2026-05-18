@@ -207,11 +207,10 @@ def build_spectral_schur(N, omega=None, mode="ap"):
         coeff = 0.5 * (1.0 - omega) / omega
         S_U = S_U - coeff * (MA2T - MAT2)
 
-    # batch invert (N, N, 3, 3) with Tikhonov regularization for singular modes
-    S_U_t = np.transpose(S_U, (2, 3, 0, 1))  # (N, N, 3, 3)
-    eta = 5e-2
-    I3 = np.eye(3, dtype=np.complex128)
-    S_U_reg = S_U_t + eta * I3[None, None, :, :]
+    # iter17 : momentum eta larger
+    S_U_t = np.transpose(S_U, (2, 3, 0, 1))
+    eta_diag = np.diag([5e-2, 1e-1, 1e-1]).astype(np.complex128)
+    S_U_reg = S_U_t + eta_diag[None, None, :, :]
     S_inv = np.linalg.inv(S_U_reg)
     # iter4 : mode (0,0) -> diag(0, 1, 1). mass mean is conserved, no correction;
     # only momentum mean gets passthrough (let kinetic LBE handle)

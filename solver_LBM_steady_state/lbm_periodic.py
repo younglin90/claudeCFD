@@ -212,7 +212,7 @@ def build_spectral_schur(N, omega=None, mode="ap"):
     # iter6 : adaptive eta from spectrum (parameter-free target kappa=1e3)
     sing = np.linalg.svd(S_U_t, compute_uv=False)
     sigma_max = sing.max()
-    eta_auto = float(sigma_max / 100.0)  # iter7
+    eta_auto = float(sigma_max / 50.0)  # iter8
     eta_diag = (eta_auto * np.eye(3)).astype(np.complex128)
     S_U_reg = S_U_t + eta_diag[None, None, :, :]
     S_inv = np.linalg.inv(S_U_reg)

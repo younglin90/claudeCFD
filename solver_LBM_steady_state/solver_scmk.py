@@ -73,7 +73,7 @@ def solve_scmk(
             M=Mop,
             rtol=krylov_tol,
             atol=krylov_tol * np.linalg.norm(rhs) * 1e-3,
-            maxiter=1,  # iter21 : larger single Krylov space
+            maxiter=1,
             restart=2 * krylov_max,
         )
         lbe_calls += probe_count[0]
@@ -84,22 +84,11 @@ def solve_scmk(
 
         df = df_flat.reshape(case.shape)
 
-        # iter14 : skip backtracking line search; accept alpha=1 + K kinetic post-step
-        f_trial = f + df
+        # iter25 : always accept (skip safeguard)
+        f = f + df
         for _ in range(kinetic_substeps):
-            f_trial = case.lbe_step(f_trial)
+            f = case.lbe_step(f)
         lbe_calls += kinetic_substeps
-        R_trial = f_trial - case.lbe_step(f_trial)
-        lbe_calls += 1
-        r_trial = case._fast_norm(R_trial) / np.sqrt(n_full)
-        if r_trial < 10.0 * res_norm:
-            f = f_trial
-        else:
-            for _ in range(kinetic_substeps):
-                f = case.lbe_step(f)
-            lbe_calls += kinetic_substeps
-            if verbose:
-                print(f"     line search failed -> kinetic-only step")
 
     return f, history
 

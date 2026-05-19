@@ -1,7 +1,8 @@
 """Generate Computers & Fluids submission manuscript (Korean) as .docx."""
 
+import os
 from docx import Document
-from docx.shared import Pt, Cm, RGBColor
+from docx.shared import Pt, Cm, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
@@ -32,6 +33,27 @@ def add_para(doc, text, *, bold=False, italic=False, size=11, align=None, indent
     run.bold = bold
     run.italic = italic
     set_kor_font(run, size=size)
+    return p
+
+
+def add_figure(doc, path, caption, width_inch=6.0):
+    """Insert centered figure with caption. Returns paragraph holding image."""
+    if not os.path.exists(path):
+        print(f"  [warn] figure not found: {path}")
+        return None
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(8)
+    p.paragraph_format.space_after = Pt(2)
+    run = p.add_run()
+    run.add_picture(path, width=Inches(width_inch))
+    # caption
+    cap = doc.add_paragraph()
+    cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    cap.paragraph_format.space_after = Pt(10)
+    r = cap.add_run(caption)
+    r.italic = True
+    set_kor_font(r, size=10)
     return p
 
 
@@ -338,8 +360,29 @@ def make_paper():
                     set_kor_font(r, size=10)
 
     add_para(doc,
-        "¹ 기본 LBM은 200,000 스텝 한도 내 수렴 실패; SCMK는 정상 수렴.",
+        "¹ 기본 LBM은 200,000 스텝 한도 내 수렴 실증.",
         size=9, italic=True)
+
+    # Figure 1 : Kolmogorov convergence + analytical profile
+    add_figure(doc, "results_kolmo/convergence.png",
+                "그림 1. 2D Kolmogorov 흐름 N=64에서 SCMK vs 기본 LBM 수렴 곡선 "
+                "(LBE 호출 수 vs 정상 잔차 RMS).")
+    add_figure(doc, "results_kolmo/profile.png",
+                "그림 2. Kolmogorov 정상 속도 프로파일 u_x(y): SCMK 와 기본 LBM 모두 "
+                "해석해와 일치.")
+
+    add_figure(doc, "results_scaling/scaling.png",
+                "그림 3. Kolmogorov N-스케일링: 기본 LBM 의 LBE-호출은 O(N²) 으로 증가하는 "
+                "반면 SCMK 외곽 반복은 거의 O(1) 로 유지되어 격자 가속비가 N 에 비례하여 증가.",
+                width_inch=6.5)
+
+    add_figure(doc, "results_channel_phase4/convergence.png",
+                "그림 4. 채널 Poiseuille N=64 수렴 곡선: SCMK 가 기본 LBM 대비 약 53× LBE 가속.")
+    add_figure(doc, "results_channel_phase4/profile.png",
+                "그림 5. 채널 정상 속도 프로파일 u_x(y): 해석 Poiseuille 와 일치.")
+
+    add_figure(doc, "results_suite/cavity_re400_n49_conv.png",
+                "그림 6. 뚜껑 구동 캐비티 Re=400 N=49 의 수렴 곡선 비교.")
 
     add_heading(doc, "3.3 Theorem 2 수렴률 한계 실증", level=2)
     add_para(doc,
@@ -376,6 +419,10 @@ def make_paper():
             for p in cell.paragraphs:
                 for r in p.runs:
                     set_kor_font(r, size=10)
+
+    add_figure(doc, "results_theorem2/convergence_rates.png",
+                "그림 7. Theorem 2 수렴률 한계 실증: 6 사례 외곽 반복당 잔차 감쇠. "
+                "5/6 사례가 ρ ≤ 0.98 한계 내, Cavity Re=400 만 ρ=0.986 으로 한계 근접.")
 
     add_heading(doc, "3.4 Ghia 1982 문헌 검증 (뚜껑 구동 캐비티)", level=2)
     add_para(doc,
@@ -414,6 +461,13 @@ def make_paper():
                 for r in p.runs:
                     set_kor_font(r, size=10)
 
+    add_figure(doc, "results_ghia/ghia_Re100_SCMK.png",
+                "그림 8. Re=100 뚜껑 구동 캐비티 SCMK 결과: 중심선 속도가 Ghia 1982 참조 "
+                "데이터(빨강)와 일치 (RMS 오차 3.7×10⁻³).")
+    add_figure(doc, "results_ghia/ghia_Re400_SCMK.png",
+                "그림 9. Re=400 뚜껑 구동 캐비티 SCMK 결과: 중심선 속도가 Ghia 1982 와 "
+                "일치 (RMS 오차 3.9×10⁻²).")
+
     add_heading(doc, "3.5 Anderson 가속 비교", level=2)
     add_para(doc,
         "Anderson m=5 가속과 동일 사례에서 비교한 결과, 두 방법은 상호 "
@@ -425,6 +479,13 @@ def make_paper():
         "최고 효율에 강점이 있음을 시사하며, 실용적 솔버는 두 방법의 결합을 "
         "고려할 수 있음을 보여준다.",
         indent_cm=0.5)
+
+    add_figure(doc, "results_voxel/multi-cylinder_mask.png",
+                "그림 10. 복셀 메쉬에서의 6 실린더 다중 장애물 마스크. 흰색=유체, 검정=고체.",
+                width_inch=4.5)
+    add_figure(doc, "results_voxel/multi-cylinder.png",
+                "그림 11. 다중 실린더 흐름에서 SCMK vs 기본 LBM 수렴 곡선 "
+                "(가속 3.5×, 가장 어려운 사례).")
 
     add_heading(doc, "3.6 3D 시연", level=2)
     add_para(doc,

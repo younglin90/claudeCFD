@@ -1,0 +1,28 @@
+
+=== Cavity Re=100 N=65 U=0.1 ===
+  baseline: step 5500 lbe 5511 res 2.70e-07 wall 2.1s
+  SCMK    : outer 13 lbe 495 res 4.11e-07 wall 0.6s
+  speedup : 11.13x LBE, 3.65x wall
+  Ghia err (RMS) baseline : u 3.026e-03, v 1.454e-03
+  Ghia err (RMS) SCMK     : u 3.691e-03, v 2.420e-03
+
+=== Cavity Re=400_N65 N=65 U=0.1 ===
+  baseline: step 9000 lbe 9018 res 4.46e-07 wall 3.5s
+  SCMK    : outer 26 lbe 1069 res 4.52e-07 wall 1.5s
+  speedup : 8.44x LBE, 2.35x wall
+  Ghia err (RMS) baseline : u 1.986e-02, v 1.624e-02
+  Ghia err (RMS) SCMK     : u 3.869e-02, v 2.716e-02
+
+=== Cavity Re=400_N129 N=129 U=0.1 ===
+  baseline: step 12000 lbe 12024 res 4.93e-07 wall 11.8s
+  SCMK    : outer 19 lbe 851 res 4.44e-07 wall 3.0s
+  speedup : 14.13x LBE, 4.00x wall
+  Ghia err (RMS) baseline : u 5.000e-02, v 5.866e-02
+  Ghia err (RMS) SCMK     : u 7.504e-02, v 9.015e-02
+
+================================================================================
+Case          speedup      wall   baseline u-err   SCMK u-err
+--------------------------------------------------------------------------------
+Re=100          11.1x      3.6x        3.026e-03    3.691e-03
+Re=400_N65       8.4x      2.3x        1.986e-02    3.869e-02
+Re=400_N129      14.1x      4.0x        5.000e-02    7.504e-02

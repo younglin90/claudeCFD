@@ -490,7 +490,40 @@ def make_paper():
                 "그림 11. 다중 실린더 흐름에서 SCMK vs 기본 LBM 수렴 곡선 "
                 "(가속 3.5×, 가장 어려운 사례).")
 
-    add_heading(doc, "3.6 3D 시연", level=2)
+    # ============================================================
+    # Section 3.6 contour gallery
+    # ============================================================
+    add_heading(doc, "3.6 정상해 컨투어 비교", level=2)
+    add_para(doc,
+        "기본 LBM 과 SCMK-LBM 이 동일한 정상해로 수렴함을 시각적으로 확인하기 "
+        "위해, 각 사례에서 두 솔버의 수평 속도 u_x 컨투어와 유선을 좌우 "
+        "병치하여 그림 10–17에 도시한다. 모든 사례에서 두 솔버의 해는 시각적 "
+        "구분이 어려울 정도로 일치하며, 이는 SCMK 가 가속 효과에도 불구하고 "
+        "기본 LBM 의 정상상태 고정점을 변형 없이 보존함을 확인한다.",
+        indent_cm=0.5)
+
+    add_figure(doc, "results_contours/kolmogorov_N32.png",
+                "그림 10. 2D Kolmogorov flow, N=32 : 기본 LBM (좌) vs SCMK-LBM (우) "
+                "수평 속도 u_x 컨투어 + 유선.")
+    add_figure(doc, "results_contours/channel_N32.png",
+                "그림 11. 채널 Poiseuille flow, N=32 : 좌-기본, 우-SCMK 컨투어.")
+    add_figure(doc, "results_contours/couette_N32.png",
+                "그림 12. Couette flow, N=32 : 좌-기본, 우-SCMK 컨투어.")
+    add_figure(doc, "results_contours/cavity_Re100.png",
+                "그림 13. 뚜껑 구동 캐비티, Re=100, N=65 : 좌-기본, 우-SCMK 컨투어 + 유선. "
+                "주 와류와 모서리 secondary vortex 모두 일치.")
+    add_figure(doc, "results_contours/cavity_Re400.png",
+                "그림 14. 뚜껑 구동 캐비티, Re=400, N=97 : 좌-기본, 우-SCMK. "
+                "강해진 secondary vortex 까지 시각적으로 일치.")
+    add_figure(doc, "results_contours/multi_cylinder.png",
+                "그림 15. 다중 실린더 voxel 유동, N=32 : 좌-기본, 우-SCMK. "
+                "복잡 기하의 wake 패턴 정확 재현.")
+    add_figure(doc, "results_contours/3d_kolmogorov.png",
+                "그림 16. 3D Kolmogorov flow, N=24 : 좌-기본, 우-SCMK (z=N/2 중면).")
+    add_figure(doc, "results_contours/3d_channel.png",
+                "그림 17. 3D 채널 Poiseuille flow, N=24 : 좌-기본, 우-SCMK (z=N/2 중면).")
+
+    add_heading(doc, "3.7 3D 시연", level=2)
     add_para(doc,
         "3D D3Q19 격자에서의 적용 가능성을 보이기 위해, 동일 알고리즘을 "
         "3D Kolmogorov (N=16, 24) 및 3D 채널 Poiseuille (N=24) 흐름에 "

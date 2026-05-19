@@ -93,9 +93,26 @@ def solve_hybrid(case, max_outer=100, tol=1e-7, krylov_max=10, krylov_tol=1e-3,
             continue
 
         df = df_flat.reshape(case.shape)
-        f = f + df
-        for _ in range(kinetic_substeps):
-            f = case.lbe_step(f)
-        lbe_calls += kinetic_substeps
+        # backtracking line search : ensure ||R(f + α df)|| < ||R(f)|| (monotone)
+        # protects high-Re BGK from blow-up.
+        alpha = 1.0
+        accepted = False
+        for _ls in range(4):
+            f_trial = f + alpha * df
+            for _ in range(kinetic_substeps):
+                f_trial = case.lbe_step(f_trial)
+            lbe_calls += kinetic_substeps
+            R_trial = f_trial - case.lbe_step(f_trial); lbe_calls += 1
+            r_trial = case._fast_norm(R_trial) / np.sqrt(n_full)
+            if np.isfinite(r_trial) and r_trial < res_norm:
+                f = f_trial
+                accepted = True
+                break
+            alpha *= 0.5
+        if not accepted:
+            # Fallback : pure baseline kinetic substeps
+            for _ in range(kinetic_substeps):
+                f = case.lbe_step(f)
+            lbe_calls += kinetic_substeps
 
     return f, history

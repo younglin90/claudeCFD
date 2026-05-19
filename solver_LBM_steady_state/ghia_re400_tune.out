@@ -1,0 +1,46 @@
+
+=== N65_U10 ===
+  N65_U10 : N=65 U=0.1 omega=1.8248 Ma=0.1732 max_steps=200000
+    baseline : step 20000 lbe 20010 res 3.99e-08 wall 11.1s
+    baseline Ghia err : u 1.182e-02, v 1.484e-02
+    SCMK     : outer 70 lbe 3445 res 4.97e-08 wall 4.2s speedup 5.8x
+    SCMK     Ghia err : u 1.384e-02, v 1.418e-02
+
+=== N97_U10 ===
+  N97_U10 : N=97 U=0.1 omega=1.7483 Ma=0.1732 max_steps=400000
+    baseline : step 26000 lbe 26013 res 4.35e-08 wall 20.9s
+    baseline Ghia err : u 6.887e-03, v 1.155e-02
+    SCMK     : outer 56 lbe 2913 res 4.91e-08 wall 10.8s speedup 8.9x
+    SCMK     Ghia err : u 1.108e-02, v 1.110e-02
+
+=== N129_U075 ===
+  N129_U075 : N=129 U=0.075 omega=1.7483 Ma=0.1299 max_steps=600000
+    baseline : step 36000 lbe 36018 res 3.59e-08 wall 41.3s
+    baseline Ghia err : u 5.951e-03, v 1.121e-02
+    SCMK     : outer 62 lbe 3189 res 3.97e-08 wall 13.7s speedup 11.3x
+    SCMK     Ghia err : u 1.613e-02, v 1.620e-02
+
+=== N129_U05 ===
+  N129_U05 : N=129 U=0.05 omega=1.8248 Ma=0.0866 max_steps=800000
+    baseline : step 46000 lbe 46023 res 1.83e-08 wall 57.0s
+    baseline Ghia err : u 8.248e-03, v 1.170e-02
+    SCMK     : outer 106 lbe 5596 res 1.96e-08 wall 23.7s speedup 8.2x
+    SCMK     Ghia err : u 1.337e-02, v 1.322e-02
+
+=== N193_U05 ===
+  N193_U05 : N=193 U=0.05 omega=1.7483 Ma=0.0866 max_steps=1000000
+    baseline : step 62000 lbe 62031 res 1.88e-08 wall 154.0s
+    baseline Ghia err : u 1.128e-02, v 1.396e-02
+    SCMK     : outer 93 lbe 4943 res 1.91e-08 wall 62.9s speedup 12.5x
+    SCMK     Ghia err : u 3.126e-02, v 3.498e-02
+
+=== SUMMARY ===
+Label            N      U     Ma   omega   baseline u-err   SCMK u-err
+------------------------------------------------------------------------------
+N65_U10         65  0.100 0.1732  1.8248        1.182e-02    1.384e-02
+N97_U10         97  0.100 0.1732  1.7483        6.887e-03    1.108e-02
+N129_U075      129  0.075 0.1299  1.7483        5.951e-03    1.613e-02
+N129_U05       129  0.050 0.0866  1.8248        8.248e-03    1.337e-02
+N193_U05       193  0.050 0.0866  1.7483        1.128e-02    3.126e-02
+
+BEST baseline : N129_U075 u-err = 5.951e-03

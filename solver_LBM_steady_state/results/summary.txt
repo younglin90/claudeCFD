@@ -1,0 +1,25 @@
+{
+  "case": {
+    "N": 65,
+    "Re": 100.0,
+    "U_wall": 0.1,
+    "tol": 1e-06
+  },
+  "baseline": {
+    "steps": 3800,
+    "lbe_calls": 3819,
+    "wall_s": 1.440513271954842,
+    "final_res": 7.764807986257654e-07
+  },
+  "apmnt": {
+    "outer_iters": 53,
+    "lbe_calls": 4432,
+    "wall_s": 4.979333653987851,
+    "final_res": 9.338745377464368e-07
+  },
+  "speedup": {
+    "wall": 0.2892984025686174,
+    "lbe_calls": 0.861687725631769
+  }
+}
+Field agreement: err_ux=1.574e-01, err_uy=2.185e-01

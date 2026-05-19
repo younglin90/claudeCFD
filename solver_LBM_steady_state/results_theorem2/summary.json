@@ -1,0 +1,41 @@
+{
+  "bound": 0.98,
+  "cases": {
+    "Kolmogorov": {
+      "rho": 0.6809187932444234,
+      "iters": 15,
+      "final_res": 7.431224712008336e-08,
+      "converged": true
+    },
+    "Channel": {
+      "rho": 0.6907977928702683,
+      "iters": 8,
+      "final_res": 8.162500790668652e-08,
+      "converged": true
+    },
+    "Couette": {
+      "rho": null,
+      "iters": 1,
+      "final_res": 5.584581024431865e-08,
+      "converged": true
+    },
+    "Cavity Re=100": {
+      "rho": 0.6384937424029267,
+      "iters": 12,
+      "final_res": 4.830241340315242e-07,
+      "converged": true
+    },
+    "Cavity Re=400": {
+      "rho": 0.985609222755553,
+      "iters": 299,
+      "final_res": 2.189247022409591e-06,
+      "converged": true
+    },
+    "Multi-cyl": {
+      "rho": 0.7230272432702716,
+      "iters": 17,
+      "final_res": 7.724221978280804e-08,
+      "converged": true
+    }
+  }
+}

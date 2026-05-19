@@ -1,0 +1,104 @@
+[ 1/12] Kolmogorov N=32
+[ 2/12] Kolmogorov N=48
+[ 3/12] Kolmogorov N=64
+[ 4/12] Channel N=32
+[ 5/12] Couette N=32
+[ 6/12] Cavity Re=100
+[ 7/12] Cavity Re=400
+[ 8/12] Cavity Re=1000 (low U for BGK stability)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/solver_baseline.py:22: RuntimeWarning: overflow encountered in multiply
+  res = np.sqrt((R * R).mean())
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:28: RuntimeWarning: overflow encountered in multiply
+  feq[i] = W[i] * rho * (1.0 + cu + 0.5 * cu * cu - u2)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:34: RuntimeWarning: invalid value encountered in multiply
+  rhoux = (f * CX[:, None, None]).sum(axis=0)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:35: RuntimeWarning: invalid value encountered in multiply
+  rhouy = (f * CY[:, None, None]).sum(axis=0)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:102: RuntimeWarning: overflow encountered in multiply
+  fstar = f - self.omega * (f - feq)
+/home/younglin90/.local/lib/python3.12/site-packages/numpy/_core/_methods.py:49: RuntimeWarning: overflow encountered in reduce
+  return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:36: RuntimeWarning: invalid value encountered in divide
+  ux = rhoux / rho
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:37: RuntimeWarning: invalid value encountered in divide
+  uy = rhouy / rho
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:27: RuntimeWarning: invalid value encountered in multiply
+  cu = 3.0 * (CX[i] * ux + CY[i] * uy)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:28: RuntimeWarning: invalid value encountered in add
+  feq[i] = W[i] * rho * (1.0 + cu + 0.5 * cu * cu - u2)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:28: RuntimeWarning: invalid value encountered in subtract
+  feq[i] = W[i] * rho * (1.0 + cu + 0.5 * cu * cu - u2)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:102: RuntimeWarning: overflow encountered in subtract
+  fstar = f - self.omega * (f - feq)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:74: RuntimeWarning: overflow encountered in multiply
+  + 2.0 * (f[2, -1, :] + f[5, -1, :] + f[6, -1, :])
+/home/younglin90/.local/lib/python3.12/site-packages/numpy/_core/_methods.py:49: RuntimeWarning: invalid value encountered in reduce
+  return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:27: RuntimeWarning: invalid value encountered in add
+  cu = 3.0 * (CX[i] * ux + CY[i] * uy)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:71: RuntimeWarning: overflow encountered in add
+  f[0, -1, :]
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:77: RuntimeWarning: invalid value encountered in subtract
+  f[7, -1, :] = f[5, -1, :] - 6.0 * W[5] * rho_top * U_wall
+/home/younglin90/.local/lib/python3.12/site-packages/numpy/linalg/_linalg.py:2767: RuntimeWarning: overflow encountered in dot
+  sqnorm = x.dot(x)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:149: RuntimeWarning: overflow encountered in matmul
+  return float(np.sqrt(xr @ xr))
+/home/younglin90/.local/lib/python3.12/site-packages/scipy/sparse/linalg/_isolve/iterative.py:728: RuntimeWarning: invalid value encountered in scalar divide
+  ptol = Mb_nrm2 * min(ptol_max_factor, atol / bnrm2)
+/home/younglin90/.local/lib/python3.12/site-packages/scipy/sparse/linalg/_isolve/iterative.py:789: RuntimeWarning: invalid value encountered in scalar multiply
+  tmp = -np.conjugate(s)*S[col]
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:127: RuntimeWarning: invalid value encountered in multiply
+  rhoux = (f * CX[:, None, None]).sum(axis=0)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:128: RuntimeWarning: invalid value encountered in multiply
+  rhouy = (f * CY[:, None, None]).sum(axis=0)
+/home/younglin90/.local/lib/python3.12/site-packages/numpy/fft/_pocketfft.py:101: RuntimeWarning: overflow encountered in fft
+  return ufunc(a, fct, axes=[(axis,), (), (axis,)], out=out)
+/home/younglin90/.local/lib/python3.12/site-packages/numpy/fft/_pocketfft.py:101: RuntimeWarning: invalid value encountered in fft
+  return ufunc(a, fct, axes=[(axis,), (), (axis,)], out=out)
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/lbm_core.py:74: RuntimeWarning: overflow encountered in add
+  + 2.0 * (f[2, -1, :] + f[5, -1, :] + f[6, -1, :])
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/solver_anderson.py:36: RuntimeWarning: overflow encountered in multiply
+  rn = np.sqrt((F_new * F_new).mean())
+/home/younglin90/.local/lib/python3.12/site-packages/numpy/_core/_methods.py:132: RuntimeWarning: overflow encountered in reduce
+  ret = umr_sum(arr, axis, dtype, out, keepdims, where=where)
+ ** On entry to DLASCL parameter number  4 had an illegal value
+ ** On entry to DLASCL parameter number  4 had an illegal value
+ ** On entry to DLASCL parameter number  4 had an illegal value
+ ** On entry to DLASCL parameter number  4 had an illegal value
+ ** On entry to DLASCL parameter number  4 had an illegal value
+ ** On entry to DLASCL parameter number  4 had an illegal value
+ ** On entry to DLASCL parameter number  4 had an illegal value
+ ** On entry to DLASCL parameter number  5 had an illegal value
+ ** On entry to DLASCL parameter number  4 had an illegal value
+  Anderson failed : SVD did not converge in Linear Least Squares
+[ 9/12] Multi-cylinder N=32
+[10/12] 3D Kolmogorov N=16
+[11/12] 3D Kolmogorov N=24
+[12/12] 3D Channel N=24
+
+====================================================================================================
+Case                     base LBE    SCMK x    wall x     And x        err   conv
+----------------------------------------------------------------------------------------------------
+kolmogorov_N32               3015     11.0x      8.8x    231.9x   4.82e-06      ✓
+kolmogorov_N48               6633     21.7x     16.0x    473.8x   7.91e-04      ✓
+kolmogorov_N64              12462     36.4x     25.5x    778.9x   4.81e-04      ✓
+channel_N32                  5427     23.9x     14.8x      1.8x   8.92e-03      ✓
+couette_N32                  5829    194.3x     87.3x      1.5x   2.65e-02      ✓
+cavity_Re100                 2613      5.9x      2.8x      1.4x   1.62e-02      ✓
+cavity_Re400               100500      9.1x      3.8x      2.0x   1.40e-02      ✓
+cavity_Re1000              201000     14.0x     12.5x       N/A        nan      ✗
+multi_cylinder               2211      3.5x      2.4x      1.1x   8.10e-03      ✓
+3d_kolmogorov_N16             603      3.3x      2.8x       N/A   8.19e-04      ✓
+3d_kolmogorov_N24            1407      6.5x      5.0x       N/A   7.44e-04      ✓
+3d_channel_N24               4623     13.8x      8.1x       N/A   4.64e-03      ✓
+
+Arithmetic mean SCMK LBE speedup     : 28.61x
+Geometric mean SCMK LBE speedup      : 13.33x
+Median SCMK LBE speedup              : 12.38x
+Min SCMK LBE speedup                 : 3.33x
+Max SCMK LBE speedup                 : 194.30x
+Wall speedup mean                    : 15.82x
+Worst field err                      : 2.650e-02
+Convergence rate                     : 11/12
+Plot : verify_final_speedup.png

@@ -1,0 +1,48 @@
+{
+  "per_case": {
+    "kolmogorov": {
+      "lbe_speedup": 4.513473053892215,
+      "wall_speedup": 3.092361172020914,
+      "field_err": 0.31140758735674384,
+      "scmk_converged": false,
+      "baseline_lbe": 3015,
+      "scmk_lbe": 668
+    },
+    "channel": {
+      "lbe_speedup": 8.124251497005988,
+      "wall_speedup": 5.646970776484099,
+      "field_err": 0.6895288890272481,
+      "scmk_converged": false,
+      "baseline_lbe": 5427,
+      "scmk_lbe": 668
+    },
+    "couette": {
+      "lbe_speedup": 8.726047904191617,
+      "wall_speedup": 5.085616606713663,
+      "field_err": 0.5473944498837606,
+      "scmk_converged": false,
+      "baseline_lbe": 5829,
+      "scmk_lbe": 668
+    },
+    "cavity_re100": {
+      "lbe_speedup": 3.911676646706587,
+      "wall_speedup": 2.7664840100656383,
+      "field_err": 0.12684728669778206,
+      "scmk_converged": false,
+      "baseline_lbe": 2613,
+      "scmk_lbe": 668
+    },
+    "multi_cylinder": {
+      "lbe_speedup": 3.309880239520958,
+      "wall_speedup": 2.5602057519373127,
+      "field_err": 0.24060621260478388,
+      "scmk_converged": false,
+      "baseline_lbe": 2211,
+      "scmk_lbe": 668
+    }
+  },
+  "mean_speedup": 5.7170658682634725,
+  "worst_err": 0.6895288890272481,
+  "conv_frac": 0.0,
+  "composite": 0.0
+}

@@ -1,0 +1,80 @@
+[
+  {
+    "label": "clean periodic",
+    "fluid_frac": 1.0,
+    "baseline_lbe": 7014,
+    "baseline_wall": 6.412402437010314,
+    "baseline_res": 7.076387063422425e-08,
+    "scmk_outer": 16,
+    "scmk_lbe": 561,
+    "scmk_wall": 0.7056998389889486,
+    "scmk_res": 7.206351746834532e-08,
+    "speedup_lbe": 12.502673796791443,
+    "speedup_wall": 9.086586226514264
+  },
+  {
+    "label": "random 5pct",
+    "fluid_frac": 0.9500868055555556,
+    "baseline_lbe": 2505,
+    "baseline_wall": 2.349104052002076,
+    "baseline_res": 8.453700791196727e-08,
+    "scmk_outer": 8,
+    "scmk_lbe": 353,
+    "scmk_wall": 0.4744135470245965,
+    "scmk_res": 7.441574712799607e-08,
+    "speedup_lbe": 7.096317280453258,
+    "speedup_wall": 4.951595642103964
+  },
+  {
+    "label": "random 10pct",
+    "fluid_frac": 0.9001736111111112,
+    "baseline_lbe": 2505,
+    "baseline_wall": 2.324191825988237,
+    "baseline_res": 9.501391310747086e-08,
+    "scmk_outer": 5,
+    "scmk_lbe": 221,
+    "scmk_wall": 0.33152182499179617,
+    "scmk_res": 7.99453567818818e-08,
+    "speedup_lbe": 11.334841628959277,
+    "speedup_wall": 7.010675167602469
+  },
+  {
+    "label": "random 20pct",
+    "fluid_frac": 0.8003472222222222,
+    "baseline_lbe": 80160,
+    "baseline_wall": 78.71329935797257,
+    "baseline_res": 4.3129356952014167e-07,
+    "scmk_outer": 12,
+    "scmk_lbe": 529,
+    "scmk_wall": 0.8717629860038869,
+    "scmk_res": 9.424643573235493e-08,
+    "speedup_lbe": 151.531190926276,
+    "speedup_wall": 90.29208697973054
+  },
+  {
+    "label": "cylinder",
+    "fluid_frac": 0.9162326388888888,
+    "baseline_lbe": 7014,
+    "baseline_wall": 6.883587124000769,
+    "baseline_res": 9.64267555228218e-08,
+    "scmk_outer": 21,
+    "scmk_lbe": 925,
+    "scmk_wall": 1.3688408099696971,
+    "scmk_res": 9.361003939937967e-08,
+    "speedup_lbe": 7.5827027027027025,
+    "speedup_wall": 5.028771113386921
+  },
+  {
+    "label": "multi-cylinder",
+    "fluid_frac": 0.8454861111111112,
+    "baseline_lbe": 2004,
+    "baseline_wall": 1.9553537750034593,
+    "baseline_res": 4.7916139763651975e-08,
+    "scmk_outer": 32,
+    "scmk_lbe": 1409,
+    "scmk_wall": 2.069613764004316,
+    "scmk_res": 9.649687962007132e-08,
+    "speedup_lbe": 1.4222853087295955,
+    "speedup_wall": 0.9447916364936687
+  }
+]

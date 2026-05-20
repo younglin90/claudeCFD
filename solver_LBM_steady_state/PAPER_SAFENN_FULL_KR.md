@@ -207,7 +207,7 @@ cap ratchet 의 의미: 연속 2회 이상 reject 없이 진행되면 부드러�
 
 $\beta_k > 0.3$ 인 경우에만 룩어헤드 잔차를 평가하여 안전성을 확인한다:
 
-$$R_y = y_k - \mathcal{L}(y_k) \quad \text{(LBE call 1회 추가)}$$
+$$R_y = y_k - \mathcal{L}(y_k)$$ (LBE call 1회 추가)
 
 수용 부등식:
 

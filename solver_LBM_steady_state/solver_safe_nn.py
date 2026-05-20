@@ -27,6 +27,8 @@ def solve_safe_nn(case, max_outer=200, tol=1e-7, krylov_max=10, krylov_tol=1e-3,
     beta = 0.0
     res_prev = np.inf
     reject_count = 0
+    streak_no_reject = 0
+    beta_cap = beta_max
 
     for k in range(max_outer):
         R = case.residual(f); lbe_calls += 1
@@ -39,11 +41,15 @@ def solve_safe_nn(case, max_outer=200, tol=1e-7, krylov_max=10, krylov_tol=1e-3,
             if verbose: print(f"  CONVERGED at outer {k}")
             break
 
-        # Tentative β
+        # Tentative β with dynamic cap (raise when stable smooth regime)
         if res > res_prev:
-            beta = beta * 0.5
+            beta = beta * 0.7
+            streak_no_reject = 0
+            beta_cap = beta_max
         else:
-            beta = min(beta_max, beta + 0.15)
+            beta = min(beta_cap, beta + 0.15)
+            if streak_no_reject >= 2:
+                beta_cap = min(0.95, beta_max + 0.2)
 
         # Nesterov lookahead with residual-safe acceptance
         if beta > 0.3:
@@ -51,14 +57,20 @@ def solve_safe_nn(case, max_outer=200, tol=1e-7, krylov_max=10, krylov_tol=1e-3,
             R_y = y - case.lbe_step(y); lbe_calls += 1
             norm_R_y = case._fast_norm(R_y)
             norm_R = case._fast_norm(R)
-            if norm_R_y > (1.0 + eps_accept) * norm_R or not np.all(np.isfinite(R_y)):
+            eps_eff = eps_accept + 0.2 * beta
+            if norm_R_y > (1.0 + eps_eff) * norm_R or not np.all(np.isfinite(R_y)):
                 y = f.copy()
                 R_y = R
-                beta = beta * 0.5
+                beta = beta * 0.7
                 reject_count += 1
+                streak_no_reject = 0
+                beta_cap = beta_max
+            else:
+                streak_no_reject += 1
         else:
             y = f
             R_y = R
+            streak_no_reject += 1
 
         norm_y = case._fast_norm(y)
         probe = [0]

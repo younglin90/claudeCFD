@@ -46,16 +46,19 @@ def solve_safe_nn(case, max_outer=200, tol=1e-7, krylov_max=10, krylov_tol=1e-3,
             beta = min(beta_max, beta + 0.15)
 
         # Nesterov lookahead with residual-safe acceptance
-        y = f + beta * (f - f_prev)
-        R_y = y - case.lbe_step(y); lbe_calls += 1
-        norm_R_y = case._fast_norm(R_y)
-        norm_R = case._fast_norm(R)
-        if norm_R_y > (1.0 + eps_accept) * norm_R or not np.all(np.isfinite(R_y)):
-            # reject lookahead
-            y = f.copy()
+        if beta > 0.3:
+            y = f + beta * (f - f_prev)
+            R_y = y - case.lbe_step(y); lbe_calls += 1
+            norm_R_y = case._fast_norm(R_y)
+            norm_R = case._fast_norm(R)
+            if norm_R_y > (1.0 + eps_accept) * norm_R or not np.all(np.isfinite(R_y)):
+                y = f.copy()
+                R_y = R
+                beta = beta * 0.5
+                reject_count += 1
+        else:
+            y = f
             R_y = R
-            beta = beta * 0.5
-            reject_count += 1
 
         norm_y = case._fast_norm(y)
         probe = [0]
@@ -77,9 +80,14 @@ def solve_safe_nn(case, max_outer=200, tol=1e-7, krylov_max=10, krylov_tol=1e-3,
             break
 
         f_new = y + df.reshape(case.shape)
-        for _ in range(kinetic_substeps):
+        # Adaptive K: fewer substeps when near convergence AND res decreasing
+        if res < 1e-4 and res < res_prev:
+            K_eff = max(5, kinetic_substeps // 2)
+        else:
+            K_eff = kinetic_substeps
+        for _ in range(K_eff):
             f_new = case.lbe_step(f_new)
-        lbe_calls += kinetic_substeps
+        lbe_calls += K_eff
         if not np.all(np.isfinite(f_new)):
             f_new = f
             for _ in range(kinetic_substeps):

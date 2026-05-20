@@ -76,7 +76,7 @@ def run_case(case_b, case_s, tol, baseline_runner, scmk_kw,
 
 def main():
     tol = 1e-7
-    scmk_kw = dict(max_outer=200, krylov_max=10, krylov_tol=1e-3, kinetic_substeps=15, beta_max=0.7, eps_accept=0.05)
+    scmk_kw = dict(max_outer=200, krylov_max=10, krylov_tol=1e-3, kinetic_substeps=15, beta_max=0.7, eps_accept=0.10)
     results = {}
 
     # Case 1 : Kolmogorov

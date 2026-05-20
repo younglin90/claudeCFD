@@ -499,21 +499,58 @@ else :
 
 6-case 산술 평균 가속 **44.6×**, 기하 평균 **16.0×**.
 
-### 3.4 정확도 검증 (Field profile)
+### 3.4 정확도 검증 — 모든 사례
 
-![Fig 3. Field profile validation: Baseline vs Safe-NN](figs/v2_fig3_field_profiles.png)
+본 절은 6개 검증 사례 각각에 대해 Safe-NN 의 정상해가 baseline LBM 또는 해석해와 일치함을 확인한다.
 
-**그림 3.** (왼쪽) Channel u-velocity profile $u(y)$ — Baseline 과 Safe-NN 거의 완전 일치. (오른쪽) Lid-driven cavity Re=100 N=65 의 centerline u-velocity (x=N/2) 정규화 $u/U_{\text{wall}}$ vs $y/L$. Safe-NN 의 정상해가 baseline 과 정확히 일치한다.
+#### 3.4.1 Case 1. Kolmogorov 흐름 (해석해 비교)
 
-### 3.5 Cavity Re=100 contour 비교
+![Fig 3. Kolmogorov u-profile vs analytical](figs/v3_acc1_kolmogorov.png)
 
-![Fig 4. Cavity Re=100 contour: Baseline vs Safe-NN](figs/v2_fig4_cavity_contour.png)
+**그림 3.** Kolmogorov 흐름 N=32 의 u-velocity profile $u(y)$. 해석해 $u(y) = (F_0/\nu k^2) \sin(k y)$ (검은 실선) 과 baseline LBM (회색 원), Safe-NN (빨강 사각형) 비교. 두 방법 모두 해석해와 거의 완전히 일치 (RMS error $\sim 10^{-5}$). Safe-NN 의 RMS 가 baseline 과 동등 수준.
 
-**그림 4.** Lid-driven cavity Re=100 N=65 의 속도 크기 $\|\mathbf{u}\|$ contour. (왼쪽) Baseline LBM, (가운데) Safe-NN, (오른쪽) 두 결과의 절대 차이. 최대 차이 $\sim 10^{-5}$ 수준으로, 시각적으로 구별 불가. Safe-NN 의 정상해 정확도가 baseline 과 완전히 동등함을 확인한다.
+#### 3.4.2 Case 2. Channel (Poiseuille) 흐름 (해석해 비교)
 
-### 3.6 stress test: Cavity Re=400 N=49
+![Fig 4. Channel u-profile vs Poiseuille](figs/v3_acc2_channel.png)
 
-stiff regime 인 cavity Re=400 N=49 에서 baseline 8,040 LBE 로 수렴, Safe-NN 1,421 LBE 로 수렴 (5.66 배 가속). 수렴 잔차 $4.77 \times 10^{-7}$ 로 tolerance 도달. 본 사례는 BGK 완화율 $\omega \approx 1.94$ 로 발산 위험이 큰 영역이나, Safe-NN 의 잔차 단조 안전성 검사가 발산을 완전히 차단하였다.
+**그림 4.** Channel flow N=32 의 u-velocity profile $u(y)$. 해석해 (Poiseuille 포물선) $u(y) = 4 u_{\max} (y/L)(1 - y/L)$, $u_{\max} = F_0 L^2 / (8\nu)$ (검은 실선) 과 baseline / Safe-NN 비교. Safe-NN 정상해가 해석해와 baseline 모두와 일치하며, RMS error 차이는 $10^{-6}$ 수준이다.
+
+#### 3.4.3 Case 3. Couette 흐름 (해석해 비교)
+
+![Fig 5. Couette u-profile vs linear](figs/v3_acc3_couette.png)
+
+**그림 5.** Couette flow N=32 의 u-velocity profile $u(y)$. 해석해 $u(y) = U_{\text{wall}} y / L$ (검은 실선) 과 baseline / Safe-NN 비교. Safe-NN 의 선형 profile 이 해석해와 완전히 일치. Couette 는 정상해가 선형이라 빠른 수렴 (Safe-NN 30 LBE) 이 가능하며, 해석해 RMS error 도 baseline 과 동일하다.
+
+#### 3.4.4 Case 4. Lid-driven cavity Re=100 (Ghia 1982 비교)
+
+![Fig 6. Cavity Re=100 centerline + contour diff](figs/v3_acc4_cavity_re100.png)
+
+**그림 6.** Lid-driven cavity Re=100 N=65 검증. (왼쪽) Vertical centerline ($x = N/2$) 의 u-velocity 정규화 $u/U_{\text{wall}}$ vs $y/L$. Baseline LBM (회색 원), Safe-NN (빨강 사각형) 모두 Ghia 1982 [16] 의 정답 데이터 (검은 다이아몬드) 와 일치한다. (오른쪽) Baseline 과 Safe-NN 의 velocity magnitude $\|\mathbf{u}\|$ 절대 차이 contour. 최대 차이 $\sim 10^{-5}$ 수준으로 시각적으로 구별 불가.
+
+#### 3.4.5 Case 5. Multi-cylinder voxel 흐름
+
+![Fig 7. Multi-cylinder velocity contour](figs/v3_acc5_multicyl.png)
+
+**그림 7.** Multi-cylinder voxel 흐름 N=32 (랜덤 배치 6 개 원기둥, bounce-back). (왼쪽) Baseline LBM 의 velocity magnitude $\|\mathbf{u}\|$, (가운데) Safe-NN $\|\mathbf{u}\|$, (오른쪽) 두 결과의 절대 차이. Safe-NN 정상해가 baseline 의 복잡 voxel geometry 흐름 패턴을 정확히 재현하며, 최대 차이는 $10^{-3}$ 수준.
+
+#### 3.4.6 Case 6. Lid-driven cavity Re=400 stress test (Ghia 1982 비교)
+
+![Fig 8. Cavity Re=400 centerline + contour diff](figs/v3_acc6_cavity_re400.png)
+
+**그림 8.** stiff regime cavity Re=400 N=65 검증. (왼쪽) Vertical centerline 의 $u/U_{\text{wall}}$ vs $y/L$. Baseline 과 Safe-NN 모두 Ghia 1982 [16] 의 Re=400 데이터와 일치 — Safe-NN 의 안전 가드가 NN 의 NaN 발산을 차단하면서도 정상해 정확도를 유지한다. (오른쪽) Velocity magnitude 절대 차이 contour, 최대 $\sim 10^{-5}$.
+
+### 3.5 정확도 정량 요약
+
+| Case | 비교 기준 | Baseline error | Safe-NN error | 평가 |
+|---|---|---:|---:|---|
+| 1. Kolmogorov | 해석해 (sin profile) | $\sim$1e-5 | $\sim$1e-5 | 동등 |
+| 2. Channel | 해석해 (Poiseuille) | $\sim$1e-6 | $\sim$1e-6 | 동등 |
+| 3. Couette | 해석해 (linear) | $\sim$1e-7 | $\sim$1e-7 | 동등 |
+| 4. Cavity Re=100 | Ghia 1982 ref | 일치 | 일치 | Ghia 검증 통과 |
+| 5. Multi-cylinder | Baseline ref | (자체) | $\sim$1e-3 vs baseline | 충실 재현 |
+| 6. Cavity Re=400 | Ghia 1982 ref | 일치 | 일치 (NN 은 NaN) | Ghia 검증 통과 |
+
+모든 검증 사례에서 Safe-NN 의 정상해는 baseline LBM 또는 해석해와 정확하게 일치한다.
 
 ---
 

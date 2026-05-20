@@ -93,7 +93,7 @@ def solve_safe_nn(case, max_outer=200, tol=1e-7, krylov_max=10, krylov_tol=1e-3,
 
         f_new = y + df.reshape(case.shape)
         # Adaptive K: fewer substeps when near convergence AND res decreasing
-        if res < 1e-4 and res < res_prev:
+        if res < 3e-5 and res < res_prev:
             K_eff = max(5, kinetic_substeps // 2)
         else:
             K_eff = kinetic_substeps

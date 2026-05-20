@@ -1,11 +1,13 @@
-"""Convert PAPER_SAFENN_KR.md to Word docx with Korean styling.
+"""Convert markdown paper to Word docx with Korean styling + figures.
 
-Reads PAPER_SAFENN_KR.md (markdown) and renders to SafeNN_LBM_Paper_KR.docx
-with proper Korean fonts, heading styles, code blocks, and table support.
+Reads markdown file and renders to docx with Korean fonts, heading styles,
+code blocks, tables, and image insertion via ![alt](path) syntax.
 """
+import os
 import re
+import sys
 from docx import Document
-from docx.shared import Pt, Cm, RGBColor
+from docx.shared import Pt, Cm, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
@@ -153,6 +155,18 @@ def md_to_docx(md_path, docx_path):
             i += 1
             continue
 
+        # Image ![alt](path)
+        img_m = re.match(r'^!\[(.*?)\]\(([^)]+)\)\s*$', line.strip())
+        if img_m:
+            alt, path = img_m.group(1), img_m.group(2)
+            if os.path.exists(path):
+                p = doc.add_paragraph()
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run = p.add_run()
+                run.add_picture(path, width=Cm(15))
+            i += 1
+            continue
+
         # Block math $$...$$
         if line.strip().startswith('$$') and line.strip().endswith('$$') and len(line.strip()) > 4:
             add_paragraph(doc, line.strip()[2:-2], italic=True, align=WD_ALIGN_PARAGRAPH.CENTER)
@@ -210,4 +224,7 @@ def md_to_docx(md_path, docx_path):
 
 
 if __name__ == '__main__':
-    md_to_docx('PAPER_SAFENN_KR.md', 'SafeNN_LBM_Paper_KR.docx')
+    if len(sys.argv) >= 3:
+        md_to_docx(sys.argv[1], sys.argv[2])
+    else:
+        md_to_docx('PAPER_SAFENN_KR.md', 'SafeNN_LBM_Paper_KR.docx')

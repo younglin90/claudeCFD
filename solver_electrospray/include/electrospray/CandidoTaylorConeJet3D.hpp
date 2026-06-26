@@ -43,21 +43,21 @@ struct CandidoConeJetSmokeOptions3D {
   double skew = 0.06;
   double cfl = 0.1;
   double pseudoViscosity = 0.03;
-  double vofCompression = 0.06;
+  double vofCompression = 0.0;  // P6: geometric isoAdvector is sharp; no algebraic compression
   double vofPostSharpening = 0.0;
   int vofPostSharpeningSweeps = 0;
-  bool useVofInletBoundaryAlpha = false;
-  bool useOpenAtmosphericBoundaryFlux = false;
+  bool useVofInletBoundaryAlpha = true;  // P3: Dirichlet alpha=1 at nozzle inlet
+  bool useOpenAtmosphericBoundaryFlux = true;  // P3: open-atmosphere mixed in/out boundary flux
   double alphaInterfaceWidthOuterDiameters = 0.22;
   double normalizedLiquidConductivity = 1.0;
   double normalizedGasConductivity = 1e-6;
-  bool useDimensionalElectricalScaling = false;
+  bool useDimensionalElectricalScaling = true;  // P2: physical sigma scaling (tau_e=eps/sigma)
   double chargeLimitBase = 50.0;
   int chargeSubcycles = 1;
-  bool conservativeChargeBounding = false;
+  bool conservativeChargeBounding = true;  // P2: charge-conserving bounded transport (Lopez-Herrera)
   bool quasiImplicitChargeRelaxation = false;
   bool quasiImplicitBulkConduction = false;
-  bool useRayleighChargeLimit = false;
+  bool useRayleighChargeLimit = true;  // P2: physical Rayleigh charge bound (not arbitrary cap)
   bool useInterfaceLocalizedChargeRedistribution = false;
   double interfaceChargeRedistributionLiquidFloor = 0.02;
   bool useInterfacialOhmicChargeSource = false;
@@ -67,29 +67,29 @@ struct CandidoConeJetSmokeOptions3D {
   bool collectorOnlyConductiveChargeFlux = false;
   bool applyConductiveBoundaryFiltersInImplicitOhmic = false;
   bool usePoissonFaceConductiveCurrent = false;
-  bool implicitOhmicChargeProjection = false;
-  bool refreshPotentialAfterChargeAdvance = false;
+  bool implicitOhmicChargeProjection = true;  // P2: semi-implicit Ohmic conduction div(sigma E)
+  bool refreshPotentialAfterChargeAdvance = true;  // P2: re-solve phi after charge advance (no stale E)
   bool usePoissonFaceMaxwellForce = false;
   bool usePoissonHybridMaxwellForce = false;
   bool usePoissonBoundedVectorMaxwellForce = false;
   bool useTomarConductingSurfaceForce = false;
-  bool useElectricRelaxationTimeStepLimit = false;
-  double electricRelaxationTimeStepSafety = 1.0;
-  bool useBoundaryChargeAdvection = false;
-  bool useFullyDevelopedInletVelocityBoundary = false;
-  bool useMovingCollectorWall = false;
+  bool useElectricRelaxationTimeStepLimit = true;  // P2: dt <= min(eps/sigma) electric Courant
+  double electricRelaxationTimeStepSafety = 0.1;  // P5: paper electric Courant dt <= 0.1*tau_e
+  bool useBoundaryChargeAdvection = true;  // P2: faithful charge BCs (neutral inflow / zero-grad outflow)
+  bool useFullyDevelopedInletVelocityBoundary = true;  // P3: parabolic fully-developed inlet profile
+  bool useMovingCollectorWall = true;  // P3: moving ground collector u=(-us,0,0)
   bool usePreconditionedPaperCurrentJet = false;
   double preconditionedJetTipYOverInnerDiameter = -1.0;
   double preconditionedJetRadiusInnerDiameters = 0.65;
   double preconditionedJetInterfaceWidthInnerDiameters = 0.20;
   double preconditionedJetVelocityScale = 1.0;
-  bool useContactAngleCurvature = false;
+  bool useContactAngleCurvature = true;  // P4: enforce static contact angle (51deg) at nozzle wall
   double contactAngleCurvatureWallBandCells = 1.5;
   double electricDriveReferenceScale = 15.2 * 0.25;
   double electricDriveCaExponent = 1.25;
   double poissonTangentialLimitFactor = 1.0;
   double poissonTangentialLimitFloorFraction = 0.05;
-  double surfaceTensionDriveScale = 0.20;
+  double surfaceTensionDriveScale = 1.0;  // P4: full physical CSF (no empirical reduction), matches capillary-dt scale
 };
 
 struct CandidoConeJetHistorySample3D {
@@ -424,6 +424,25 @@ inline fvm::ScalarField candidoInitialAlpha3D(const fvm::Mesh3D& mesh,
     alpha[ci] = std::clamp(a, 0.0, 1.0);
   }
   return alpha;
+}
+
+inline fvm::ScalarField candidoMixtureViscosity3D(const fvm::Mesh3D& mesh,
+                                                  const fvm::ScalarField& alpha,
+                                                  const CandidoTaylorConeJetSetup& s,
+                                                  const CandidoConeJetSmokeOptions3D& opt) {
+  // Weighted arithmetic-mean (WAM, paper Eq. 11) dynamic viscosity carried as a
+  // nondimensional momentum-diffusion field: the liquid value is anchored to the
+  // pseudoViscosity scale that keeps the coarse solve stable, and the gas value
+  // follows the physical gas:liquid viscosity ratio so the two-phase viscous
+  // contrast is represented (instead of a single uniform pseudo-viscosity).
+  const double ratio =
+      s.liquidViscosity > 0.0 ? s.gasViscosity / s.liquidViscosity : 1.0;
+  fvm::ScalarField mu(mesh.cells.size(), 0.0);
+  for (size_t ci = 0; ci < mesh.cells.size(); ++ci) {
+    const double a = std::clamp(alpha[ci], 0.0, 1.0);
+    mu[ci] = opt.pseudoViscosity * (a + (1.0 - a) * ratio);
+  }
+  return mu;
 }
 
 inline void candidoMixtureFields3D(const fvm::Mesh3D& mesh,
@@ -3362,12 +3381,31 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
     const double electricDriveScale =
         opt.electricDriveReferenceScale *
         std::pow(std::max(targetCaE, 1e-30) / 0.25, opt.electricDriveCaExponent);
+    // Gravity body force rho*g. For the capillary microjet (Di=160um) the Bond
+    // number rho*g*Di^2/gamma ~ 5e-3, so gravity is negligible and defaults to zero;
+    // the term is retained for completeness and larger-scale cases.
+    const fvm::Vec3 gravityAccel = fvm::Vec3::Zero();
     for (size_t ci = 0; ci < mesh.cells.size(); ++ci) {
       source[ci] = -electricDriveScale * electric.faceCoupledForce[ci] +
-                   opt.surfaceTensionDriveScale * surface.csfForce[ci];
+                   opt.surfaceTensionDriveScale * surface.csfForce[ci] +
+                   rho[ci] * gravityAccel;
+    }
+    // Physical momentum operator: WAM two-phase viscosity field + lagged first-order
+    // upwind convection div(rho u u) built from the current velocity field.
+    const fvm::ScalarField momentumViscosity =
+        candidoMixtureViscosity3D(mesh, alpha, setup, opt);
+    fvm::ScalarField momentumFaceMassFlux(mesh.faces.size(), 0.0);
+    for (int fi = 0; fi < static_cast<int>(mesh.faces.size()); ++fi) {
+      const fvm::Face3D& f = mesh.faces[fi];
+      if (!f.internal()) continue;
+      const fvm::Vec3 uf = 0.5 * (u[f.owner] + u[f.neighbour]);
+      const double rhoF = 0.5 * (rho[f.owner] + rho[f.neighbour]);
+      momentumFaceMassFlux[fi] = rhoF * uf.dot(f.Sf);
     }
     fvm::MomentumPredictorReport3D mom =
-        fvm::solveMomentumPredictorBiCGSTABILUT3D(mesh, u, source, rho, dt, opt.pseudoViscosity);
+        fvm::solveMomentumPredictorBiCGSTABILUT3D(mesh, u, source, rho, dt,
+                                                  opt.pseudoViscosity, &momentumViscosity,
+                                                  &momentumFaceMassFlux);
     u = mom.velocity;
     if (opt.useFullyDevelopedInletVelocityBoundary) {
       candidoApplyFullyDevelopedInletVelocityCells3D(u, mesh, setup, opt);

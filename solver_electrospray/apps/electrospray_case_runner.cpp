@@ -685,7 +685,23 @@ void writeSmokeSummaryJson(const std::filesystem::path& path,
   os << "  \"relative_charge_budget_residual\": " << r.relativeChargeBudgetResidual << ",\n";
   os << "  \"final_radial_asymmetry\": " << r.finalRadialAsymmetry << ",\n";
   os << "  \"final_midplane_jet_radius\": " << r.finalMidplaneJetRadius << ",\n";
-  os << "  \"max_velocity\": " << r.maxVelocity << "\n";
+  os << "  \"max_velocity\": " << r.maxVelocity << ",\n";
+  // P5: paper observables surfaced as first-class outputs - the electric Courant
+  // number dt/tau_e (paper limits this to <=0.1), the connected alpha=0.5 silhouette
+  // volume V = sum(pi x^2) (paper morphology metric), and the jet current i_e.
+  os << "  \"electric_courant\": " << r.dtOverElectricRelaxationLimit << ",\n";
+  if (!r.history.empty()) {
+    const auto& last = r.history.back();
+    os << "  \"morphology_alpha05_silhouette_di3\": " << last.rayAlpha05SilhouetteVolumeDi3 << ",\n";
+    os << "  \"morphology_connected_di3\": " << last.connectedMorphologyVolumeDi3 << ",\n";
+    os << "  \"alpha05_convective_current\": " << last.alpha05ConvectiveCurrent << ",\n";
+    os << "  \"jet_total_current\": " << last.totalCurrent << "\n";
+  } else {
+    os << "  \"morphology_alpha05_silhouette_di3\": 0,\n";
+    os << "  \"morphology_connected_di3\": 0,\n";
+    os << "  \"alpha05_convective_current\": 0,\n";
+    os << "  \"jet_total_current\": 0\n";
+  }
   os << "}\n";
 }
 

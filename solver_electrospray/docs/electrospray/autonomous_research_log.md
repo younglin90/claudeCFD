@@ -4,6 +4,29 @@ Context: P1-P6 made the candido solver physically faithful to Candido & Pascoa 2
 (committed: e1eb8f2 OpenMP, 9cf0c48 P1-P6). This log journals the autonomous validation of
 the new physics against the paper, and the regression re-baselining.
 
+## TL;DR (autonomous session result)
+
+The faithful P1-P6 physics is **validated** against Candido 2023 on a structured box mesh:
+
+1. **Stable + conserving** over hundreds-to-900 steps at every CaE and resolution tested —
+   relative charge/mass budget residuals ~1e-13, mass drift ~1e-14, divergence bounded. This
+   resolves the prior current blow-up (ratios 1e9-1e11) and the current/whipping Pareto-block.
+2. **2x2 resolution x CaE convergence matrix** (Experiments A2/C/D/E, all matched ~0.8 ms):
+   sustained whipping (radial asymmetry) grows **monotonically with both field strength and mesh
+   resolution** — 0.032 (nx12/CaE0.25) -> 0.089 (nx18/CaE0.25) -> 0.172 (nx18/CaE0.42). The
+   coarse-mesh "pulsate-and-collapse" is a numerical-diffusion artifact that refinement removes.
+   Conservation + total current are robust integral observables; whipping is the resolution-gated
+   quantity (not converged at nx=18 -> paper needs ~2 um). [Experiment F nx=24 in progress as a
+   3rd convergence point.]
+3. **Metric audit (4 independent agents vs source):** corrected 2 claims (tip_displacement
+   saturates -> not an ejection metric; charge residual is relative ~1e-13 = genuine conservation),
+   hardened the other two. No headline conclusion overturned.
+4. **Open item — regression RED (needs your decision):** `test_candido_cone_jet_smoke3d` fails at
+   the 0.9 ms long-window assertion because faithful physics needs ~1100 steps to reach it (the
+   52-step budget and the committed electric-off "fast" lever are insufficient/broken). Fix is a
+   CI-time/threshold trade-off, documented below, **not** committed autonomously. See "Regression
+   re-baseline status". Production defaults stay faithful.
+
 ## Key tension discovered
 
 The faithful electric Courant limit (dt <= 0.1*tau_e, P5) makes dt ~20x smaller than the

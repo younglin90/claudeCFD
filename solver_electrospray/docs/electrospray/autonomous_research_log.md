@@ -170,7 +170,7 @@ electric-relaxation limit is still binding at nx=18 and **valD@900 reaches the s
 | max velocity | 10.9 | 29.9 (2.7x) | sharpens |
 | max electric force | 110 | 740 (6.7x) | sharpens |
 | max alpha (interface) | 0.85 | 0.95 | sharper interface |
-| midplane jet radius | 1.5e-4 | 1.5e-6 | fat -> thin jet (cf. CaE-0.42 nx=12 also 1.6e-6) |
+| midplane jet radius | 1.5e-4 | 1.5e-6 | ~both near-zero, NOT comparable (see audit) |
 
 Two clean groups. **(a) Conservation and the total current converge / are robust** to a 3.4x cell
 change (residuals stay ~1e-13, current within ~15%) — integral quantities are mesh-insensitive, as
@@ -264,9 +264,20 @@ actual solver source (4 read-only agents reading `CandidoTaylorConeJet3D.hpp` /
   time-integrated convective `rho_e*u` + conductive `sigma*E` over all boundary faces. This is a
   genuine **relative** budget closure; the journaled ~1e-13 values are relative (normalized by the
   ~3.5e-9 expected charge), i.e. ~13-digit conservation, not an unnormalized absolute. Confirmed.
+- **midplane jet radius — refuted as a cross-run metric (follow-up audit).** `final_midplane
+  JetRadius = candidoEquivalentLiquidRadiusAtY3D(mesh, alpha, 0.5*ly, 5*ly/ny)` (~3638; impl
+  ~2197-2209) is the equivalent radius `sqrt(liquidVolumeInSlab/slabWidth/pi)` of the liquid in a
+  ~5-cell slab at the **domain midplane** y = 0.5*ly (about halfway to the collector, far above the
+  nozzle), returning **exactly 0** when no liquid is in the slab (no fallback). At ~0.8 ms the
+  cone-jet has not reached the midplane in any run, so the values (1.5e-4 / 1.5e-6 nondim radius) are
+  **both essentially zero** (trace-alpha noise), and the 100x ratio is noise-vs-noise, **not** a
+  fat->thin jet. Corrected the Experiment D row accordingly. (A robust jet-width metric would scan
+  all y-planes or use the connected silhouette, not the fixed midplane slab.)
 
-The audit corrected one overstatement (tip metric) and one ambiguity (relative vs absolute
-charge residual), and hardened the other two claims. No headline conclusion was overturned.
+The audit corrected two overstatements (tip metric; midplane-radius "fat->thin" reading) and one
+ambiguity (relative vs absolute charge residual), and hardened the asymmetry + charge claims. No
+**headline** conclusion was overturned (the headline rests on asymmetry, conservation, and current,
+all audited as supported).
 
 ### Headline
 

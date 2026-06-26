@@ -183,7 +183,13 @@ Remaining deferrals (mesh-gated, P7 territory): resolved-nozzle no-slip walls + 
 outlet + collector-wall contact angle (need a resolved nozzle mesh), and matching the paper's
 1.1% morphology / Ganan-Calvo current magnitude (need ~2 um / ~11M-cell resolution).
 
-Regression note: the candido smoke long-window assertions are calibrated to the pre-P1
-behavior and need re-baselining (the morphology diagnostic now uses the hydrodynamic dt to
-reach the paper window affordably; production defaults are faithful). Validation of the new
-physics vs the paper is journaled in `autonomous_research_log.md`.
+Regression note (updated, diagnosed): `test_candido_cone_jet_smoke3d` is **RED** at the
+long-window "reaches the paper reference time window" assertion (needs >=0.9 ms). Empirically
+diagnosed: under faithful physics the diagnostic's 52-step budget reaches only ~17x short of
+the window (faithful 900 steps reach ~0.8 ms), and the committed electric-relaxation-off "fast"
+lever (test lines 5599-5600) is **broken** — it shrinks dt ~67x (un-normalized advective CFL)
+and the run blows up (mass drift 100%, velocity 6e5). Reaching 0.9 ms needs ~1100 faithful steps
+(stable + conserved per Experiments A2/D/E). Fix is a CI-time/threshold trade-off (see
+`autonomous_research_log.md` "Regression re-baseline status"), deferred to a user decision;
+**production defaults are faithful and the physics is independently validated** (Experiments
+A-E + adversarial metric audit, journaled in `autonomous_research_log.md`).

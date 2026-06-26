@@ -265,4 +265,37 @@ magnitude, a resolution-converged whipping boundary) remains gated on the paper'
 resolution (P7) — but the **trends toward that regime are now demonstrated along both axes**, and all
 metric claims were independently audited against the solver source (corrections applied above).
 
+### Regression re-baseline status (RED, diagnosed — needs a test-design decision)
+
+`test_candido_cone_jet_smoke3d` is **RED**, aborting (fail-fast) at the assertion *"Candido
+long-window morphology run reaches the paper reference time window"* (test line ~5621), which
+requires `longWindow.history.back().time * hydrodynamicTimeScale * 1e3 >= 0.9` ms. Diagnosis
+(empirically measured, not assumed):
+
+- The faithful production runs reach nondim time **2.67 in 900 steps** (~0.8 ms by the run's own
+  time scale) — i.e. even 900 faithful steps land just short of the 0.9 ms target; the long-window
+  diagnostic is budgeted at only **52 steps**, which at the faithful dt (0.00296) reaches nondim
+  ~0.15 (~17x short).
+- The currently-committed "fast diagnostic" lever in the test — `longOpt.useElectricRelaxation
+  TimeStepLimit = false; longOpt.useDimensionalElectricalScaling = false;` (lines 5599-5600), whose
+  comment claims it reaches the window affordably on the hydrodynamic dt — is **broken**. A
+  case_runner probe mirroring it (nx12/ny17/nz12, 52 steps, cfl 1.0, both toggles off, CaE 0.25)
+  gives electric_courant **0.00148** (dt ~4.4e-5, ~67x *smaller* than faithful, because turning off
+  dimensional scaling inflates the normalized-voltage advective CFL and shrinks dt) and the solution
+  **blows up**: mass drift 1.0 (100%), max velocity 6.0e5, current 598, charge 8.6, asymmetry/
+  silhouette 0. So the electric-off lever reaches ~7e-4 ms and is non-physical — worse, not better.
+- Root cause: under faithful physics there is **no fast (52-step) path to the 0.9 ms paper window**;
+  the faithful electric-relaxation timescale needs **~900-1100 steps** to get there (and those runs
+  *are* stable and conserved, per A2/D/E). The 52-step budget was only viable under the pre-P1
+  non-faithful dt.
+
+**Recommended fix (deferred to user — it is a CI-time / threshold trade-off on your test):** remove
+the broken electric-off lines, run the *primary* long-window diagnostic (test line 5601) at the
+faithful dt for ~1100 steps (reaches >=0.9 ms, stays conserved as A2/D/E show), and explicitly reset
+the *variant* long-window runs (sharpened / inlet-alpha / whip, lines ~5628-5700, which only assert
+mass-drift/divergence bounds, not the 0.9 ms window) back to 52 steps so the suite does not balloon.
+Alternatively lower the 0.9 ms threshold to what a modest faithful budget reaches. Not committed
+autonomously because it changes CI time and the meaning of "paper-window validated"; **production
+defaults remain faithful and the physics is independently validated by Experiments A-E + the audit.**
+
 

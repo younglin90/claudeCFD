@@ -11,10 +11,12 @@ The faithful P1-P6 physics is **validated** against Candido 2023 on a structured
 1. **Stable + conserving** over hundreds-to-900 steps at every CaE and resolution tested —
    relative charge/mass budget residuals ~1e-13, mass drift ~1e-14, divergence bounded. This
    resolves the prior current blow-up (ratios 1e9-1e11) and the current/whipping Pareto-block.
-2. **Resolution x CaE convergence study** (Experiments A2/C/D/E/F, all matched ~0.8 ms): sustained
-   whipping (radial asymmetry) grows **monotonically with both field strength and mesh resolution**.
-   3-point resolution sweep at CaE 0.25: **0.032 (nx12) -> 0.089 (nx18) -> 0.351 (nx24)** —
-   accelerating, NOT converging = resolution-gated instability; CaE axis at nx18: 0.089 -> 0.172.
+2. **Resolution x CaE convergence study** (Experiments A2/C/D/E/F, all matched ~0.8 ms): the off-axis
+   (whipping-like) radial asymmetry grows **monotonically with both field strength and mesh
+   resolution**. 3-point resolution sweep at CaE 0.25: **0.032 (nx12) -> 0.089 (nx18) -> 0.351
+   (nx24)** — accelerating, NOT converging; CaE axis at nx18: 0.089 -> 0.172. (Honest caveat, Exp F:
+   this unbounded resolution-sensitive growth is consistent with the paper's physical whipping but
+   not cleanly separable from numerical destabilization of the cone-tip on a structured box.)
    The coarse-mesh "pulsate-and-collapse" is a numerical-diffusion artifact refinement removes.
    Conservation + total current are robust integral observables; whipping is the resolution-gated
    quantity (unconverged even at nx=24 -> paper needs ~2 um). **Caveat:** at nx=24 the structured-box
@@ -267,6 +269,23 @@ uses geometric VOF (isoAdvector/plicRDF) + local refinement* to handle the tip s
 1200-step budget — vs 900 for the coarser runs — is what surfaced this; a 900-step nx=24 run would
 have looked cleanly stable at asymmetry 0.351.)
 
+**Honest caveat on findings (1) vs (2) — physical whipping or numerical destabilization?** The
+accelerating asymmetry growth (1) and the subsequent blow-up (2) may be **two faces of the same
+mechanism**: the under-resolved cone-tip singularity can drive *both* a growing off-axis perturbation
+*and* an eventual divergence. The data alone cannot cleanly separate "physical resolution-gated
+whipping" from "resolution-driven numerical destabilization of the tip" — both are consistent with the
+monotone-accelerating asymmetry + fine-mesh blow-up. Arguments each way: *for physical* — the matched-
+time asymmetry is measured well before the blow-up (step 900 vs ~1110, ~200-step margin), mass/charge
+stay conserved at the matched time, and asymmetry growth with field strength (the CaE axis) at fixed
+mesh is independent of the resolution-driven tip stress; *for numerical* — the growth accelerates and
+is unbounded (no saturation to a physical whipping amplitude), and it terminates in divergence. The
+defensible claim is therefore the weaker one: **the off-axis dynamics are strongly resolution-
+sensitive and grow without converging on this structured box**, which is consistent with (but does not
+by itself prove) the paper's physical whipping; a clean attribution needs the paper's interface-
+capturing methods (geometric VOF + AMR) that keep the tip resolved without destabilizing. The robust,
+unambiguous results remain conservation, the bounded O(1e-7) current, and the qualitative cone-jet
+formation/ejection.
+
 ### Metric verification (adversarial audit)
 
 Before trusting the above, the four headline diagnostics were independently audited against the
@@ -321,10 +340,14 @@ all audited as supported).
 The faithful physics (P1-P6) turns the prior empirically-regularized, current-pathological
 configuration into a **stable, charge-conserving solver that reproduces the paper's qualitative
 cone-jet formation, ejection, asymmetry growth, and weak-voltage current trend**. Across Experiments
-A2/C/D/E/F (matched ~0.79 ms) **sustained whipping grows monotonically with both field strength and
-mesh resolution**. A 3-point resolution sweep at CaE 0.25 gives radial asymmetry **0.032 (nx12) ->
-0.089 (nx18) -> 0.351 (nx24)** — accelerating (2.8x then 3.9x), i.e. **not converging**, the signature
-of a resolution-gated instability; and the CaE axis at nx=18 gives 0.089 -> 0.172. The apparent
+A2/C/D/E/F (matched ~0.79 ms) the **off-axis (whipping-like) asymmetry grows monotonically with both
+field strength and mesh resolution**. A 3-point resolution sweep at CaE 0.25 gives radial asymmetry
+**0.032 (nx12) -> 0.089 (nx18) -> 0.351 (nx24)** — accelerating (2.8x then 3.9x), i.e. **not
+converging**; and the CaE axis at nx=18 gives 0.089 -> 0.172. (Honest caveat, detailed in Experiment
+F: this strongly-resolution-sensitive unbounded growth is *consistent with* the paper's physical
+whipping but cannot, on this structured box, be cleanly separated from resolution-driven numerical
+destabilization of the cone-tip singularity — the nx=24 run diverges at ~0.95 ms. The unambiguous
+results are conservation, the bounded current, and the qualitative cone-jet.) The apparent
 coarse-mesh "pulsate-and-collapse" at CaE 0.42 (Experiment C) is a **resolution artifact** of
 numerical diffusion damping the instability, which refinement removes. Conservation is mesh- and
 field-robust (charge/mass residuals ~1e-13/1e-14 at every CaE and resolution) and the total current is

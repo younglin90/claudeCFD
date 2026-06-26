@@ -1,0 +1,1270 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Electrospray 3D Runner</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --ink: #1c2430;
+      --muted: #5d6877;
+      --line: #d8dde5;
+      --accent: #116d6e;
+      --accent-2: #8b3d4b;
+      --bad: #ad2f2f;
+      --good: #28734d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 64px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(360px, 0.92fr) minmax(380px, 1.08fr);
+      gap: 18px;
+      padding: 18px;
+      max-width: 1480px;
+      margin: 0 auto;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      min-width: 0;
+    }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.one { grid-template-columns: 1fr; }
+    .wide { grid-column: 1 / -1; }
+    label {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    input, select {
+      width: 100%;
+      min-height: 36px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-size: 14px;
+    }
+    input[type="checkbox"] {
+      width: 18px;
+      min-height: 18px;
+      accent-color: var(--accent);
+    }
+    input[type="file"] {
+      padding: 6px;
+      min-height: 40px;
+    }
+    .checkline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 36px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    button {
+      min-height: 38px;
+      padding: 8px 13px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #fff;
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+    .stack {
+      display: grid;
+      gap: 14px;
+      min-width: 0;
+    }
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+    pre {
+      min-height: 240px;
+      max-height: 560px;
+      overflow: auto;
+      margin: 0;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #101820;
+      color: #edf6f7;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .tablewrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    .tablewrap table { min-width: 1180px; }
+    th, td {
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+    td input, td select {
+      min-height: 30px;
+      padding: 4px 6px;
+      font-size: 12px;
+    }
+    th {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #e7ecef;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .status.pass { background: #e3f2ea; color: var(--good); }
+    .status.error, .status.fail { background: #f7e3e3; color: var(--bad); }
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .path {
+      color: var(--accent-2);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    .viewerShell {
+      display: grid;
+      gap: 10px;
+    }
+    .viewerToolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .viewerCanvasWrap {
+      position: relative;
+      width: 100%;
+      min-height: 420px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #eef2f5;
+    }
+    #meshCanvas {
+      display: block;
+      width: 100%;
+      height: 420px;
+      cursor: grab;
+    }
+    #meshCanvas.dragging { cursor: grabbing; }
+    .viewerOverlay {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      max-width: calc(100% - 20px);
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.88);
+      color: var(--muted);
+      font-size: 12px;
+      pointer-events: none;
+    }
+    .selectedBcGrid {
+      display: grid;
+      grid-template-columns: 1.2fr 1.1fr repeat(3, minmax(64px, 0.8fr));
+      gap: 8px;
+      align-items: end;
+    }
+    .selectedBcGrid.scalar {
+      grid-template-columns: 1.2fr 1.1fr minmax(80px, 1fr);
+    }
+    .patchSelected {
+      background: #edf7f7;
+    }
+    @media (max-width: 980px) {
+      main, .split { grid-template-columns: 1fr; }
+      .grid, .grid.two { grid-template-columns: 1fr 1fr; }
+      .selectedBcGrid,
+      .selectedBcGrid.scalar {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    @media (max-width: 620px) {
+      header { align-items: flex-start; flex-direction: column; }
+      main { padding: 10px; }
+      .grid, .grid.two { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Electrospray 3D Runner</h1>
+    <span id="status" class="status">idle</span>
+  </header>
+  <main>
+    <div class="stack">
+      <section>
+        <h2>Case</h2>
+        <div class="grid two" id="fields-case"></div>
+        <div class="actions" style="margin-top:10px; align-items:center;">
+          <select id="savedCaseSelect" style="min-width:200px; flex:1 1 200px;"></select>
+          <button id="loadCaseBtn" class="secondary">Load Case</button>
+          <button id="refreshCasesBtn" class="secondary" title="refresh saved case list">&#8635;</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Mesh</h2>
+        <div class="grid two">
+          <div id="fields-mesh-modes" style="display:contents"></div>
+          <label class="wide">OpenFOAM polyMesh 찾아보기
+            <input id="polyMeshBrowse" type="file" multiple webkitdirectory>
+          </label>
+          <label class="wide">OpenFOAM case 찾아보기 (constant/polyMesh + 0 fields)
+            <input id="openFoamCaseBrowse" type="file" multiple webkitdirectory>
+          </label>
+        </div>
+        <div class="grid" id="fields-mesh-dims"></div>
+        <div class="actions">
+          <button id="generateCadNozzleCase" class="secondary">Generate CAD/snappy Case</button>
+          <button id="runCadMeshing" class="secondary">Run snappy Mesh</button>
+          <button id="generateNozzleMesh" class="secondary">Generate Nozzle Mesh</button>
+          <button id="uploadPolyMesh" class="secondary">Upload polyMesh</button>
+          <button id="uploadOpenFoamCase" class="secondary">Upload OpenFOAM Case</button>
+          <button id="validateMesh">Validate Mesh</button>
+          <button id="saveCase" class="secondary">Save Case</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Electrospray</h2>
+        <div class="grid" id="fields-electrospray"></div>
+        <div class="grid two" id="fields-electrospray-flags"></div>
+      </section>
+
+      <section>
+        <h2>Geometry & Material</h2>
+        <div class="grid" id="fields-geometry"></div>
+        <div class="grid two" id="fields-material"></div>
+      </section>
+
+      <section>
+        <h2>Charge & Electric Force</h2>
+        <div class="grid" id="fields-charge"></div>
+        <div class="grid two" id="fields-charge-flags"></div>
+      </section>
+
+      <section>
+        <h2>Boundary & Initialization</h2>
+        <div class="grid" id="fields-boundary"></div>
+        <div class="grid two" id="fields-boundary-flags"></div>
+        <div class="actions">
+          <button id="runCase">Run Case</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="stack">
+      <section>
+        <h2>Mesh Viewer</h2>
+        <div class="viewerShell">
+          <div class="viewerToolbar">
+            <button id="loadMeshView" class="secondary">Load Mesh View</button>
+            <button id="resetMeshView" class="secondary">Reset View</button>
+            <span id="meshViewStatus" class="muted">no mesh loaded</span>
+          </div>
+          <div class="viewerCanvasWrap">
+            <canvas id="meshCanvas"></canvas>
+            <div id="viewerOverlay" class="viewerOverlay">drag rotate · wheel zoom · click a boundary face</div>
+          </div>
+          <div class="grid two">
+            <label>selected patch <input id="selectedPatchName" readonly></label>
+            <label>selected role
+              <select id="selectedPatchRole">
+                <option value="unassigned">unassigned</option>
+                <option value="inlet">inlet</option>
+                <option value="outlet">outlet</option>
+                <option value="nozzle">nozzle</option>
+                <option value="collector">collector</option>
+                <option value="wall">wall</option>
+                <option value="symmetry">symmetry</option>
+                <option value="electrode">electrode</option>
+              </select>
+            </label>
+          </div>
+          <div id="selectedPatchBcEditor" class="stack"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Patch Boundary Conditions</h2>
+        <div class="actions" style="margin-top:0; margin-bottom:10px;">
+          <button id="applyBcPresets" class="secondary">Apply Role Presets</button>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>patch</th><th>faces</th><th>role</th>
+                <th>U type</th><th>Ux</th><th>Uy</th><th>Uz</th>
+                <th>p type</th><th>p</th>
+                <th>alpha type</th><th>alpha</th>
+                <th>phi type</th><th>phi/V</th>
+                <th>rhoE type</th><th>rhoE</th>
+              </tr>
+            </thead>
+            <tbody id="patchRows"></tbody>
+          </table>
+        </div>
+        <p class="muted">Patch별 상세 BC는 `case.json`의 `boundary_conditions`에 저장됩니다. 현재 builtin Candido smoke 실행은 자체 경계 모델을 쓰므로, 이 상세 BC는 OpenFOAM/external mesh solver 연결 전까지 기록/검증용입니다.</p>
+      </section>
+
+      <section>
+        <h2>Output</h2>
+        <div class="split">
+          <div>
+            <p class="muted">case json</p>
+            <p id="casePath" class="path"></p>
+          </div>
+          <div>
+            <p class="muted">output dir</p>
+            <p id="outputDir" class="path"></p>
+          </div>
+        </div>
+        <div id="resultsSummary"></div>
+        <canvas id="historyCanvas" style="width:100%; height:280px; display:none; border:1px solid var(--line); border-radius:6px; background:#fff; margin-bottom:10px;"></canvas>
+        <pre id="output">{}</pre>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // Form fields are described by the server schema (/api/ui-config) and built
+    // dynamically, so parameter names/types live in exactly one place (the server).
+    let uiConfig = null;
+    let fields = [];
+    const numeric = new Set();
+    const checks = new Set();
+    let patchRoles = {};
+    let boundaryConditions = {};
+
+    function buildFieldNode(field) {
+      if (field.kind === "check") {
+        checks.add(field.id);
+        const span = document.createElement("span");
+        span.className = "checkline";
+        span.appendChild(document.createTextNode(field.label + " "));
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.id = field.id;
+        span.appendChild(input);
+        return span;
+      }
+      const label = document.createElement("label");
+      label.appendChild(document.createTextNode(field.label + " "));
+      let input;
+      if (field.kind === "select") {
+        input = document.createElement("select");
+        for (const opt of field.options || []) {
+          const option = document.createElement("option");
+          option.value = opt;
+          option.textContent = opt;
+          input.appendChild(option);
+        }
+      } else {
+        input = document.createElement("input");
+        if (field.kind === "number") {
+          numeric.add(field.id);
+          input.type = "number";
+          input.step = field.int ? "1" : "any";
+          if (field.min !== undefined) input.min = field.min;
+        }
+      }
+      input.id = field.id;
+      label.appendChild(input);
+      return label;
+    }
+
+    function buildFormFromSchema(schema) {
+      fields = [];
+      numeric.clear();
+      checks.clear();
+      for (const block of schema || []) {
+        const container = document.getElementById(block.container);
+        if (!container) continue;
+        container.innerHTML = "";
+        for (const field of block.fields) {
+          fields.push(field.id);
+          container.appendChild(buildFieldNode(field));
+        }
+      }
+    }
+
+    function setStatus(text, kind = "") {
+      const el = document.getElementById("status");
+      el.textContent = text;
+      el.className = `status ${kind}`;
+    }
+
+    function show(payload) {
+      document.getElementById("output").textContent = JSON.stringify(payload, null, 2);
+      if (payload.case_json) document.getElementById("casePath").textContent = payload.case_json;
+      if (payload.output_dir) document.getElementById("outputDir").textContent = payload.output_dir;
+      renderResults(payload);
+    }
+
+    function fillForm(data) {
+      for (const id of fields) {
+        const el = document.getElementById(id);
+        if (!el || !(id in data)) continue;
+        if (checks.has(id)) el.checked = Boolean(data[id]);
+        else el.value = data[id];
+      }
+      patchRoles = data.patch_roles || {};
+      boundaryConditions = data.boundary_conditions || {};
+    }
+
+    function readForm() {
+      const data = {};
+      for (const id of fields) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        if (checks.has(id)) data[id] = el.checked;
+        else if (numeric.has(id)) data[id] = Number(el.value);
+        else data[id] = el.value;
+      }
+      data.patch_roles = patchRoles;
+      data.boundary_conditions = boundaryConditions;
+      return data;
+    }
+
+    const WALL_FALLBACK_BC = {
+      velocity: {type: "noSlip", value: [0, 0, 0]},
+      pressure: {type: "zeroGradient", value: 0},
+      alpha: {type: "zeroGradient", value: 0},
+      potential: {type: "zeroGradient", value: 0},
+      charge: {type: "zeroGradient", value: 0}
+    };
+
+    function boundaryPreset(role) {
+      const voltage = Number(document.getElementById("validation_voltage")?.value || 0);
+      const presets = (uiConfig && uiConfig.bc_presets) || {};
+      const template = presets[role] || presets.wall || WALL_FALLBACK_BC;
+      const sentinel = (uiConfig && uiConfig.voltage_sentinel) || "$voltage";
+      const out = JSON.parse(JSON.stringify(template));
+      for (const field of Object.values(out)) {
+        if (field && field.value === sentinel) field.value = voltage;
+      }
+      return out;
+    }
+
+    function ensureBoundaryCondition(name) {
+      if (!boundaryConditions[name]) {
+        boundaryConditions[name] = boundaryPreset(patchRoles[name] || "wall");
+      }
+      for (const [field, fallback] of Object.entries(boundaryPreset("wall"))) {
+        if (!boundaryConditions[name][field]) boundaryConditions[name][field] = fallback;
+      }
+      return boundaryConditions[name];
+    }
+
+    function applyRolePresets() {
+      for (const patch of lastPatches) {
+        const name = patch.name;
+        boundaryConditions[name] = boundaryPreset(patchRoles[name] || "wall");
+      }
+      renderPatches(lastPatches);
+    }
+
+    function selectCell(options, value, onChange) {
+      const select = document.createElement("select");
+      for (const item of options) {
+        const option = document.createElement("option");
+        option.value = item;
+        option.textContent = item;
+        option.selected = item === value;
+        select.appendChild(option);
+      }
+      select.addEventListener("change", () => onChange(select.value));
+      return select;
+    }
+
+    function numberCell(value, onChange) {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.step = "any";
+      input.value = Number.isFinite(Number(value)) ? value : 0;
+      input.addEventListener("change", () => onChange(Number(input.value)));
+      return input;
+    }
+
+    let velocityTypes = ["fixedValue", "zeroGradient", "noSlip", "slip", "movingWall", "inletOutlet"];
+    let scalarTypes = ["fixedValue", "zeroGradient", "inletOutlet", "boundedOutlet", "symmetry"];
+    let potentialTypes = ["fixedValue", "zeroGradient", "electrode", "grounded", "insulating", "symmetry"];
+    let bcRoles = ["unassigned", "inlet", "outlet", "nozzle", "collector", "wall", "symmetry", "electrode"];
+    let lastPatches = [];
+    let meshPreview = null;
+    let meshDrawFaces = [];
+    let selectedPatch = "";
+    let selectedFaceId = null;
+    const meshView = {rotX: -0.62, rotY: 0.72, zoom: 1.0, panX: 0, panY: 0};
+    const patchColors = new Map();
+
+    function patchColor(name) {
+      if (patchColors.has(name)) return patchColors.get(name);
+      let hash = 0;
+      for (let i = 0; i < name.length; ++i) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+      const hue = hash % 360;
+      const color = `hsl(${hue}, 42%, 64%)`;
+      patchColors.set(name, color);
+      return color;
+    }
+
+    function resizeCanvasToDisplaySize(canvas) {
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.floor(canvas.clientWidth * ratio));
+      const height = Math.max(1, Math.floor(canvas.clientHeight * ratio));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        return true;
+      }
+      return false;
+    }
+
+    function projectPoint(p, bounds, canvas) {
+      const lo = bounds.min;
+      const hi = bounds.max;
+      const cx = 0.5 * (lo[0] + hi[0]);
+      const cy = 0.5 * (lo[1] + hi[1]);
+      const cz = 0.5 * (lo[2] + hi[2]);
+      const span = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2], 1e-12);
+      let x = (p[0] - cx) / span;
+      let y = (p[1] - cy) / span;
+      let z = (p[2] - cz) / span;
+
+      const cyaw = Math.cos(meshView.rotY);
+      const syaw = Math.sin(meshView.rotY);
+      const cpitch = Math.cos(meshView.rotX);
+      const spitch = Math.sin(meshView.rotX);
+      const x1 = cyaw * x + syaw * z;
+      const z1 = -syaw * x + cyaw * z;
+      const y1 = cpitch * y - spitch * z1;
+      const z2 = spitch * y + cpitch * z1;
+      const scale = 0.82 * Math.min(canvas.width, canvas.height) * meshView.zoom;
+      return {
+        x: canvas.width * 0.5 + meshView.panX + x1 * scale,
+        y: canvas.height * 0.5 + meshView.panY - y1 * scale,
+        z: z2
+      };
+    }
+
+    function pointInPolygon(x, y, poly) {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].x, yi = poly[i].y;
+        const xj = poly[j].x, yj = poly[j].y;
+        const intersect = ((yi > y) !== (yj > y)) &&
+          (x < (xj - xi) * (y - yi) / Math.max(yj - yi, 1e-30) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function drawMeshViewer() {
+      const canvas = document.getElementById("meshCanvas");
+      if (!canvas) return;
+      resizeCanvasToDisplaySize(canvas);
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#eef2f5";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      meshDrawFaces = [];
+      if (!meshPreview || !meshPreview.points || !meshPreview.faces) {
+        ctx.fillStyle = "#5d6877";
+        ctx.font = `${13 * (window.devicePixelRatio || 1)}px sans-serif`;
+        ctx.fillText("Load a builtin or OpenFOAM mesh preview.", 18, 28);
+        return;
+      }
+
+      for (const face of meshPreview.faces) {
+        const poly = face.vertices.map((idx) => projectPoint(meshPreview.points[idx], meshPreview.bounds, canvas));
+        if (poly.length < 3) continue;
+        const depth = poly.reduce((acc, p) => acc + p.z, 0) / poly.length;
+        meshDrawFaces.push({face, poly, depth});
+      }
+      meshDrawFaces.sort((a, b) => a.depth - b.depth);
+
+      ctx.lineWidth = Math.max(0.75, window.devicePixelRatio || 1);
+      for (const item of meshDrawFaces) {
+        const isPatch = item.face.patch === selectedPatch;
+        const isFace = item.face.id === selectedFaceId;
+        ctx.beginPath();
+        ctx.moveTo(item.poly[0].x, item.poly[0].y);
+        for (let i = 1; i < item.poly.length; ++i) ctx.lineTo(item.poly[i].x, item.poly[i].y);
+        ctx.closePath();
+        ctx.fillStyle = isFace ? "rgba(255, 190, 74, 0.92)" : isPatch ? "rgba(17,109,110,0.45)" : patchColor(item.face.patch);
+        ctx.globalAlpha = isFace || isPatch ? 0.92 : 0.42;
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+        ctx.strokeStyle = isFace ? "#5e3600" : isPatch ? "#116d6e" : "rgba(58,68,82,0.34)";
+        ctx.stroke();
+      }
+
+      const overlay = document.getElementById("viewerOverlay");
+      if (overlay) {
+        const count = meshPreview.preview_face_count || 0;
+        const total = meshPreview.total_boundary_faces || count;
+        const dec = meshPreview.decimation_stride > 1 ? ` · preview decimation ${meshPreview.decimation_stride}:1` : "";
+        overlay.textContent = `${count}/${total} boundary faces${dec}`;
+      }
+    }
+
+    let meshDrawScheduled = false;
+    function scheduleMeshDraw() {
+      if (meshDrawScheduled) return;
+      meshDrawScheduled = true;
+      requestAnimationFrame(() => {
+        meshDrawScheduled = false;
+        drawMeshViewer();
+      });
+    }
+
+    function selectPatchFromViewer(patchName, faceId = null) {
+      selectedPatch = patchName || "";
+      selectedFaceId = faceId;
+      document.getElementById("selectedPatchName").value = selectedPatch;
+      document.getElementById("selectedPatchRole").value = patchRoles[selectedPatch] || "unassigned";
+      if (selectedPatch) ensureBoundaryCondition(selectedPatch);
+      renderSelectedPatchEditor();
+      renderPatches(lastPatches);
+      drawMeshViewer();
+    }
+
+    function renderSelectedPatchEditor() {
+      const root = document.getElementById("selectedPatchBcEditor");
+      root.innerHTML = "";
+      if (!selectedPatch) {
+        const p = document.createElement("p");
+        p.className = "muted";
+        p.textContent = "뷰어에서 boundary face를 클릭하면 여기서 해당 patch의 BC를 바로 수정할 수 있습니다.";
+        root.appendChild(p);
+        return;
+      }
+      const bc = ensureBoundaryCondition(selectedPatch);
+      const title = document.createElement("p");
+      title.className = "muted";
+      title.textContent = `editing boundary_conditions["${selectedPatch}"]`;
+      root.appendChild(title);
+
+      const vectorRow = document.createElement("div");
+      vectorRow.className = "selectedBcGrid";
+      vectorRow.appendChild(labelNode("U field", document.createTextNode("velocity")));
+      vectorRow.appendChild(labelNode("U type", selectCell(velocityTypes, bc.velocity.type, (v) => { bc.velocity.type = v; })));
+      for (let i = 0; i < 3; ++i) {
+        vectorRow.appendChild(labelNode(["Ux", "Uy", "Uz"][i], numberCell(bc.velocity.value[i] || 0, (v) => { bc.velocity.value[i] = v; })));
+      }
+      root.appendChild(vectorRow);
+
+      const scalarRows = [
+        ["p", "pressure", scalarTypes],
+        ["alpha", "alpha", scalarTypes],
+        ["phi", "potential", potentialTypes],
+        ["rhoE", "charge", scalarTypes],
+      ];
+      for (const [display, key, types] of scalarRows) {
+        const row = document.createElement("div");
+        row.className = "selectedBcGrid scalar";
+        row.appendChild(labelNode(`${display} field`, document.createTextNode(display)));
+        row.appendChild(labelNode(`${display} type`, selectCell(types, bc[key].type, (v) => { bc[key].type = v; })));
+        row.appendChild(labelNode(`${display} value`, numberCell(bc[key].value || 0, (v) => { bc[key].value = v; })));
+        root.appendChild(row);
+      }
+    }
+
+    function labelNode(text, child) {
+      const label = document.createElement("label");
+      const caption = document.createElement("span");
+      caption.textContent = text;
+      label.appendChild(caption);
+      label.appendChild(child);
+      return label;
+    }
+
+    async function refreshMeshPreview() {
+      if (document.getElementById("mesh_mode").value === "candido_nozzle_template") {
+        return generateNozzleMesh();
+      }
+      const payload = await post("/api/mesh-preview", readForm());
+      if (payload.status === "pass") {
+        meshPreview = payload;
+        patchRoles = payload.patch_roles || patchRoles;
+        boundaryConditions = payload.boundary_conditions || boundaryConditions;
+        if (payload.patches) renderPatches(payload.patches);
+        const status = document.getElementById("meshViewStatus");
+        status.textContent = `${payload.mesh_mode}: ${payload.preview_face_count}/${payload.total_boundary_faces} boundary faces`;
+        if (selectedPatch && !lastPatches.some((p) => p.name === selectedPatch)) {
+          selectedPatch = "";
+          selectedFaceId = null;
+        }
+        renderSelectedPatchEditor();
+      }
+      drawMeshViewer();
+      return payload;
+    }
+
+    function pickMeshFace(clientX, clientY) {
+      const canvas = document.getElementById("meshCanvas");
+      const rect = canvas.getBoundingClientRect();
+      const ratioX = canvas.width / Math.max(rect.width, 1);
+      const ratioY = canvas.height / Math.max(rect.height, 1);
+      const x = (clientX - rect.left) * ratioX;
+      const y = (clientY - rect.top) * ratioY;
+      for (let i = meshDrawFaces.length - 1; i >= 0; --i) {
+        const item = meshDrawFaces[i];
+        if (pointInPolygon(x, y, item.poly)) return item.face;
+      }
+      return null;
+    }
+
+    function resetMeshView() {
+      meshView.rotX = -0.62;
+      meshView.rotY = 0.72;
+      meshView.zoom = 1.0;
+      meshView.panX = 0;
+      meshView.panY = 0;
+      drawMeshViewer();
+    }
+
+    function setupMeshViewer() {
+      const canvas = document.getElementById("meshCanvas");
+      let dragging = false;
+      let startX = 0;
+      let startY = 0;
+      let moved = 0;
+      canvas.addEventListener("pointerdown", (event) => {
+        dragging = true;
+        moved = 0;
+        startX = event.clientX;
+        startY = event.clientY;
+        canvas.setPointerCapture(event.pointerId);
+        canvas.classList.add("dragging");
+      });
+      canvas.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        const dx = event.clientX - startX;
+        const dy = event.clientY - startY;
+        moved += Math.abs(dx) + Math.abs(dy);
+        startX = event.clientX;
+        startY = event.clientY;
+        meshView.rotY += dx * 0.008;
+        meshView.rotX += dy * 0.008;
+        meshView.rotX = Math.max(-1.55, Math.min(1.55, meshView.rotX));
+        scheduleMeshDraw();
+      });
+      canvas.addEventListener("pointerup", (event) => {
+        dragging = false;
+        canvas.classList.remove("dragging");
+        if (moved < 8) {
+          const face = pickMeshFace(event.clientX, event.clientY);
+          if (face) selectPatchFromViewer(face.patch, face.id);
+        }
+      });
+      canvas.addEventListener("pointercancel", () => {
+        dragging = false;
+        canvas.classList.remove("dragging");
+      });
+      canvas.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.1 : 0.9;
+        meshView.zoom = Math.max(0.22, Math.min(8.0, meshView.zoom * factor));
+        scheduleMeshDraw();
+      }, {passive: false});
+      window.addEventListener("resize", scheduleMeshDraw);
+
+      document.getElementById("selectedPatchRole").addEventListener("change", (event) => {
+        if (!selectedPatch) return;
+        patchRoles[selectedPatch] = event.target.value;
+        boundaryConditions[selectedPatch] = boundaryPreset(event.target.value);
+        renderSelectedPatchEditor();
+        renderPatches(lastPatches);
+        drawMeshViewer();
+      });
+    }
+
+    function renderPatches(patches = []) {
+      lastPatches = patches;
+      const roles = bcRoles;
+      const rows = document.getElementById("patchRows");
+      rows.innerHTML = "";
+      for (const patch of patches) {
+        const tr = document.createElement("tr");
+        const name = patch.name;
+        if (name === selectedPatch) tr.classList.add("patchSelected");
+        tr.addEventListener("click", (event) => {
+          if (event.target && ["INPUT", "SELECT", "BUTTON"].includes(event.target.tagName)) return;
+          selectPatchFromViewer(name, null);
+        });
+        const role = patchRoles[name] || "unassigned";
+        const bc = ensureBoundaryCondition(name);
+        tr.innerHTML = `<td>${name}</td><td>${patch.faces}</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>`;
+        const select = document.createElement("select");
+        for (const r of roles) {
+          const option = document.createElement("option");
+          option.value = r;
+          option.textContent = r;
+          option.selected = r === role;
+          select.appendChild(option);
+        }
+        select.addEventListener("change", () => {
+          patchRoles[name] = select.value;
+          boundaryConditions[name] = boundaryPreset(select.value);
+          if (name === selectedPatch) {
+            document.getElementById("selectedPatchRole").value = select.value;
+            renderSelectedPatchEditor();
+          }
+          renderPatches(lastPatches);
+          drawMeshViewer();
+        });
+        tr.children[2].appendChild(select);
+        tr.children[3].appendChild(selectCell(velocityTypes, bc.velocity.type, (v) => { bc.velocity.type = v; }));
+        for (let i = 0; i < 3; ++i) {
+          tr.children[4 + i].appendChild(numberCell(bc.velocity.value[i] || 0, (v) => { bc.velocity.value[i] = v; }));
+        }
+        tr.children[7].appendChild(selectCell(scalarTypes, bc.pressure.type, (v) => { bc.pressure.type = v; }));
+        tr.children[8].appendChild(numberCell(bc.pressure.value || 0, (v) => { bc.pressure.value = v; }));
+        tr.children[9].appendChild(selectCell(scalarTypes, bc.alpha.type, (v) => { bc.alpha.type = v; }));
+        tr.children[10].appendChild(numberCell(bc.alpha.value || 0, (v) => { bc.alpha.value = v; }));
+        tr.children[11].appendChild(selectCell(potentialTypes, bc.potential.type, (v) => { bc.potential.type = v; }));
+        tr.children[12].appendChild(numberCell(bc.potential.value || 0, (v) => { bc.potential.value = v; }));
+        tr.children[13].appendChild(selectCell(scalarTypes, bc.charge.type, (v) => { bc.charge.type = v; }));
+        tr.children[14].appendChild(numberCell(bc.charge.value || 0, (v) => { bc.charge.value = v; }));
+        rows.appendChild(tr);
+      }
+    }
+
+    async function post(path, body) {
+      setStatus("running");
+      for (const btn of document.querySelectorAll("button")) btn.disabled = true;
+      try {
+        const res = await fetch(path, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(body)
+        });
+        const payload = await res.json();
+        setStatus(payload.status || "done", payload.status || "");
+        show(payload);
+        if (payload.patches) {
+          if (Array.isArray(payload.patches)) {
+            renderPatches(payload.patches);
+          } else {
+            renderPatches(Object.entries(payload.patches).map(([name, faces]) => ({name, faces})));
+          }
+        }
+        return payload;
+      } catch (err) {
+        const payload = {status: "error", error: String(err)};
+        setStatus("error", "error");
+        show(payload);
+        return payload;
+      } finally {
+        for (const btn of document.querySelectorAll("button")) btn.disabled = false;
+      }
+    }
+
+    function readFileAsText(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("file read failed"));
+        reader.readAsText(file);
+      });
+    }
+
+    async function uploadPolyMesh() {
+      const picker = document.getElementById("polyMeshBrowse");
+      const selected = Array.from(picker.files || []);
+      const required = new Set(["points", "faces", "owner", "neighbour", "boundary"]);
+      const candidates = selected.filter((file) => required.has(file.name));
+      if (candidates.length === 0) {
+        show({status: "error", error: "OpenFOAM polyMesh directory must contain points/faces/owner/neighbour/boundary"});
+        setStatus("error", "error");
+        return;
+      }
+      setStatus("uploading");
+      for (const btn of document.querySelectorAll("button")) btn.disabled = true;
+      try {
+        const files = [];
+        for (const file of candidates) {
+          files.push({
+            name: file.name,
+            relative_path: file.webkitRelativePath || file.name,
+            text: await readFileAsText(file)
+          });
+        }
+        const payload = await post("/api/upload-polymesh", {
+          case_name: document.getElementById("case_name").value,
+          case: readForm(),
+          files
+        });
+        if (payload.uploaded_polyMesh) {
+          document.getElementById("mesh_mode").value = "openfoam_polyMesh";
+          document.getElementById("run_mode").value = "validate_mesh";
+          document.getElementById("openfoam_polyMesh").value = payload.uploaded_polyMesh;
+          if (payload.patches) renderPatches(payload.patches);
+          await refreshMeshPreview();
+        }
+      } finally {
+        for (const btn of document.querySelectorAll("button")) btn.disabled = false;
+      }
+    }
+
+    async function generateNozzleMesh() {
+      const payload = await post("/api/generate-nozzle-mesh", readForm());
+      if (payload.status === "pass" && payload.generated_polyMesh) {
+        document.getElementById("mesh_mode").value = "openfoam_polyMesh";
+        document.getElementById("run_mode").value = "validate_mesh";
+        document.getElementById("openfoam_polyMesh").value = payload.generated_polyMesh;
+        if (payload.patch_roles) patchRoles = payload.patch_roles;
+        if (payload.boundary_conditions) boundaryConditions = payload.boundary_conditions;
+        if (payload.patches) renderPatches(payload.patches);
+        selectedPatch = "";
+        selectedFaceId = null;
+        renderSelectedPatchEditor();
+        await refreshMeshPreview();
+      }
+    }
+
+    async function generateCadNozzleCase() {
+      const payload = await post("/api/generate-cad-nozzle-case", readForm());
+      if (payload.status === "pass" && payload.snappy_case_dir) {
+        document.getElementById("run_mode").value = "validate_openfoam_case";
+        const workflow = document.getElementById("cad_meshing_workflow").value;
+        document.getElementById("openfoam_case_dir").value =
+          workflow === "cfmesh" && payload.cfmesh_case_dir ? payload.cfmesh_case_dir : payload.snappy_case_dir;
+        if (payload.patch_roles) patchRoles = payload.patch_roles;
+        if (payload.boundary_conditions) boundaryConditions = payload.boundary_conditions;
+        renderPatches(Object.entries(patchRoles).map(([name]) => ({name, faces: 0})));
+        selectedPatch = "";
+        selectedFaceId = null;
+        renderSelectedPatchEditor();
+      }
+    }
+
+    async function runCadMeshing() {
+      const payload = await post("/api/run-cad-meshing", readForm());
+      if (payload.status === "pass" && payload.openfoam_polyMesh) {
+        document.getElementById("mesh_mode").value = "openfoam_polyMesh";
+        document.getElementById("run_mode").value = "validate_mesh";
+        document.getElementById("openfoam_polyMesh").value = payload.openfoam_polyMesh;
+        await refreshMeshPreview();
+      }
+    }
+
+    async function uploadOpenFoamCase() {
+      const picker = document.getElementById("openFoamCaseBrowse");
+      const selected = Array.from(picker.files || []);
+      const required = [
+        "constant/polyMesh/points",
+        "constant/polyMesh/faces",
+        "constant/polyMesh/owner",
+        "constant/polyMesh/neighbour",
+        "constant/polyMesh/boundary",
+        "0/U",
+        "0/p",
+        "0/alpha",
+        "0/phi",
+        "0/rhoE"
+      ];
+      const candidates = selected.filter((file) => {
+        const rel = (file.webkitRelativePath || file.name).replaceAll("\\", "/");
+        return required.some((suffix) => rel.endsWith(suffix));
+      });
+      if (candidates.length === 0) {
+        show({status: "error", error: "OpenFOAM case must contain constant/polyMesh and 0/U,p,alpha,phi,rhoE"});
+        setStatus("error", "error");
+        return;
+      }
+      setStatus("uploading");
+      for (const btn of document.querySelectorAll("button")) btn.disabled = true;
+      try {
+        const files = [];
+        for (const file of candidates) {
+          files.push({
+            name: file.name,
+            relative_path: file.webkitRelativePath || file.name,
+            text: await readFileAsText(file)
+          });
+        }
+        const payload = await post("/api/upload-openfoam-case", {
+          case_name: document.getElementById("case_name").value,
+          case: readForm(),
+          files
+        });
+        if (payload.uploaded_openfoam_case) {
+          document.getElementById("mesh_mode").value = "openfoam_polyMesh";
+          document.getElementById("run_mode").value = "validate_openfoam_case";
+          document.getElementById("openfoam_case_dir").value = payload.uploaded_openfoam_case;
+          document.getElementById("openfoam_polyMesh").value =
+            `${payload.uploaded_openfoam_case}/constant/polyMesh`;
+          if (payload.patches) renderPatches(payload.patches);
+          await refreshMeshPreview();
+        }
+      } finally {
+        for (const btn of document.querySelectorAll("button")) btn.disabled = false;
+      }
+    }
+
+    const RESULT_FIELDS = [
+      ["status", "status"], ["run_mode", "run mode"], ["mesh_mode", "mesh mode"],
+      ["cells", "cells"], ["steps", "steps"], ["computed_ca_e", "CaE"],
+      ["voltage", "voltage"], ["alpha_mass_drift", "mass drift"], ["max_div", "max div"],
+      ["max_velocity", "max |u|"], ["final_tip_y", "tip y"],
+      ["final_radial_asymmetry", "radial asym"],
+    ];
+    const HISTORY_CHART_COLS = ["mass", "tip_y", "max_div", "max_velocity", "radial_asymmetry", "total_current"];
+
+    function formatResultVal(v) {
+      if (typeof v !== "number") return String(v);
+      if (v !== 0 && Math.abs(v) < 1e-3) return v.toExponential(3);
+      return String(Math.round(v * 1e6) / 1e6);
+    }
+
+    function renderResults(payload) {
+      const root = document.getElementById("resultsSummary");
+      if (!root) return;
+      root.innerHTML = "";
+      const hasSummary = payload && (payload.cells !== undefined || payload.computed_ca_e !== undefined);
+      if (hasSummary) {
+        const rows = RESULT_FIELDS.filter(([k]) => payload[k] !== undefined)
+          .map(([k, label]) => `<tr><td class="muted">${label}</td><td>${formatResultVal(payload[k])}</td></tr>`)
+          .join("");
+        root.innerHTML = `<table>${rows}</table>`;
+      }
+      const canvas = document.getElementById("historyCanvas");
+      const hist = payload && payload.history;
+      if (canvas && hist && Array.isArray(hist.rows) && hist.rows.length > 1) {
+        canvas.style.display = "block";
+        drawHistoryCharts(hist);
+      } else if (canvas) {
+        canvas.style.display = "none";
+      }
+    }
+
+    function drawHistoryCharts(history) {
+      const canvas = document.getElementById("historyCanvas");
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(canvas.clientWidth * ratio));
+      canvas.height = Math.max(1, Math.floor(canvas.clientHeight * ratio));
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cols = history.columns || [];
+      const xi = cols.indexOf("step") >= 0 ? cols.indexOf("step") : 0;
+      const series = HISTORY_CHART_COLS.map((n) => ({name: n, idx: cols.indexOf(n)})).filter((s) => s.idx >= 0);
+      if (!series.length) return;
+      const ncol = 3;
+      const nrow = Math.ceil(series.length / ncol);
+      const cellW = canvas.width / ncol;
+      const cellH = canvas.height / nrow;
+      const padL = 8 * ratio, padR = 8 * ratio, padT = 16 * ratio, padB = 8 * ratio;
+      ctx.font = `${11 * ratio}px sans-serif`;
+      series.forEach((s, k) => {
+        const cx = (k % ncol) * cellW;
+        const cy = Math.floor(k / ncol) * cellH;
+        const xs = history.rows.map((r) => Number(r[xi]));
+        const ys = history.rows.map((r) => Number(r[s.idx]));
+        const xmin = Math.min(...xs), xmax = Math.max(...xs);
+        let ymin = Math.min(...ys), ymax = Math.max(...ys);
+        if (!(ymax > ymin)) { ymin -= 1; ymax += 1; }
+        const px = (x) => cx + padL + (xmax > xmin ? (x - xmin) / (xmax - xmin) : 0) * (cellW - padL - padR);
+        const py = (y) => cy + cellH - padB - (y - ymin) / (ymax - ymin) * (cellH - padT - padB);
+        ctx.strokeStyle = "#d8dde5";
+        ctx.lineWidth = ratio;
+        ctx.strokeRect(cx + padL, cy + padT, cellW - padL - padR, cellH - padT - padB);
+        ctx.fillStyle = "#5d6877";
+        ctx.fillText(s.name, cx + padL + 2 * ratio, cy + padT - 3 * ratio);
+        ctx.strokeStyle = "#116d6e";
+        ctx.lineWidth = 1.4 * ratio;
+        ctx.beginPath();
+        ys.forEach((y, i) => { const X = px(xs[i]), Y = py(y); if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); });
+        ctx.stroke();
+      });
+    }
+
+    async function refreshSavedCases() {
+      try {
+        const res = await fetch("/api/list-cases");
+        const data = await res.json();
+        const sel = document.getElementById("savedCaseSelect");
+        if (!sel) return;
+        const prev = sel.value;
+        sel.innerHTML = "";
+        for (const name of (data.cases || [])) {
+          const o = document.createElement("option");
+          o.value = name;
+          o.textContent = name;
+          sel.appendChild(o);
+        }
+        if (prev) sel.value = prev;
+      } catch (err) {
+        /* ignore — saved-case list is best-effort */
+      }
+    }
+
+    async function loadSelectedCase() {
+      const sel = document.getElementById("savedCaseSelect");
+      const name = sel && sel.value;
+      if (!name) return;
+      setStatus("loading");
+      try {
+        const res = await fetch("/api/load-case?name=" + encodeURIComponent(name));
+        const data = await res.json();
+        if (data.status === "error") { setStatus("error", "error"); show(data); return; }
+        fillForm(data);
+        show(data);
+        renderSelectedPatchEditor();
+        renderPatches(lastPatches);
+        setStatus("loaded", "pass");
+      } catch (err) {
+        setStatus("error", "error");
+        show({status: "error", error: String(err)});
+      }
+    }
+
+    async function init() {
+      try {
+        const cfgRes = await fetch("/api/ui-config");
+        uiConfig = await cfgRes.json();
+        velocityTypes = uiConfig.velocity_types || velocityTypes;
+        scalarTypes = uiConfig.scalar_types || scalarTypes;
+        potentialTypes = uiConfig.potential_types || potentialTypes;
+        bcRoles = uiConfig.bc_roles || bcRoles;
+        buildFormFromSchema(uiConfig.schema);
+
+        const res = await fetch("/api/default-case");
+        const data = await res.json();
+        fillForm(data);
+        show(data);
+        renderSelectedPatchEditor();
+        setupMeshViewer();
+        drawMeshViewer();
+        document.getElementById("validateMesh").addEventListener("click", () => {
+          post("/api/validate-mesh", readForm()).then((payload) => {
+            if (payload.status === "pass" && payload.patches) renderPatches(payload.patches);
+            refreshMeshPreview();
+          });
+        });
+        document.getElementById("uploadPolyMesh").addEventListener("click", uploadPolyMesh);
+        document.getElementById("uploadOpenFoamCase").addEventListener("click", uploadOpenFoamCase);
+        document.getElementById("generateNozzleMesh").addEventListener("click", generateNozzleMesh);
+        document.getElementById("generateCadNozzleCase").addEventListener("click", generateCadNozzleCase);
+        document.getElementById("runCadMeshing").addEventListener("click", runCadMeshing);
+        document.getElementById("applyBcPresets").addEventListener("click", applyRolePresets);
+        document.getElementById("loadMeshView").addEventListener("click", refreshMeshPreview);
+        document.getElementById("resetMeshView").addEventListener("click", resetMeshView);
+        document.getElementById("saveCase").addEventListener("click", () => {
+          post("/api/save-case", readForm()).then(() => refreshSavedCases());
+        });
+        document.getElementById("loadCaseBtn").addEventListener("click", loadSelectedCase);
+        document.getElementById("refreshCasesBtn").addEventListener("click", refreshSavedCases);
+        refreshSavedCases();
+        document.getElementById("runCase").addEventListener("click", () => {
+          post("/api/run-case", readForm());
+        });
+        document.getElementById("mesh_mode").addEventListener("change", () => {
+          const mode = document.getElementById("mesh_mode").value;
+          if (mode === "openfoam_polyMesh" || mode === "candido_nozzle_template") {
+            document.getElementById("run_mode").value = "validate_mesh";
+          }
+        });
+      } catch (err) {
+        setStatus("error", "error");
+        show({status: "error", error: "init failed: " + String(err)});
+      }
+    }
+    init();
+  </script>
+</body>
+</html>

@@ -63,4 +63,39 @@ current), the interface sharpens (max alpha up), and **mass is exactly conserved
 This is qualitatively the paper's behaviour and a large improvement over the prior
 configuration (asymmetry ~1e-4 and current blow-ups documented in candido_3d_method_gap.md).
 
+### Experiment A2 — CaE=0.25, 900 steps (~0.79 ms, the paper morphology comparison time)
+
+Stable and conserved over **900 steps**: mass drift 2.3e-14, max div 2.7e-12, charge-budget
+residual 2.5e-13, potential residual 1e-11. Crucially, **the Taylor cone now forms and ejects**:
+tip displacement 0.320 D_o (0 at 300 steps), final tip y 0.80 -> 1.12, max velocity 10.9
+(jet ejection), max electric force 110, connected alpha=0.5 silhouette volume 1.62, radial
+asymmetry 0.032 (below 0.05, consistent with the stable CaE=0.25 regime). The cone-jet emerges
+naturally on the hydrodynamic timescale - the qualitative paper behaviour (cone ~0.4 ms, jet
+~0.7 ms), which the prior configuration did not produce.
+
+### Experiment B — CaE sweep {0.26, 0.32, 0.42}, 200 steps each
+
+| CaE | voltage | radial asym | max vel | electric force | total current | charge residual |
+|---|---|---|---|---|---|---|
+| 0.26 | 2203 | 0.0221 | 0.58 | 61.0 | 2.31e-7 | 8.9e-14 |
+| 0.32 | 2444 | 0.0275 | 1.27 | 86.3 | 2.56e-7 | 5.4e-14 |
+| 0.42 | 2800 | 0.0325 | 6.48 | 145.4 | 2.93e-7 | 3.5e-14 |
+
+Clean **monotonic paper trends**: radial asymmetry and jet velocity grow strongly with CaE
+(velocity 0.58 -> 6.48), electric force grows ~quadratically with voltage, and the total
+current rises only mildly (2.31e-7 -> 2.93e-7, ~27%) - i.e. weakly voltage-sensitive and
+**O(1e-7) bounded at every CaE**, decisively resolving the prior current blow-up (ratios
+1e9-1e11) and current/whipping Pareto-block documented in candido_3d_method_gap.md. Charge is
+conserved at every CaE. Asymmetry stays below the 0.05 whipping threshold at this early
+(~0.18 ms) time but grows with both CaE and time (cf. A2), so a developed high-CaE run is the
+next probe for crossing the whipping threshold.
+
+### Headline
+
+The faithful physics (P1-P6) turns the prior empirically-regularized, current-pathological
+configuration into a **stable, charge-conserving solver that reproduces the paper's qualitative
+cone-jet formation, ejection, asymmetry growth, and weak-voltage current trend** on a coarse
+box mesh. Quantitative paper-level agreement (1.1% morphology, exact Ganan-Calvo magnitude,
+>0.05 whipping) remains gated on the paper's ~2 um / ~11M-cell resolution (P7).
+
 

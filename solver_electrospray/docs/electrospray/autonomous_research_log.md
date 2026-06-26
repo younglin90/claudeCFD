@@ -11,13 +11,15 @@ The faithful P1-P6 physics is **validated** against Candido 2023 on a structured
 1. **Stable + conserving** over hundreds-to-900 steps at every CaE and resolution tested —
    relative charge/mass budget residuals ~1e-13, mass drift ~1e-14, divergence bounded. This
    resolves the prior current blow-up (ratios 1e9-1e11) and the current/whipping Pareto-block.
-2. **2x2 resolution x CaE convergence matrix** (Experiments A2/C/D/E, all matched ~0.8 ms):
-   sustained whipping (radial asymmetry) grows **monotonically with both field strength and mesh
-   resolution** — 0.032 (nx12/CaE0.25) -> 0.089 (nx18/CaE0.25) -> 0.172 (nx18/CaE0.42). The
-   coarse-mesh "pulsate-and-collapse" is a numerical-diffusion artifact that refinement removes.
+2. **Resolution x CaE convergence study** (Experiments A2/C/D/E/F, all matched ~0.8 ms): sustained
+   whipping (radial asymmetry) grows **monotonically with both field strength and mesh resolution**.
+   3-point resolution sweep at CaE 0.25: **0.032 (nx12) -> 0.089 (nx18) -> 0.351 (nx24)** —
+   accelerating, NOT converging = resolution-gated instability; CaE axis at nx18: 0.089 -> 0.172.
+   The coarse-mesh "pulsate-and-collapse" is a numerical-diffusion artifact refinement removes.
    Conservation + total current are robust integral observables; whipping is the resolution-gated
-   quantity (not converged at nx=18 -> paper needs ~2 um). [Experiment F nx=24 in progress as a
-   3rd convergence point.]
+   quantity (unconverged even at nx=24 -> paper needs ~2 um). **Caveat:** at nx=24 the structured-box
+   solver blows up at ~0.95 ms (cone-tip singularity sharpens with resolution) — its stable
+   physical-time horizon shrinks with refinement, reinforcing the paper's use of geometric VOF + AMR.
 3. **Metric audit (4 independent agents vs source):** corrected 2 claims (tip_displacement
    saturates -> not an ejection metric; charge residual is relative ~1e-13 = genuine conservation),
    hardened the other two. No headline conclusion overturned.
@@ -230,6 +232,41 @@ current stays O(1e-7) (1.65e-7..2.9e-7) and charge/mass conservation holds to ~1
 robust integral observables are mesh- and field-insensitive while the cone-tip-localized whipping is
 the resolution-gated quantity, exactly the paper's picture.
 
+### Experiment F — nx=24, CaE 0.25: 3rd convergence point + a fine-mesh stability horizon
+
+valF (nx=24, 20736 cells, CaE 0.25) was run to 1200 steps (margin past the matched window). dt =
+0.00296, electric_courant = 0.1 (electric still binding), so step 900 again corresponds to the
+matched nondim time 2.67 (~0.79 ms). Two findings:
+
+**(1) 3-point convergence at matched time (CaE 0.25, nondim 2.67):**
+
+| mesh | cells | radial asymmetry @ matched 0.79 ms |
+|---|---|---|
+| nx=12 | 2592 | 0.032 |
+| nx=18 | 8748 | 0.089 |
+| **nx=24** | 20736 | **0.351** |
+
+At step 900 valF is **stable and conserving** (mass smooth at 0.432, asymmetry 0.351, velocity 34,
+current 8.9e-8). The sequence **0.032 -> 0.089 -> 0.351 is monotone and accelerating** (ratios 2.8x
+then 3.9x) — the asymmetry is **not converging**; it grows faster than linearly with resolution.
+This is the strongest evidence yet that the lateral (whipping) instability is **resolution-gated**:
+each refinement removes more numerical diffusion and resolves progressively stronger off-axis growth.
+At nx=24 the matched-time asymmetry (0.351) is ~7x the 0.05 marker, still rising — consistent with
+the paper needing ~2 um / ~11M cells before this observable converges. Conservation and the total
+current (O(1e-7)) remain the robust, mesh-insensitive observables across all three resolutions.
+
+**(2) Fine-mesh stability horizon (new):** unlike nx=12/18 (stable across the full 900-step / 0.79 ms
+window), nx=24 stays stable and conserving only through step ~1110 (nondim ~3.29, ~0.98 ms) and then
+**blows up** between step 1110 and 1140: asymmetry 0.42 -> 1.42, velocity 59 -> 756, current 6.9e-7 ->
+323, max alpha -> 0.001, mass -> 0. Interpretation: the cone-tip is a near-singularity (E ~ 1/tip-
+radius); as the mesh refines the tip fields/velocities sharpen (velocity climbed 30 -> 60 before the
+break), and past ~0.95 ms the structured-box semi-implicit scheme can no longer resolve the singular
+tip and diverges. So the faithful solver's **stable physical-time horizon shrinks as resolution
+increases**. This is a real limitation of the structured-box approach and reinforces *why the paper
+uses geometric VOF (isoAdvector/plicRDF) + local refinement* to handle the tip singularity. (The
+1200-step budget — vs 900 for the coarser runs — is what surfaced this; a 900-step nx=24 run would
+have looked cleanly stable at asymmetry 0.351.)
+
 ### Metric verification (adversarial audit)
 
 Before trusting the above, the four headline diagnostics were independently audited against the
@@ -283,21 +320,23 @@ all audited as supported).
 
 The faithful physics (P1-P6) turns the prior empirically-regularized, current-pathological
 configuration into a **stable, charge-conserving solver that reproduces the paper's qualitative
-cone-jet formation, ejection, asymmetry growth, and weak-voltage current trend**. A full 2x2
-resolution x CaE matrix (Experiments A2/C/D/E, all at matched ~0.79 ms) shows **sustained whipping
-grows monotonically with both field strength and mesh resolution**: final radial asymmetry runs
-0.032 (nx12/CaE0.25) -> 0.089 (nx18/CaE0.25) -> 0.172 (nx18/CaE0.42), with the higher-field fine
-run crossing the 0.05 instability marker earliest (~step 330) and still climbing. The apparent
-coarse-mesh "pulsate-and-collapse" at CaE 0.42 (Experiment C) is a **resolution artifact**: coarse
-numerical diffusion damps the lateral instability into an oscillatory collapse, and refinement
-removes that damping to reveal sustained growth. Conservation is mesh- and field-robust (charge/mass
-residuals ~1e-13/1e-14 at every CaE and resolution) and the total current is a robust integral
-observable (O(1e-7), mesh-insensitive within ~15%); the cone-tip-localized whipping quantities
-(asymmetry, velocity, electric force, jet thinness) are the resolution-gated ones and are **not yet
-converged** at nx=18. Quantitative paper-level agreement (1.1% morphology, exact Ganan-Calvo
-magnitude, a resolution-converged whipping boundary) remains gated on the paper's ~2 um / ~11M-cell
-resolution (P7) — but the **trends toward that regime are now demonstrated along both axes**, and all
-metric claims were independently audited against the solver source (corrections applied above).
+cone-jet formation, ejection, asymmetry growth, and weak-voltage current trend**. Across Experiments
+A2/C/D/E/F (matched ~0.79 ms) **sustained whipping grows monotonically with both field strength and
+mesh resolution**. A 3-point resolution sweep at CaE 0.25 gives radial asymmetry **0.032 (nx12) ->
+0.089 (nx18) -> 0.351 (nx24)** — accelerating (2.8x then 3.9x), i.e. **not converging**, the signature
+of a resolution-gated instability; and the CaE axis at nx=18 gives 0.089 -> 0.172. The apparent
+coarse-mesh "pulsate-and-collapse" at CaE 0.42 (Experiment C) is a **resolution artifact** of
+numerical diffusion damping the instability, which refinement removes. Conservation is mesh- and
+field-robust (charge/mass residuals ~1e-13/1e-14 at every CaE and resolution) and the total current is
+a robust integral observable (O(1e-7), mesh-insensitive within ~15%); the cone-tip-localized whipping
+quantities are the resolution-gated ones and are **not converged** even at nx=24. A real limitation
+also surfaced: at nx=24 the structured-box solver stays stable/conserving to ~0.95 ms then **blows up**
+at the sharpening cone-tip singularity, so its stable physical-time horizon shrinks with resolution —
+reinforcing why the paper uses geometric VOF + local refinement. Quantitative paper-level agreement
+(1.1% morphology, exact Ganan-Calvo magnitude, a resolution-converged whipping boundary) remains gated
+on ~2 um / ~11M cells (P7) — but the **trends toward that regime are now demonstrated along both axes
+with 3-point resolution support**, and all metric claims were independently audited against the solver
+source (corrections applied above).
 
 ### Regression re-baseline status (RED, diagnosed — needs a test-design decision)
 

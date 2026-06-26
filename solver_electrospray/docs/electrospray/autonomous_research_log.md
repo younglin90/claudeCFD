@@ -129,6 +129,53 @@ threshold with **sustained** asymmetry on this coarse box — sustained lateral 
 gated on the paper's ~2 um / ~11M-cell resolution — but the onset of unsteadiness with field
 strength is captured, and conservation holds even in the energetic pulsating regime.
 
+### Experiment D — mesh convergence: nx=18 vs nx=12 at CaE 0.25, matched physical time
+
+The convergence companion to A2. Same CaE 0.25, same 900 steps. **dt-verification first** (per the
+audit): valD reports dt = 0.0029618754779 (identical to nx=12) and electric_courant = 0.1, so the
+electric-relaxation limit is still binding at nx=18 and **valD@900 reaches the same physical time
+(~0.79 ms) as A2@900** — the same-time comparison is valid (verified, not assumed).
+
+| observable | nx=12 (A2) | nx=18 (valD) | behaviour |
+|---|---|---|---|
+| cells | 2592 | 8748 (3.4x) | |
+| relative charge residual | 2.5e-13 | 1.2e-13 | **converged: machine precision both** |
+| alpha mass drift | 2.3e-14 | 2.2e-14 | **converged: conserved both** |
+| max divergence | 2.7e-12 | 2.8e-11 | bounded both |
+| jet total current | 1.92e-7 | 1.65e-7 (-14%) | **robust integral observable** |
+| final radial asymmetry | 0.032 | 0.089 (2.8x) | sharpens, crosses 0.05 |
+| max velocity | 10.9 | 29.9 (2.7x) | sharpens |
+| max electric force | 110 | 740 (6.7x) | sharpens |
+| max alpha (interface) | 0.85 | 0.95 | sharper interface |
+| midplane jet radius | 1.5e-4 | 1.5e-6 | fat -> thin jet (cf. CaE-0.42 nx=12 also 1.6e-6) |
+
+Two clean groups. **(a) Conservation and the total current converge / are robust** to a 3.4x cell
+change (residuals stay ~1e-13, current within ~15%) — integral quantities are mesh-insensitive, as
+expected and as the paper finds for the average current. **(b) Cone-tip-localized quantities sharpen
+monotonically with resolution** (asymmetry, velocity, electric force, interface sharpness, jet
+thinning) — these depend on resolving the cone-tip near-singularity (E-field ~ 1/tip-radius), so they
+intensify as the mesh refines, exactly why the paper needs ~2 um / ~11M cells. The direction is
+correct (sharper cone, thinner jet, stronger field) but their absolute values are **not yet
+converged** at nx=18.
+
+The asymmetry **trajectory** is the key finding. Unlike nx=12 CaE 0.25 (which plateaus ~0.032), the
+nx=18 run does **not** plateau: after the cone-tip ejection transient (asymmetry 0.041 / velocity 29.6
+peak at step 270), from step ~480 the asymmetry **grows monotonically and accelerating** — 0.038 ->
+0.05 (crossed ~step 660) -> **0.089 at step 900, still climbing**. Interpretation: the coarse mesh
+**numerically damps** the lateral (whipping) instability via numerical diffusion (artificial plateau);
+**mesh refinement reduces that damping**, so the finer mesh sustains and grows the off-axis asymmetry
+the coarse mesh suppressed. This is precisely the resolution-gated whipping the paper reports: the
+instability is physical but requires fine resolution to survive numerical diffusion, and we now see it
+**emerge with refinement**.
+
+This refines the Experiment C reading: the steady (0.25) vs pulsating (0.42) distinction was drawn at
+fixed coarse nx=12; at nx=18 even CaE 0.25 develops growing asymmetry. So the robust statement is that
+**both axes push toward whipping — higher CaE and finer resolution each increase the (less-damped)
+asymmetry** — while the absolute 0.05 threshold is not a resolution-converged regime boundary at these
+mesh sizes. (An nx=18 CaE 0.42 run, valE, is in progress to complete the 2x2 resolution x CaE matrix.)
+tip_displacement = 0 at nx=18 (vs 0.32 at nx=12) independently re-confirms the audit's saturation
+finding: the 99.5%-mass percentile is not a robust cross-mesh metric.
+
 ### Metric verification (adversarial audit)
 
 Before trusting the above, the four headline diagnostics were independently audited against the
@@ -154,7 +201,9 @@ actual solver source (4 read-only agents reading `CandidoTaylorConeJet3D.hpp` /
   limit. Consequence for the nx=18 convergence run (valD): the "same physical time at 900 steps"
   premise is **not guaranteed** and must be verified from valD's reported `dt`/`electric_courant`
   (if electric_courant < 0.1 then dt < 0.00296 and valD reached less time -> compare at matched
-  physical time, not at step 900). [Resolved when valD lands.]
+  physical time, not at step 900). **[Resolved: valD (nx=18) reports dt = 0.00296 identical to
+  nx=12 and electric_courant = 0.1, so the electric limit is still binding at nx=18 and the
+  same-time comparison in Experiment D is valid — verified empirically as the audit required.]**
 - **charge conservation — supported, with normalization clarified.** `relativeChargeBudgetResidual
   = |finalCharge - expectedFinal| / max(|expectedFinal|, 1e-30)` where `expectedFinal = initial -
   cumulativeBoundaryFlux - relaxationSink + interfacialOhmicSource` (~3620-3628), boundary flux =
@@ -169,11 +218,18 @@ charge residual), and hardened the other two claims. No headline conclusion was 
 
 The faithful physics (P1-P6) turns the prior empirically-regularized, current-pathological
 configuration into a **stable, charge-conserving solver that reproduces the paper's qualitative
-cone-jet formation, ejection, asymmetry growth, weak-voltage current trend, and the
-steady -> pulsating transition with field strength** on a coarse box mesh: CaE 0.25 gives a
-steady cone-jet (asymmetry plateau), CaE 0.42 gives an unsteady pulsating jet (asymmetry +
-velocity + current oscillation), both fully mass/charge conserving. Quantitative paper-level
-agreement (1.1% morphology, exact Ganan-Calvo magnitude, sustained >0.05 whipping) remains
-gated on the paper's ~2 um / ~11M-cell resolution (P7).
+cone-jet formation, ejection, asymmetry growth, and weak-voltage current trend**, with two
+control axes both pushing toward whipping: **higher field strength** (CaE 0.25 steady-ish ->
+CaE 0.42 unsteady pulsating, at fixed coarse mesh) and **finer resolution** (nx=12 plateau ~0.032
+-> nx=18 sustained accelerating growth -> 0.089, still climbing, as mesh refinement removes the
+numerical diffusion that damps the lateral instability). Conservation is mesh- and field-robust
+(charge/mass residuals ~1e-13/1e-14 at every CaE and resolution) and the total current is a robust
+integral observable (mesh-insensitive within ~15%); the cone-tip-localized quantities (asymmetry,
+velocity, electric force, jet thinness) sharpen monotonically with resolution and are **not yet
+converged** at nx=18. Quantitative paper-level agreement (1.1% morphology, exact Ganan-Calvo
+magnitude, a resolution-converged sustained-whipping boundary) remains gated on the paper's
+~2 um / ~11M-cell resolution (P7) — but the **trends toward that regime are now demonstrated in
+both CaE and mesh resolution**, and all metric claims were independently audited against the
+solver source (corrections applied above).
 
 

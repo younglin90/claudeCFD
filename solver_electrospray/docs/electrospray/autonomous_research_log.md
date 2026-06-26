@@ -65,13 +65,21 @@ configuration (asymmetry ~1e-4 and current blow-ups documented in candido_3d_met
 
 ### Experiment A2 — CaE=0.25, 900 steps (~0.79 ms, the paper morphology comparison time)
 
-Stable and conserved over **900 steps**: mass drift 2.3e-14, max div 2.7e-12, charge-budget
-residual 2.5e-13, potential residual 1e-11. Crucially, **the Taylor cone now forms and ejects**:
-tip displacement 0.320 D_o (0 at 300 steps), final tip y 0.80 -> 1.12, max velocity 10.9
+Stable and conserved over **900 steps**: mass drift 2.3e-14, max div 2.7e-12, **relative**
+charge-budget residual 2.5e-13 (normalized by expected charge; absolute ~1e-21 vs ~3.5e-9
+charge = ~13-digit conservation), potential residual 1e-11. Crucially, **the Taylor cone now
+forms and ejects**: the liquid front advances (99.5%-mass tip y 0.80 -> 1.12), max velocity 10.9
 (jet ejection), max electric force 110, connected alpha=0.5 silhouette volume 1.62, radial
 asymmetry 0.032 (below 0.05, consistent with the stable CaE=0.25 regime). The cone-jet emerges
 naturally on the hydrodynamic timescale - the qualitative paper behaviour (cone ~0.4 ms, jet
 ~0.7 ms), which the prior configuration did not produce.
+
+> **Metric caveat (see adversarial audit below):** `tip_displacement` is the 99.5th-percentile
+> liquid-mass y-height, which **saturates** at a geometry-determined ceiling within the bounded
+> box (CaE 0.25 and CaE 0.42 both report the identical 0.3206 despite 2x different jet velocity),
+> so it indicates the liquid front advanced but is **not** a reliable continuous ejection-strength
+> metric past saturation. Ejection strength is read from max velocity (10.9 vs 20.2) and the
+> asymmetry trajectory, not the capped tip value.
 
 ### Experiment B — CaE sweep {0.26, 0.32, 0.42}, 200 steps each
 
@@ -120,6 +128,42 @@ ejection regime (rise -> eject -> collapse -> re-form). Neither case crosses the
 threshold with **sustained** asymmetry on this coarse box — sustained lateral whipping remains
 gated on the paper's ~2 um / ~11M-cell resolution — but the onset of unsteadiness with field
 strength is captured, and conservation holds even in the energetic pulsating regime.
+
+### Metric verification (adversarial audit)
+
+Before trusting the above, the four headline diagnostics were independently audited against the
+actual solver source (4 read-only agents reading `CandidoTaylorConeJet3D.hpp` /
+`electrospray_case_runner.cpp`). Verdicts:
+
+- **radial_asymmetry — supported.** `candidoInterfaceRadialAsymmetry3D` (CandidoTaylorConeJet3D.hpp
+  ~1707-1726) is the distance from the nominal axis of the interface-weighted centroid
+  (weight `w = alpha*(1-alpha)*V`, summed over **all** cells, no axial/radial windowing). A
+  collapse therefore genuinely means the interface centroid moved back on-axis (physical
+  re-symmetrization), so the CaE-0.42 "rise -> collapse -> re-rise" is a real pulsating signal,
+  not a windowing artifact. The steady (0.25) vs pulsating (0.42) reading stands.
+- **tip_displacement — saturation confirmed; claim qualified.** It is `finalTipY - initialTipY`
+  where tip = the 99.5th-percentile y of liquid **mass** (`candidoLiquidTipY3D` ~1671-1693),
+  bounded by the box height `ly`. It saturates once the mass percentile reaches a fixed height;
+  the identical 0.3206 across CaE 0.25/0.42 confirms saturation. Corrected inline in A2 above:
+  use velocity + asymmetry for ejection strength, tip only for "front advanced".
+- **timestep dt — assumption refuted as unconditional; must be checked per mesh.** `dt =
+  min(unrestrictedDt, dtElectric)` (~3036) where `unrestrictedDt = min(dtAdv = cfl*dx/..., dtCap =
+  sqrt(dx^3/4pi))` is **mesh-dependent** and `dtElectric = 0.1*tau_e` is mesh-independent. The
+  electric limit is binding (electric_courant == 0.1) only when it is the smaller of the two; a
+  finer mesh shrinks `dtAdv/dtCap` and can make **them** binding, shrinking dt below the electric
+  limit. Consequence for the nx=18 convergence run (valD): the "same physical time at 900 steps"
+  premise is **not guaranteed** and must be verified from valD's reported `dt`/`electric_courant`
+  (if electric_courant < 0.1 then dt < 0.00296 and valD reached less time -> compare at matched
+  physical time, not at step 900). [Resolved when valD lands.]
+- **charge conservation — supported, with normalization clarified.** `relativeChargeBudgetResidual
+  = |finalCharge - expectedFinal| / max(|expectedFinal|, 1e-30)` where `expectedFinal = initial -
+  cumulativeBoundaryFlux - relaxationSink + interfacialOhmicSource` (~3620-3628), boundary flux =
+  time-integrated convective `rho_e*u` + conductive `sigma*E` over all boundary faces. This is a
+  genuine **relative** budget closure; the journaled ~1e-13 values are relative (normalized by the
+  ~3.5e-9 expected charge), i.e. ~13-digit conservation, not an unnormalized absolute. Confirmed.
+
+The audit corrected one overstatement (tip metric) and one ambiguity (relative vs absolute
+charge residual), and hardened the other two claims. No headline conclusion was overturned.
 
 ### Headline
 

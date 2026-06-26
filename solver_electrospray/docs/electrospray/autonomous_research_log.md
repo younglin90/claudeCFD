@@ -90,12 +90,46 @@ conserved at every CaE. Asymmetry stays below the 0.05 whipping threshold at thi
 (~0.18 ms) time but grows with both CaE and time (cf. A2), so a developed high-CaE run is the
 next probe for crossing the whipping threshold.
 
+### Experiment C — CaE=0.42, 900 steps (developed-time whipping probe)
+
+The high-CaE companion to A2 (same 900 steps, same nx=12 box, voltage 2800). Stable and
+conserved throughout: mass drift 2.3e-14, max div 9.5e-12, charge-budget residual 4.1e-13.
+Far more energetic than CaE 0.25: max velocity **20.2** (vs 10.9 at 0.25), max electric force
+**289** (vs 110), silhouette 1.62.
+
+The radial-asymmetry **trajectory** (not just the final value) is the finding. Time-series
+(nondim time, every ~60 steps):
+
+| step | time | radial_asym | max_vel | total_I | max_alpha |
+|---|---|---|---|---|---|
+| 0   | 0.00 | 0.0002 | 0.0  | 0       | 0.689 |
+| 120 | 0.36 | 0.0220 | 0.81 | 2.93e-7 | 0.731 |
+| 300 | 0.89 | **0.0372** (peak) | 12.8 | 2.91e-7 | 0.846 |
+| 450 | 1.33 | 0.0309 | 17.2 | 2.34e-7 | 0.835 |
+| 690 | 2.04 | **0.0007** (collapse) | 12.5 | 2.98e-7 | 0.833 |
+| 780 | 2.31 | 0.0135 (re-rise) | 10.7 | 2.92e-7 | 0.866 |
+| 900 | 2.67 | 0.0099 | 12.2 | 2.91e-7 | 0.892 |
+
+Whereas CaE 0.25 (A2) rises to an asymmetry peak (~0.037) and then **plateaus** (~0.032,
+steady single cone-jet), CaE 0.42 rises to a near-identical peak (0.037) and then
+**oscillates** — collapsing to ~0.001 and re-rising — while the velocity (peaks ~20) and the
+total current (oscillating 2.2e-7..3.0e-7) become unsteady too. This is the qualitative
+**steady -> pulsating/intermittent transition**: at the paper's stable validation CaE (0.25)
+the box produces a steady cone-jet; above it (0.42) the cone-jet enters an unsteady, pulsating
+ejection regime (rise -> eject -> collapse -> re-form). Neither case crosses the 0.05 whipping
+threshold with **sustained** asymmetry on this coarse box — sustained lateral whipping remains
+gated on the paper's ~2 um / ~11M-cell resolution — but the onset of unsteadiness with field
+strength is captured, and conservation holds even in the energetic pulsating regime.
+
 ### Headline
 
 The faithful physics (P1-P6) turns the prior empirically-regularized, current-pathological
 configuration into a **stable, charge-conserving solver that reproduces the paper's qualitative
-cone-jet formation, ejection, asymmetry growth, and weak-voltage current trend** on a coarse
-box mesh. Quantitative paper-level agreement (1.1% morphology, exact Ganan-Calvo magnitude,
->0.05 whipping) remains gated on the paper's ~2 um / ~11M-cell resolution (P7).
+cone-jet formation, ejection, asymmetry growth, weak-voltage current trend, and the
+steady -> pulsating transition with field strength** on a coarse box mesh: CaE 0.25 gives a
+steady cone-jet (asymmetry plateau), CaE 0.42 gives an unsteady pulsating jet (asymmetry +
+velocity + current oscillation), both fully mass/charge conserving. Quantitative paper-level
+agreement (1.1% morphology, exact Ganan-Calvo magnitude, sustained >0.05 whipping) remains
+gated on the paper's ~2 um / ~11M-cell resolution (P7).
 
 

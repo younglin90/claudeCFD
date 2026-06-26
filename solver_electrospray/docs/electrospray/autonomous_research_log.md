@@ -6,30 +6,36 @@ the new physics against the paper, and the regression re-baselining.
 
 ## TL;DR (autonomous session result)
 
-The faithful P1-P6 physics is **validated** against Candido 2023 on a structured box mesh:
+The faithful P1-P6 physics is **qualitatively validated** against Candido 2023 on a structured box
+mesh (quantitative paper-number agreement is gated on ~2 um / ~11M cells):
 
 1. **Stable + conserving** over hundreds-to-900 steps at every CaE and resolution tested —
    relative charge/mass budget residuals ~1e-13, mass drift ~1e-14, divergence bounded. This
    resolves the prior current blow-up (ratios 1e9-1e11) and the current/whipping Pareto-block.
-2. **Resolution x CaE convergence study** (Experiments A2/C/D/E/F, all matched ~0.8 ms): the off-axis
-   (whipping-like) radial asymmetry grows **monotonically with both field strength and mesh
-   resolution**. 3-point resolution sweep at CaE 0.25: **0.032 (nx12) -> 0.089 (nx18) -> 0.351
-   (nx24)** — accelerating, NOT converging; CaE axis at nx18: 0.089 -> 0.172. (Honest caveat, Exp F:
-   this unbounded resolution-sensitive growth is consistent with the paper's physical whipping but
-   not cleanly separable from numerical destabilization of the cone-tip on a structured box.)
-   The coarse-mesh "pulsate-and-collapse" is a numerical-diffusion artifact refinement removes.
-   Conservation + total current are robust integral observables; whipping is the resolution-gated
-   quantity (unconverged even at nx=24 -> paper needs ~2 um). **Caveat:** at nx=24 the structured-box
-   solver blows up at ~0.95 ms (cone-tip singularity sharpens with resolution) — its stable
-   physical-time horizon shrinks with refinement, reinforcing the paper's use of geometric VOF + AMR.
-3. **Metric audit (4 independent agents vs source):** corrected 2 claims (tip_displacement
-   saturates -> not an ejection metric; charge residual is relative ~1e-13 = genuine conservation),
-   hardened the other two. No headline conclusion overturned.
+2. **Resolution x CaE convergence study** (Experiments A2/C/D/E/F, all compared at matched nondim
+   time 2.67, ~0.8 ms): the off-axis (whipping-like) radial asymmetry grows **monotonically with
+   both field strength and mesh resolution**. 3-point resolution sweep at CaE 0.25: **0.032 (nx12)
+   -> 0.089 (nx18) -> 0.351 (nx24)** — accelerating, NOT converging; CaE axis at nx18 (CaE 0.25 ->
+   0.42): 0.089 -> 0.172. (Honest caveat, Exp F: this unbounded resolution-sensitive growth is
+   consistent with the paper's physical whipping but not cleanly separable from numerical
+   destabilization of the cone-tip on a structured box.) The coarse-mesh "pulsate-and-collapse" is a
+   numerical-diffusion artifact refinement removes. Conservation is robust; the total current is
+   mesh-insensitive (~15%) but weakly CaE-dependent (~27% over the CaE sweep); the whipping-like
+   asymmetry is the resolution-sensitive quantity (unconverged even at nx=24 -> paper needs ~2 um).
+   **Caveat:** at nx=24 the solver stays stable/conserving past the step-900 matched snapshot but
+   blows up at ~0.98 ms (step ~1110; surfaced only by extending that run to 1200 steps) at the
+   sharpening cone-tip singularity — its stable physical-time horizon shrinks with refinement,
+   reinforcing the paper's use of geometric VOF + AMR.
+3. **Metric audit (independent agents vs source):** corrected 2 claims (tip_displacement
+   saturates -> not an ejection metric; charge residual is relative ~1e-13 = genuine conservation;
+   plus a follow-up that midplane-jet-radius is a near-zero degenerate metric, not fat->thin),
+   hardened the asymmetry + charge claims. No headline conclusion overturned.
 4. **Open item — regression RED (needs your decision):** `test_candido_cone_jet_smoke3d` fails at
    the 0.9 ms long-window assertion because faithful physics needs ~1100 steps to reach it (the
    52-step budget and the committed electric-off "fast" lever are insufficient/broken). Fix is a
    CI-time/threshold trade-off, documented below, **not** committed autonomously. See "Regression
-   re-baseline status". Production defaults stay faithful.
+   re-baseline status". Production defaults stay faithful (the P1-P6 struct defaults, committed
+   9cf0c48; the broken fast lever is test-only and does not affect the production binary).
 
 ## Key tension discovered
 
@@ -93,13 +99,14 @@ configuration (asymmetry ~1e-4 and current blow-ups documented in candido_3d_met
 ### Experiment A2 — CaE=0.25, 900 steps (~0.79 ms, the paper morphology comparison time)
 
 Stable and conserved over **900 steps**: mass drift 2.3e-14, max div 2.7e-12, **relative**
-charge-budget residual 2.5e-13 (normalized by expected charge; absolute ~1e-21 vs ~3.5e-9
-charge = ~13-digit conservation), potential residual 1e-11. Crucially, **the Taylor cone now
+charge-budget residual 2.5e-13 (normalized by the expected charge ~3.5e-9; ~13-digit relative
+conservation), potential residual 1e-11. Crucially, **the Taylor cone now
 forms and ejects**: the liquid front advances (99.5%-mass tip y 0.80 -> 1.12), max velocity 10.9
 (jet ejection), max electric force 110, connected alpha=0.5 silhouette volume 1.62, radial
 asymmetry 0.032 (below 0.05, consistent with the stable CaE=0.25 regime). The cone-jet emerges
-naturally on the hydrodynamic timescale - the qualitative paper behaviour (cone ~0.4 ms, jet
-~0.7 ms), which the prior configuration did not produce.
+naturally on the hydrodynamic timescale - broadly consistent with the paper's qualitative
+sub-millisecond cone-then-jet timeline (the prior configuration did not produce this; the exact
+paper timescales are not re-derived here).
 
 > **Metric caveat (see adversarial audit below):** `tip_displacement` is the 99.5th-percentile
 > liquid-mass y-height, which **saturates** at a geometry-determined ceiling within the bounded
@@ -155,6 +162,12 @@ ejection regime (rise -> eject -> collapse -> re-form). Neither case crosses the
 threshold with **sustained** asymmetry on this coarse box — sustained lateral whipping remains
 gated on the paper's ~2 um / ~11M-cell resolution — but the onset of unsteadiness with field
 strength is captured, and conservation holds even in the energetic pulsating regime.
+
+> **Reinterpreted later (see Experiments D-F):** this coarse-mesh "steady (0.25) vs pulsating
+> (0.42)" distinction does **not** survive refinement — at nx=18 even CaE 0.25 develops sustained
+> growing asymmetry, and the CaE-0.42 "collapse" is the coarse mesh's numerical-diffusion damping
+> of the instability, not a physical steady/pulsating boundary. Read this section as the coarse-box
+> manifestation, superseded by the convergence study below.
 
 ### Experiment D — mesh convergence: nx=18 vs nx=12 at CaE 0.25, matched physical time
 
@@ -262,7 +275,7 @@ window), nx=24 stays stable and conserving only through step ~1110 (nondim ~3.29
 **blows up** between step 1110 and 1140: asymmetry 0.42 -> 1.42, velocity 59 -> 756, current 6.9e-7 ->
 323, max alpha -> 0.001, mass -> 0. Interpretation: the cone-tip is a near-singularity (E ~ 1/tip-
 radius); as the mesh refines the tip fields/velocities sharpen (velocity climbed 30 -> 60 before the
-break), and past ~0.95 ms the structured-box semi-implicit scheme can no longer resolve the singular
+break), and past ~0.98 ms the structured-box semi-implicit scheme can no longer resolve the singular
 tip and diverges. So the faithful solver's **stable physical-time horizon shrinks as resolution
 increases**. This is a real limitation of the structured-box approach and reinforces *why the paper
 uses geometric VOF (isoAdvector/plicRDF) + local refinement* to handle the tip singularity. (The
@@ -343,17 +356,18 @@ cone-jet formation, ejection, asymmetry growth, and weak-voltage current trend**
 A2/C/D/E/F (matched ~0.79 ms) the **off-axis (whipping-like) asymmetry grows monotonically with both
 field strength and mesh resolution**. A 3-point resolution sweep at CaE 0.25 gives radial asymmetry
 **0.032 (nx12) -> 0.089 (nx18) -> 0.351 (nx24)** — accelerating (2.8x then 3.9x), i.e. **not
-converging**; and the CaE axis at nx=18 gives 0.089 -> 0.172. (Honest caveat, detailed in Experiment
+converging**; and the CaE axis at nx=18 (CaE 0.25 -> 0.42) gives 0.089 -> 0.172. (Honest caveat, detailed in Experiment
 F: this strongly-resolution-sensitive unbounded growth is *consistent with* the paper's physical
 whipping but cannot, on this structured box, be cleanly separated from resolution-driven numerical
-destabilization of the cone-tip singularity — the nx=24 run diverges at ~0.95 ms. The unambiguous
+destabilization of the cone-tip singularity — the nx=24 run diverges at ~0.98 ms. The unambiguous
 results are conservation, the bounded current, and the qualitative cone-jet.) The apparent
 coarse-mesh "pulsate-and-collapse" at CaE 0.42 (Experiment C) is a **resolution artifact** of
 numerical diffusion damping the instability, which refinement removes. Conservation is mesh- and
 field-robust (charge/mass residuals ~1e-13/1e-14 at every CaE and resolution) and the total current is
-a robust integral observable (O(1e-7), mesh-insensitive within ~15%); the cone-tip-localized whipping
-quantities are the resolution-gated ones and are **not converged** even at nx=24. A real limitation
-also surfaced: at nx=24 the structured-box solver stays stable/conserving to ~0.95 ms then **blows up**
+a robust integral observable (O(1e-7), mesh-insensitive within ~15%, weakly CaE-dependent ~27%); the
+cone-tip-localized whipping-like quantities are the resolution-sensitive ones and are **not converged**
+even at nx=24. A real limitation
+also surfaced: at nx=24 the structured-box solver stays stable/conserving to ~0.98 ms then **blows up**
 at the sharpening cone-tip singularity, so its stable physical-time horizon shrinks with resolution —
 reinforcing why the paper uses geometric VOF + local refinement. Quantitative paper-level agreement
 (1.1% morphology, exact Ganan-Calvo magnitude, a resolution-converged whipping boundary) remains gated

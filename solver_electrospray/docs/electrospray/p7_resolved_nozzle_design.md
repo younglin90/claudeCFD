@@ -146,3 +146,27 @@ mesh-gated follow-up.
 (`liquid_inlet`, `nozzle_wall`, `collector`, `outlet`), set `mesh_mode=openfoam_polyMesh` +
 `use_named_patch_boundary_conditions=true` in the case JSON, and run `electrospray_case_runner`. The
 adaptive electric-force CFL (task #14) keeps the fine tip stable.
+
+## 8. End-to-end validation (done, on a generated resolved-nozzle mesh)
+
+`apps/generate_resolved_nozzle_mesh.py` writes a structured-hex OpenFOAM polyMesh that **resembles
+the real nozzle**: the annular capillary wall (ri<r<ro, 0<=y<=Lnoz, from Di=160um/Do=260um/
+Lnoz=300um) is excluded as solid, leaving the bore (r<ri, the `liquid_inlet`) feeding liquid up
+through the atmosphere to the `collector` plate, with the fluid/solid interface tagged `nozzle_wall`
+and the sides tagged `outlet`. The default writes 7952 cells / 4 named patches (no OpenFOAM install
+needed).
+
+Running `candido_smoke` on it (`mesh_mode=openfoam_polyMesh`, `use_named_patch_boundary_conditions=
+true`) **passes end-to-end**: the mesh loads, the named patches are recognized (`inlet_from_patch=1`),
+the per-face roles are captured and consumed, and the run is **stable and mass-conserving**
+(mass drift 3.8e-14, max div 5e-12) — no blow-up, the adaptive electric-force CFL holds.
+
+The named-patch path is verified to be **actively consumed** by comparing
+`use_named_patch_boundary_conditions` true vs false on the same mesh (40 steps): they differ
+substantially (max electric force 6.1 vs 86.2, max velocity 0.044 vs 0.102, current 4.4e-7 vs
+2.7e-7). The geometric-box classifier mis-tags the irregular nozzle mesh (spurious 86 force); the
+named-patch path correctly applies the electrode to `nozzle_wall`+`liquid_inlet` and ground to
+`collector`. This closes the previously mesh-gated end-to-end validation.
+
+Remaining for a converged physics study (not a pipeline gap): a finer mesh (the 7952-cell test mesh
+resolves the 160um bore with only ~3 cells) and the explicit total-pressure-outlet Dirichlet.

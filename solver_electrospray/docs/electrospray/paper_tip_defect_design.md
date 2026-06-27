@@ -30,9 +30,15 @@ solver (validated against Candido & Pascoa 2023).
 | **D2** | asymmetry / off-axis tip | fabrication misalignment, asymmetric AO erosion | tip offset / tilt | off-axis Taylor cone -> **plume steering + thrust-vector error** |
 | **D3** | roughness / micro-protrusion / pitting | etch burrs, AO pitting | micro-bump(s) on the tip | multiple emission sites, satellite droplets, local field spikes |
 
-(D4 dielectric oxide layer and D6 wettability deferred — the paper focuses on the *geometric* AO/
-fabrication defects. AO -> geometry mapping: non-protective/eroding emitter metals blunt and roughen;
-self-passivating metals form a thin few-nm oxide that mainly perturbs the surface, less the geometry.)
+**SCOPE — geometry (mesh) defects only.** D1/D2/D3 are pure *mesh geometry* changes. The material/
+property defects — D4 dielectric oxide layer (surface sigma/eps) and D6 wettability (contact angle) —
+are **out of scope for this paper** and deferred. This sharpens the contribution to a clean
+*tip-geometry -> electrospray* study, and makes **mesh-resolution accuracy the methodological
+centerpiece**: because E~V/r_tip and the Maxwell force ~E^2, a faithful result demands the defect
+geometry be meshed precisely and the (near-singular) tip integrated stably — exactly what the
+resolved-nozzle generator + adaptive electric-force CFL + volume-matched isoAdvector provide. AO ->
+geometry mapping: non-protective/eroding emitter metals blunt and roughen the tip (D1/D3); asymmetric
+erosion/misalignment tilts it (D2).
 
 **Key physics to capture + differentiate (ACS 2024):** tip sharpness affects plume divergence
 **non-monotonically** — a *too-sharp* emitter (~20 deg half-angle) emits off-axis into a toroidal/

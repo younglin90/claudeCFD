@@ -648,11 +648,22 @@ inline void candidoApplyPreconditionedPaperCurrentJetVelocityCells3D(
   }
 }
 
+// True if any of cell ci's boundary faces carries the given named-patch role (P7).
+inline bool candidoCellTouchesRole3D(const fvm::Mesh3D& mesh, int ci,
+                                     const CandidoBoundaryConditions* patchBc, BcRole role) {
+  if (!patchBc || !patchBc->active) return false;
+  for (int fi : mesh.cells[static_cast<size_t>(ci)].faces) {
+    if (patchBc->roleOfFace(fi) == role) return true;
+  }
+  return false;
+}
+
 inline void candidoApplyFullyDevelopedInletVelocityCells3D(
     fvm::VectorField3& u,
     const fvm::Mesh3D& mesh,
     const CandidoTaylorConeJetSetup& s,
-    const CandidoConeJetSmokeOptions3D& opt) {
+    const CandidoConeJetSmokeOptions3D& opt,
+    const CandidoBoundaryConditions* patchBc = nullptr) {
   const double d0 = s.outerDiameter;
   const double lx = opt.radialWindowOuterDiameters;
   const double lz = opt.radialWindowOuterDiameters;
@@ -660,12 +671,27 @@ inline void candidoApplyFullyDevelopedInletVelocityCells3D(
   const double inletLength = std::min(s.nozzleLength / d0, 0.8);
   const double uScale = candidoDimensionlessInletVelocityScale(s);
   const fvm::Vec3 axis{0.5 * lx, 0.0, 0.5 * lz};
+  const bool named = patchBc && patchBc->active;
   for (size_t ci = 0; ci < mesh.cells.size(); ++ci) {
     const fvm::Vec3 x = mesh.cells[ci].centroid;
     const double r = std::hypot(x.x() - axis.x(), x.z() - axis.z());
-    if (x.y() <= inletLength && r <= ri) {
+    // Named-patch path: drive cells touching an Inlet-role face; geometric path: box inlet region.
+    const bool isInlet = named ? candidoCellTouchesRole3D(mesh, static_cast<int>(ci), patchBc, BcRole::Inlet)
+                               : (x.y() <= inletLength && r <= ri);
+    if (isInlet) {
       const double profile = std::max(0.0, 1.0 - (r * r) / std::max(ri * ri, 1e-30));
       u[ci] = fvm::Vec3{0.0, 2.0 * uScale * profile, 0.0};
+    }
+  }
+}
+
+// Nozzle no-slip walls (P7, Candido Sec II.D): u = 0 on cells touching a NozzleWall-role face.
+inline void candidoApplyNozzleNoSlipCells3D(fvm::VectorField3& u, const fvm::Mesh3D& mesh,
+                                            const CandidoBoundaryConditions* patchBc) {
+  if (!patchBc || !patchBc->active) return;
+  for (size_t ci = 0; ci < mesh.cells.size(); ++ci) {
+    if (candidoCellTouchesRole3D(mesh, static_cast<int>(ci), patchBc, BcRole::NozzleWall)) {
+      u[ci] = fvm::Vec3::Zero();
     }
   }
 }
@@ -674,7 +700,8 @@ inline void candidoApplyMovingCollectorWallCells3D(
     fvm::VectorField3& u,
     const fvm::Mesh3D& mesh,
     const CandidoTaylorConeJetSetup& s,
-    const CandidoConeJetSmokeOptions3D& opt) {
+    const CandidoConeJetSmokeOptions3D& opt,
+    const CandidoBoundaryConditions* patchBc = nullptr) {
   if (!opt.useMovingCollectorWall) return;
   const double ly = s.collectorDistance / s.outerDiameter;
   const double lx = opt.radialWindowOuterDiameters;
@@ -683,11 +710,16 @@ inline void candidoApplyMovingCollectorWallCells3D(
   const double yTol = ly / std::max(opt.ny, 1) * 0.55;
   const double ux = -candidoDimensionlessCollectorVelocityScale(s);
   const fvm::Vec3 axis{0.5 * lx, 0.0, 0.5 * lz};
+  const bool named = patchBc && patchBc->active;
   for (size_t ci = 0; ci < mesh.cells.size(); ++ci) {
-    const fvm::Vec3 x = mesh.cells[ci].centroid;
-    if (x.y() < ly - yTol) continue;
-    const double r = std::hypot(x.x() - axis.x(), x.z() - axis.z());
-    if (r > collectorRadius) continue;
+    if (named) {
+      if (!candidoCellTouchesRole3D(mesh, static_cast<int>(ci), patchBc, BcRole::Collector)) continue;
+    } else {
+      const fvm::Vec3 x = mesh.cells[ci].centroid;
+      if (x.y() < ly - yTol) continue;
+      const double r = std::hypot(x.x() - axis.x(), x.z() - axis.z());
+      if (r > collectorRadius) continue;
+    }
     u[ci].x() = ux;
   }
 }
@@ -729,13 +761,21 @@ inline void candidoApplyOpenAtmosphericBoundaryFlux3D(
     const fvm::Mesh3D& mesh,
     const fvm::VectorField3& u,
     const CandidoTaylorConeJetSetup& setup,
-    const CandidoConeJetSmokeOptions3D& opt) {
+    const CandidoConeJetSmokeOptions3D& opt,
+    const CandidoBoundaryConditions* patchBc = nullptr) {
   if (!opt.useOpenAtmosphericBoundaryFlux) return;
+  const bool named = patchBc && patchBc->active;
   for (int fi = 0; fi < static_cast<int>(mesh.faces.size()); ++fi) {
     const fvm::Face3D& f = mesh.faces[fi];
     if (f.internal()) continue;
-    if (candidoIsInletBoundaryFace3D(mesh, f, setup, opt)) continue;
-    if (f.patch == 2) continue;
+    if (named) {
+      // Named-patch path: the open atmospheric flux acts on Outlet-role faces only (Inlet/
+      // NozzleWall/Collector are closed/Dirichlet boundaries).
+      if (patchBc->roleOfFace(fi) != BcRole::Outlet) continue;
+    } else {
+      if (candidoIsInletBoundaryFace3D(mesh, f, setup, opt)) continue;
+      if (f.patch == 2) continue;
+    }
     faceFlux[fi] = u[f.owner].dot(f.Sf);
   }
 }
@@ -744,13 +784,17 @@ inline void candidoApplyInletBoundaryFlux3D(fvm::ScalarField& faceFlux,
                                             const fvm::Mesh3D& mesh,
                                             const fvm::VectorField3& u,
                                             const CandidoTaylorConeJetSetup& setup,
-                                            const CandidoConeJetSmokeOptions3D& opt) {
+                                            const CandidoConeJetSmokeOptions3D& opt,
+                                            const CandidoBoundaryConditions* patchBc = nullptr) {
   const double axisX = 0.5 * opt.radialWindowOuterDiameters;
   const double axisZ = 0.5 * opt.radialWindowOuterDiameters;
   const double inletRadius = 0.5 * setup.innerDiameter / setup.outerDiameter;
+  const bool named = patchBc && patchBc->active;
   for (int fi = 0; fi < static_cast<int>(mesh.faces.size()); ++fi) {
     const fvm::Face3D& f = mesh.faces[fi];
-    if (candidoIsInletBoundaryFace3D(mesh, f, setup, opt)) {
+    const bool isInlet = named ? (patchBc->roleOfFace(fi) == BcRole::Inlet)
+                               : candidoIsInletBoundaryFace3D(mesh, f, setup, opt);
+    if (isInlet) {
       if (opt.useFullyDevelopedInletVelocityBoundary) {
         const double r =
             std::hypot(f.centroid.x() - axisX, f.centroid.z() - axisZ);
@@ -770,11 +814,15 @@ inline void candidoApplyInletBoundaryFlux3D(fvm::ScalarField& faceFlux,
 
 inline fvm::ScalarField candidoInletBoundaryAlpha3D(
     const fvm::Mesh3D& mesh, const CandidoTaylorConeJetSetup& setup,
-    const CandidoConeJetSmokeOptions3D& opt) {
+    const CandidoConeJetSmokeOptions3D& opt,
+    const CandidoBoundaryConditions* patchBc = nullptr) {
   fvm::ScalarField boundaryAlpha(mesh.faces.size(), 0.0);
+  const bool named = patchBc && patchBc->active;
   for (int fi = 0; fi < static_cast<int>(mesh.faces.size()); ++fi) {
     const fvm::Face3D& f = mesh.faces[fi];
-    if (candidoIsInletBoundaryFace3D(mesh, f, setup, opt)) boundaryAlpha[fi] = 1.0;
+    const bool isInlet = named ? (patchBc->roleOfFace(fi) == BcRole::Inlet)
+                               : candidoIsInletBoundaryFace3D(mesh, f, setup, opt);
+    if (isInlet) boundaryAlpha[fi] = 1.0;
   }
   return boundaryAlpha;
 }
@@ -3038,9 +3086,10 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
   fvm::VectorField3 u = candidoInitialVelocity3D(mesh, setup, opt);
   candidoApplyPreconditionedPaperCurrentJetVelocityCells3D(u, mesh, setup, opt);
   if (opt.useFullyDevelopedInletVelocityBoundary) {
-    candidoApplyFullyDevelopedInletVelocityCells3D(u, mesh, setup, opt);
+    candidoApplyFullyDevelopedInletVelocityCells3D(u, mesh, setup, opt, patchBc);
   }
-  candidoApplyMovingCollectorWallCells3D(u, mesh, setup, opt);
+  candidoApplyMovingCollectorWallCells3D(u, mesh, setup, opt, patchBc);
+  candidoApplyNozzleNoSlipCells3D(u, mesh, patchBc);
   fvm::ScalarField p(mesh.cells.size(), 0.0);
   fvm::ScalarField rho, eps, sigmaE;
   candidoMixtureFields3D(mesh, alpha, setup, opt, rho, eps, sigmaE);
@@ -3228,12 +3277,13 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
                    sourceGaussAudit.relativeL2Residual);
     }
     if (opt.useFullyDevelopedInletVelocityBoundary) {
-      candidoApplyFullyDevelopedInletVelocityCells3D(u, mesh, setup, opt);
+      candidoApplyFullyDevelopedInletVelocityCells3D(u, mesh, setup, opt, patchBc);
     }
-    candidoApplyMovingCollectorWallCells3D(u, mesh, setup, opt);
+    candidoApplyMovingCollectorWallCells3D(u, mesh, setup, opt, patchBc);
+    candidoApplyNozzleNoSlipCells3D(u, mesh, patchBc);
     fvm::ScalarField faceFlux = candidoFaceFlux3D(mesh, u);
-    candidoApplyOpenAtmosphericBoundaryFlux3D(faceFlux, mesh, u, setup, opt);
-    candidoApplyInletBoundaryFlux3D(faceFlux, mesh, u, setup, opt);
+    candidoApplyOpenAtmosphericBoundaryFlux3D(faceFlux, mesh, u, setup, opt, patchBc);
+    candidoApplyInletBoundaryFlux3D(faceFlux, mesh, u, setup, opt, patchBc);
     fvm::ScalarField conductiveFlux =
         opt.usePoissonFaceConductiveCurrent
             ? candidoPoissonFaceConductiveCurrentFlux3D(mesh, sigmaE, potential.phi, bc)
@@ -3468,19 +3518,20 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
                                                   &momentumFaceMassFlux);
     u = mom.velocity;
     if (opt.useFullyDevelopedInletVelocityBoundary) {
-      candidoApplyFullyDevelopedInletVelocityCells3D(u, mesh, setup, opt);
+      candidoApplyFullyDevelopedInletVelocityCells3D(u, mesh, setup, opt, patchBc);
     }
-    candidoApplyMovingCollectorWallCells3D(u, mesh, setup, opt);
+    candidoApplyMovingCollectorWallCells3D(u, mesh, setup, opt, patchBc);
+    candidoApplyNozzleNoSlipCells3D(u, mesh, patchBc);
     fvm::RhieChowProjector3D projector(mesh, rAU);
     fvm::CouplingReport3D projection = projector.project(u, p, 0.85);
     for (int corr = 0; corr < 3 && projection.maxDiv > 1e-8; ++corr) {
       projection = projector.project(u, p, 0.85);
     }
-    candidoApplyOpenAtmosphericBoundaryFlux3D(projection.faceFlux, mesh, u, setup, opt);
-    candidoApplyInletBoundaryFlux3D(projection.faceFlux, mesh, u, setup, opt);
+    candidoApplyOpenAtmosphericBoundaryFlux3D(projection.faceFlux, mesh, u, setup, opt, patchBc);
+    candidoApplyInletBoundaryFlux3D(projection.faceFlux, mesh, u, setup, opt, patchBc);
     fvm::ScalarField rawVelocityFaceFlux = candidoFaceFlux3D(mesh, u);
-    candidoApplyOpenAtmosphericBoundaryFlux3D(rawVelocityFaceFlux, mesh, u, setup, opt);
-    candidoApplyInletBoundaryFlux3D(rawVelocityFaceFlux, mesh, u, setup, opt);
+    candidoApplyOpenAtmosphericBoundaryFlux3D(rawVelocityFaceFlux, mesh, u, setup, opt, patchBc);
+    candidoApplyInletBoundaryFlux3D(rawVelocityFaceFlux, mesh, u, setup, opt, patchBc);
     const CandidoAxialMomentumSourceScan3D momentumSourceScan =
         candidoAxialMomentumSourceScan3D(
             mesh, alpha, rho, u, electric.faceCoupledForce, electricDriveScale,
@@ -3496,7 +3547,7 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
     if (opt.useVofInletBoundaryAlpha || opt.useOpenAtmosphericBoundaryFlux) {
       inletBoundaryAlpha.assign(mesh.faces.size(), 0.0);
       if (opt.useVofInletBoundaryAlpha) {
-        inletBoundaryAlpha = candidoInletBoundaryAlpha3D(mesh, setup, opt);
+        inletBoundaryAlpha = candidoInletBoundaryAlpha3D(mesh, setup, opt, patchBc);
       }
       vofOpt.boundaryAlpha = &inletBoundaryAlpha;
     }

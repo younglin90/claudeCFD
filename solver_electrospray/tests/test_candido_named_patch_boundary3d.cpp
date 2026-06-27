@@ -90,6 +90,34 @@ int main() {
   check(bcRoleFromPatchName("outlet") == BcRole::Outlet, "name->role: outlet");
   check(bcRoleFromPatchName("ATMOSPHERE") == BcRole::Outlet, "name->role: case-insensitive");
 
-  std::cout << "test_candido_named_patch_boundary3d=pass dirichlet_faces=" << dirichletCount << "\n";
+  // (6) Cell-based role gating: nozzle no-slip zeroes exactly the cells touching a NozzleWall face,
+  //     and leaves other cells untouched.
+  fvm::VectorField3 u(mesh.cells.size(), fvm::Vec3{1.0, 2.0, 3.0});
+  candidoApplyNozzleNoSlipCells3D(u, mesh, &bc);
+  int nozzleCells = 0, nozzleZeroed = 0, nonNozzleUntouched = 0;
+  for (size_t ci = 0; ci < mesh.cells.size(); ++ci) {
+    const bool touches =
+        candidoCellTouchesRole3D(mesh, static_cast<int>(ci), &bc, BcRole::NozzleWall);
+    if (touches) {
+      ++nozzleCells;
+      if (u[ci].norm() == 0.0) ++nozzleZeroed;
+    } else if (u[ci].norm() > 0.0) {
+      ++nonNozzleUntouched;
+    }
+  }
+  check(nozzleCells > 0, "some cells touch a NozzleWall-role face");
+  check(nozzleZeroed == nozzleCells, "nozzle no-slip zeroes all NozzleWall-touching cells");
+  check(nonNozzleUntouched > 0, "nozzle no-slip leaves non-nozzle cells untouched");
+
+  // (7) Inactive bc => cell-based helpers are no-ops (regression-safe).
+  fvm::VectorField3 u2(mesh.cells.size(), fvm::Vec3{1.0, 2.0, 3.0});
+  candidoApplyNozzleNoSlipCells3D(u2, mesh, &inactive);
+  int u2changed = 0;
+  for (size_t ci = 0; ci < mesh.cells.size(); ++ci)
+    if (u2[ci] != fvm::Vec3{1.0, 2.0, 3.0}) ++u2changed;
+  check(u2changed == 0, "inactive bc: nozzle no-slip is a no-op");
+
+  std::cout << "test_candido_named_patch_boundary3d=pass dirichlet_faces=" << dirichletCount
+            << " nozzle_cells=" << nozzleCells << "\n";
   return 0;
 }

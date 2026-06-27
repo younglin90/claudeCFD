@@ -90,6 +90,17 @@ struct CandidoConeJetSmokeOptions3D {
   double poissonTangentialLimitFactor = 1.0;
   double poissonTangentialLimitFloorFraction = 0.05;
   double surfaceTensionDriveScale = 1.0;  // P4: full physical CSF (no empirical reduction), matches capillary-dt scale
+  // Adaptive electric-force CFL timestep limit (task #14). The explicit Maxwell body force is
+  // unbounded at the sharpening cone tip and is constrained by no other dt term, so fine meshes
+  // blow up. Add a per-cell limit dtForce = safety*min sqrt(rho*cellSize/|F_elec|) and take
+  // dt = min(dtBase, dtForce) each step (lagged one step). Preserves the faithful explicit force and
+  // the physical whipping; only binds where the force is large, so coarse/low-field runs are
+  // unchanged (dtForce > dtBase there). Calibrated on the nx24 reproducer.
+  bool useElectricForceTimeStepLimit = true;
+  double electricForceTimeStepSafety = 0.05;  // calibrated on nx24 CaE0.8 reproducer (task #14):
+  // stable (mass ~2e-14) + physics-preserving (asymmetry grows to ~0.10, not the Poisson forces'
+  // over-damped ~0.002). The explicit-electric-force stability constant is ~6x tighter than the
+  // capillary one (dtBase = 0.30*raw force-CFL at the reproducer, so safety must be < 0.3 to bind).
 };
 
 struct CandidoConeJetHistorySample3D {
@@ -221,6 +232,8 @@ struct CandidoTomarConductingForceReport3D {
 struct CandidoConeJetSmokeReport3D {
   double targetCaE = 0.0;
   double voltage = 0.0;
+  double minElectricForceCflRaw = 0.0;  // task #14 calibration: run-min of sqrt(rho*cellSize/|F_elec|)
+  double minAdaptiveDt = 0.0;           // task #14: run-min of the adaptive timestep actually used
   double computedCaE = 0.0;
   double electricWeber = 0.0;
   double hydrodynamicTimeScale = 0.0;
@@ -3033,7 +3046,10 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
           ? std::max(opt.electricRelaxationTimeStepSafety, 1e-12) *
                 minElectricRelaxationTau
           : std::numeric_limits<double>::infinity();
-  const double dt = std::min(unrestrictedDt, dtElectric);
+  const double dtBase = std::min(unrestrictedDt, dtElectric);
+  double dt = dtBase;            // adaptive per-step (electric-force CFL, task #14)
+  double simTime = 0.0;         // accumulated time (dt is no longer constant)
+  double prevStepMinForceDt = std::numeric_limits<double>::infinity();
   fvm::ScalarField rAU(mesh.cells.size(), dt);
 
   CandidoConeJetSmokeReport3D report;
@@ -3134,6 +3150,12 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
 
   for (int step = 0; step < opt.steps; ++step) {
     candidoMixtureFields3D(mesh, alpha, setup, opt, rho, eps, sigmaE);
+    // Adaptive electric-force CFL (task #14): shrink dt when the explicit Maxwell force is large
+    // (lagged from the previous step). Coarse/low-field runs keep dt = dtBase (dtForce > dtBase).
+    dt = (opt.useElectricForceTimeStepLimit && std::isfinite(prevStepMinForceDt))
+             ? std::min(dtBase, opt.electricForceTimeStepSafety * prevStepMinForceDt)
+             : dtBase;
+    report.minAdaptiveDt = report.minAdaptiveDt > 0.0 ? std::min(report.minAdaptiveDt, dt) : dt;
     for (size_t ci = 0; ci < mesh.cells.size(); ++ci) rAU[ci] = dt / std::max(rho[ci], 1e-30);
     fvm::PotentialSolveReport3D potential;
     if (opt.useConductivityPotentialChargeClosure) {
@@ -3385,10 +3407,27 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
     // number rho*g*Di^2/gamma ~ 5e-3, so gravity is negligible and defaults to zero;
     // the term is retained for completeness and larger-scale cases.
     const fvm::Vec3 gravityAccel = fvm::Vec3::Zero();
+    double stepMinForceDt = std::numeric_limits<double>::infinity();
     for (size_t ci = 0; ci < mesh.cells.size(); ++ci) {
       source[ci] = -electricDriveScale * electric.faceCoupledForce[ci] +
                    opt.surfaceTensionDriveScale * surface.csfForce[ci] +
                    rho[ci] * gravityAccel;
+      // Per-cell electric-force CFL contribution (task #14): cellSize uses cbrt(V) so it is
+      // correct on non-uniform/refined meshes (the resolved-nozzle case), not just uniform boxes.
+      const double appliedElectricForceMag =
+          (electricDriveScale * electric.faceCoupledForce[ci]).norm();
+      if (appliedElectricForceMag > 1e-30) {
+        const double cellSize = std::cbrt(std::max(mesh.cells[ci].V, 1e-300));
+        stepMinForceDt = std::min(
+            stepMinForceDt,
+            std::sqrt(std::max(rho[ci], 1e-30) * cellSize / appliedElectricForceMag));
+      }
+    }
+    prevStepMinForceDt = stepMinForceDt;
+    if (std::isfinite(stepMinForceDt)) {
+      report.minElectricForceCflRaw = report.minElectricForceCflRaw > 0.0
+          ? std::min(report.minElectricForceCflRaw, stepMinForceDt)
+          : stepMinForceDt;
     }
     // Physical momentum operator: WAM two-phase viscosity field + lagged first-order
     // upwind convection div(rho u u) built from the current velocity field.
@@ -3506,8 +3545,9 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
     double stepMaxVelocity = 0.0;
     for (const fvm::Vec3& uc : u) stepMaxVelocity = std::max(stepMaxVelocity, uc.norm());
     const auto wavePeak = candidoAxialWaveAsymmetryPeak3D(mesh, alpha, setup, opt);
+    simTime += dt;
     report.history.push_back({step + 1,
-                              (step + 1) * dt,
+                              simTime,
                               fvm::vofMass3D(mesh, alpha),
                               vof.minAlpha,
                               vof.maxAlpha,

@@ -160,6 +160,8 @@ void printDefaultsJson(std::ostream& os) {
   os << "  \"poisson_tangential_limit_factor\": " << o.poissonTangentialLimitFactor << ",\n";
   os << "  \"poisson_tangential_limit_floor_fraction\": " << o.poissonTangentialLimitFloorFraction << ",\n";
   os << "  \"surface_tension_drive_scale\": " << o.surfaceTensionDriveScale << ",\n";
+  os << "  \"use_electric_force_timestep_limit\": " << o.useElectricForceTimeStepLimit << ",\n";
+  os << "  \"electric_force_timestep_safety\": " << o.electricForceTimeStepSafety << ",\n";
   os << "  \"inner_diameter\": " << s.innerDiameter << ",\n";
   os << "  \"outer_diameter\": " << s.outerDiameter << ",\n";
   os << "  \"nozzle_length\": " << s.nozzleLength << ",\n";
@@ -540,6 +542,10 @@ electrospray::CandidoConeJetSmokeOptions3D smokeOptionsFromJson(const std::strin
                    opt.poissonTangentialLimitFloorFraction);
   opt.surfaceTensionDriveScale =
       jsonDoubleOr(text, "surface_tension_drive_scale", opt.surfaceTensionDriveScale);
+  opt.useElectricForceTimeStepLimit =
+      jsonBoolOr(text, "use_electric_force_timestep_limit", opt.useElectricForceTimeStepLimit);
+  opt.electricForceTimeStepSafety =
+      jsonDoubleOr(text, "electric_force_timestep_safety", opt.electricForceTimeStepSafety);
   return opt;
 }
 
@@ -690,6 +696,8 @@ void writeSmokeSummaryJson(const std::filesystem::path& path,
   // number dt/tau_e (paper limits this to <=0.1), the connected alpha=0.5 silhouette
   // volume V = sum(pi x^2) (paper morphology metric), and the jet current i_e.
   os << "  \"electric_courant\": " << r.dtOverElectricRelaxationLimit << ",\n";
+  os << "  \"min_electric_force_cfl_raw\": " << r.minElectricForceCflRaw << ",\n";
+  os << "  \"min_adaptive_dt\": " << r.minAdaptiveDt << ",\n";
   if (!r.history.empty()) {
     const auto& last = r.history.back();
     os << "  \"morphology_alpha05_silhouette_di3\": " << last.rayAlpha05SilhouetteVolumeDi3 << ",\n";

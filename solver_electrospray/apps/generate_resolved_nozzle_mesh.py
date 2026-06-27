@@ -9,7 +9,17 @@ fluid mesh is the bore (r<ri) feeding liquid up + the surrounding atmosphere, wi
 interface tagged nozzle_wall. Inlet plane = bore bottom (y=0); collector = top (y=Ly)."""
 
 import sys
+import os
+import math
 from pathlib import Path
+
+# Tip defect parameters (geometry only) via environment variables (micrometres / degrees):
+#   D1 BLUNT_UM : capillary tip rim fillet radius (0=sharp; up to (Do-Di)/2 -> fully rounded rim)
+#   D2 TILT_DEG : capillary axis tilt -> off-axis emission / plume steering
+#   D3 BUMP_UM  : micro-protrusion height on one azimuthal side of the rim -> local field spike
+BLUNT = float(os.environ.get("BLUNT_UM", 0.0)) * 1e-6
+TILT = math.radians(float(os.environ.get("TILT_DEG", 0.0)))
+BUMP = float(os.environ.get("BUMP_UM", 0.0)) * 1e-6
 
 Do = 260e-6
 Di = 160e-6
@@ -38,8 +48,23 @@ def cell_center(i, j, k):
 
 def is_solid(i, j, k):
     x, y, z = cell_center(i, j, k)
-    r = ((x - cx) ** 2 + (z - cz) ** 2) ** 0.5
-    return (ri < r < ro) and (y <= Lnoz)
+    # D2 tilt: the capillary axis leans in +x with height (tube tilts by TILT).
+    axx = cx + math.tan(TILT) * y
+    r = ((x - axx) ** 2 + (z - cz) ** 2) ** 0.5
+    theta = math.atan2(z - cz, x - axx)
+    solid = (ri < r < ro) and (y <= Lnoz)  # nominal capillary wall annulus
+    # D1 blunt: round the tip rim by filleting the inner & outer top corners (AO erosion).
+    if solid and BLUNT > 0.0 and y > Lnoz - BLUNT:
+        if r < ri + BLUNT and ((r - (ri + BLUNT)) ** 2 + (y - (Lnoz - BLUNT)) ** 2) > BLUNT ** 2:
+            solid = False  # inner corner rounded away -> bore widens at the rim
+        if r > ro - BLUNT and ((r - (ro - BLUNT)) ** 2 + (y - (Lnoz - BLUNT)) ** 2) > BLUNT ** 2:
+            solid = False  # outer corner rounded away
+    # D3 bump: a solid protrusion just above the exit on one azimuthal side of the rim.
+    if BUMP > 0.0 and (Lnoz < y <= Lnoz + BUMP):
+        rmid = 0.5 * (ri + ro)
+        if abs(r - rmid) < 0.5 * (ro - ri) and abs(theta) < 0.6:
+            solid = True
+    return solid
 
 
 def is_fluid(i, j, k):

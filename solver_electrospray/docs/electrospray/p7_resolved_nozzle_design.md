@@ -115,3 +115,34 @@ JSON parsing: the existing regex parser cannot handle a nested `boundary_conditi
 small header-only `apps/MiniJson.hpp` (recursive parser) and parse a GUI-written
 `boundary_conditions.json` sidecar, enabled only when `mesh_mode==openfoam_polyMesh` and a BC block
 exists.
+
+## 7. Implementation status (task #15)
+
+The named-patch framework and four of the five BC roles are implemented and unit-tested
+(`tests/test_candido_named_patch_boundary3d.cpp`), all gated by the opt-in
+`use_named_patch_boundary_conditions` so the box + existing OpenFOAM paths are byte-identical.
+
+| BC | status | commit | notes |
+|---|---|---|---|
+| Framework + faceRole capture | **done** | `0e85637` | `BoundaryConditionSet.hpp`; roles captured before the box-reset |
+| Potential Dirichlet (electrode/inlet -> U, collector -> 0) | **done** | `0e85637` | consumed by `candidoPotentialBoundary3D`; tested |
+| Inlet velocity (parabolic) + alpha=1 + inlet flux | **done** | `af7f004` | gated on Inlet role |
+| Nozzle no-slip (u=0) | **done** | `af7f004` | `candidoApplyNozzleNoSlipCells3D` on NozzleWall-touching cells; tested |
+| Collector moving wall | **done** | `af7f004` | gated on Collector role |
+| Outlet open/atmospheric outflow | **done** | `af7f004` | `candidoApplyOpenAtmosphericBoundaryFlux3D` acts on Outlet-role faces |
+| Collector contact angle (51 deg) | **inherited** | (P4) | applied at the +Y wall, which the normalization places the collector on, so it already covers the resolved-nozzle collector; a per-Collector-face generalization of the curvature band is a refinement |
+| Total-pressure outlet (explicit p0=0 Dirichlet) | **deferred** | — | the open-outflow physics is handled by the Outlet-role flux above; an explicit p0 Dirichlet needs a pressure-Poisson Dirichlet capability in `RhieChowProjector3D` (a validated component) and is best done with the user's resolved-nozzle mesh to validate — see below |
+
+**Why total-p Dirichlet is deferred (not blind-patched):** for the incompressible solve the pressure
+level is a gauge freedom (the datum is fixed internally), so the physical content of the
+total-pressure outlet — open outflow with backflow tolerance — is already provided by the Outlet-role
+open-atmospheric flux. The remaining piece (pinning `p0 = p + 0.5*rho|u|^2 = 0` at the outlet for the
+exact backflow/pressure-level treatment) requires modifying the pressure Poisson assembly, which is a
+validated component; doing that without a resolved-nozzle mesh to verify mass conservation would be
+the kind of un-testable risky change the blow-up diagnosis just argued against. It is the one
+mesh-gated follow-up.
+
+**To run a resolved-nozzle case:** supply an OpenFOAM polyMesh whose patches are named per sec 4
+(`liquid_inlet`, `nozzle_wall`, `collector`, `outlet`), set `mesh_mode=openfoam_polyMesh` +
+`use_named_patch_boundary_conditions=true` in the case JSON, and run `electrospray_case_runner`. The
+adaptive electric-force CFL (task #14) keeps the fine tip stable.

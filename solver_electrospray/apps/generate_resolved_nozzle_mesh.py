@@ -30,12 +30,61 @@ Lnoz = 300e-6
 Lx = 4.0 * Do
 Lz = 4.0 * Do
 Ly = 1.5e-3
-# Resolution: optional CLI args after the output dir -> NX [NY] [NZ]. Bore cells across = NX*Di/Lx.
-NX = int(sys.argv[2]) if len(sys.argv) > 2 else 20
-NY = int(sys.argv[3]) if len(sys.argv) > 3 else NX
-NZ = int(sys.argv[4]) if len(sys.argv) > 4 else NX
-dx, dy, dz = Lx / NX, Ly / NY, Lz / NZ
+# Resolution. Default = uniform (CLI args after outdir: NX [NY] [NZ]). Set GRADED=1 to cluster cells
+# near the nozzle tip (fine wall/tip, coarse far plume) so tip-defect meshes stay affordable - the
+# defects need >=2-3 wall cells, which uniform meshing makes prohibitively large. Tunable via env
+# (micrometres): TIP_DX_UM radial-fine, TIP_DY_UM axial-fine, FAR_DX_UM coarse-far, FINE_R_UM radial
+# fine half-extent from the axis, FINE_Y_UM axial fine extent from the inlet.
 cx, cz = 0.5 * Lx, 0.5 * Lz
+
+
+def _graded_centered(center, fine_half, dxf, dxc):
+    half = [0.0]
+    x = 0.0
+    while x < fine_half - 1e-12:
+        x += dxf
+        half.append(x)
+    g = dxf
+    while x < center - 1e-9:
+        g = min(g * 1.25, dxc)
+        x += g
+        half.append(min(x, center))
+    half[-1] = center
+    return [center - h for h in reversed(half)] + [center + h for h in half[1:]]
+
+
+def _graded_oneside(L, fine_ext, dxf, dxc):
+    xs = [0.0]
+    x = 0.0
+    while x < fine_ext - 1e-12:
+        x += dxf
+        xs.append(x)
+    g = dxf
+    while x < L - 1e-9:
+        g = min(g * 1.25, dxc)
+        x += g
+        xs.append(min(x, L))
+    xs[-1] = L
+    return xs
+
+
+if os.environ.get("GRADED"):
+    tip_dx = float(os.environ.get("TIP_DX_UM", 18.0)) * 1e-6
+    tip_dy = float(os.environ.get("TIP_DY_UM", 25.0)) * 1e-6
+    far_dx = float(os.environ.get("FAR_DX_UM", 70.0)) * 1e-6
+    fine_r = float(os.environ.get("FINE_R_UM", 220.0)) * 1e-6
+    fine_y = float(os.environ.get("FINE_Y_UM", 600.0)) * 1e-6
+    xs = _graded_centered(cx, fine_r, tip_dx, far_dx)
+    zs = _graded_centered(cz, fine_r, tip_dx, far_dx)
+    ys = _graded_oneside(Ly, fine_y, tip_dy, far_dx)
+else:
+    NXc = int(sys.argv[2]) if len(sys.argv) > 2 else 20
+    NYc = int(sys.argv[3]) if len(sys.argv) > 3 else NXc
+    NZc = int(sys.argv[4]) if len(sys.argv) > 4 else NXc
+    xs = [i * Lx / NXc for i in range(NXc + 1)]
+    ys = [j * Ly / NYc for j in range(NYc + 1)]
+    zs = [k * Lz / NZc for k in range(NZc + 1)]
+NX, NY, NZ = len(xs) - 1, len(ys) - 1, len(zs) - 1
 
 
 def pid(i, j, k):
@@ -43,7 +92,7 @@ def pid(i, j, k):
 
 
 def cell_center(i, j, k):
-    return ((i + 0.5) * dx, (j + 0.5) * dy, (k + 0.5) * dz)
+    return (0.5 * (xs[i] + xs[i + 1]), 0.5 * (ys[j] + ys[j + 1]), 0.5 * (zs[k] + zs[k + 1]))
 
 
 def is_solid(i, j, k):
@@ -180,7 +229,7 @@ with open(poly / "points", "w") as f:
     for i in range(NX + 1):
         for j in range(NY + 1):
             for k in range(NZ + 1):
-                f.write(f"({i*dx} {j*dy} {k*dz})\n")
+                f.write(f"({xs[i]} {ys[j]} {zs[k]})\n")
     f.write(")\n")
 
 with open(poly / "faces", "w") as f:

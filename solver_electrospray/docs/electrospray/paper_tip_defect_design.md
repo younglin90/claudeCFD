@@ -119,3 +119,30 @@ break-up statistics need finer resolution).
   charge/mass-conserving with the named-patch BCs (mass drift 3.0e-14) under CaE 0.25; a long run to
   develop the cone-jet is in progress. Next: converge the baseline, then make the mesh generator
   defect-parametric (D1 first).
+
+## 9. Case matrix (11 core cases; geometry differences)
+
+Shared baseline (sharp = D1 r_b=0 = D2 tilt=0 = D3 bump=0). All cases: same Di/Do/Lnoz/H + operating
+point (CaE 0.25); only the tip geometry differs. See figures/all_cases_geometry.png.
+
+| # | case | defect | param | geometry vs sharp | symmetry / mesh |
+|---|---|---|---|---|---|
+| C0 | sharp | - | - | Candido capillary, square tip rim, on-axis (shared baseline) | axisymmetric |
+| C1 | D1-08 | blunting | r_b=8um | tip rim fillet 8um | axisymmetric |
+| C2 | D1-15 | blunting | r_b=15um | tip rim fillet 15um | axisymmetric |
+| C3 | D1-20 | blunting | r_b=20um | tip rim fillet 20um | axisymmetric |
+| C4 | D1-25 | blunting | r_b=25um | tip rim fully rounded (=(Do-Di)/2) | axisymmetric |
+| C5 | D2-02 | tilt | 2 deg | capillary axis tilted 2 deg | 3D |
+| C6 | D2-05 | tilt | 5 deg | capillary axis tilted 5 deg | 3D |
+| C7 | D2-10 | tilt | 10 deg | capillary axis tilted 10 deg | 3D, wider domain |
+| C8 | D3-05 | bump | h=5um | one-sided rim protrusion 5um | 3D + local refine |
+| C9 | D3-10 | bump | h=10um | one-sided rim protrusion 10um | 3D + local refine |
+| C10 | D3-20 | bump | h=20um | one-sided rim protrusion 20um | 3D + local refine |
+
+= 1 baseline + 4 (D1) + 3 (D2) + 3 (D3) = **11 core cases** at CaE 0.25.
+
+Optional stability-margin set at CaE 0.42 (baseline + strongest of each defect): C0', C4', C7', C10'
+= **+4 cases** -> 15 total. Mesh reuse: D1 reuses the baseline mesh (only the fillet changes,
+axisymmetric); D2/D3 need new 3D meshes (D3 also needs local refinement at the bump). Recommended
+order: D1 sweep first (cleanest, mesh reuse, the ACS-2024 non-monotonic-divergence comparison), then
+D2 (thrust vector), then D3 (satellite/local-spike).

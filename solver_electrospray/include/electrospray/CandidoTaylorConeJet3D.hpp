@@ -3,6 +3,7 @@
 #include "fvm/EHDCoupling3D.hpp"
 #include "fvm/SurfaceTension3D.hpp"
 #include "electrospray/MaterialProperties.hpp"
+#include "electrospray/BoundaryConditionSet.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -96,6 +97,10 @@ struct CandidoConeJetSmokeOptions3D {
   // dt = min(dtBase, dtForce) each step (lagged one step). Preserves the faithful explicit force and
   // the physical whipping; only binds where the force is large, so coarse/low-field runs are
   // unchanged (dtForce > dtBase there). Calibrated on the nx24 reproducer.
+  // P7 (task #15): honor a resolved-nozzle mesh's NAMED patches (liquid_inlet/nozzle_wall/collector/
+  // outlet) for boundary conditions instead of the structured-box geometric classification. Default
+  // off => box + existing OpenFOAM runs are byte-identical; opt-in for resolved-nozzle meshes.
+  bool useNamedPatchBoundaryConditions = false;
   bool useElectricForceTimeStepLimit = true;
   double electricForceTimeStepSafety = 0.05;  // calibrated on nx24 CaE0.8 reproducer (task #14):
   // stable (mass ~2e-14) + physics-preserving (asymmetry grows to ~0.10, not the Poisson forces'
@@ -487,10 +492,24 @@ inline void candidoMixtureFields3D(const fvm::Mesh3D& mesh,
 
 inline fvm::PotentialBoundary3D candidoPotentialBoundary3D(
     const fvm::Mesh3D& mesh, const CandidoTaylorConeJetSetup& s,
-    const CandidoConeJetSmokeOptions3D& opt, double voltage) {
+    const CandidoConeJetSmokeOptions3D& opt, double voltage,
+    const CandidoBoundaryConditions* patchBc = nullptr) {
   fvm::PotentialBoundary3D bc;
   bc.faceDirichlet.assign(mesh.faces.size(), 0);
   bc.faceValue.assign(mesh.faces.size(), 0.0);
+  // Named-patch path (resolved-nozzle mesh, P7): set the potential Dirichlet from each face's role
+  // (electrode/inlet -> U, collector -> 0) instead of the box geometry. Inactive -> geometric path.
+  if (patchBc && patchBc->active) {
+    for (int fi = 0; fi < static_cast<int>(mesh.faces.size()); ++fi) {
+      if (mesh.faces[fi].internal()) continue;
+      const PatchBc* pb = patchBc->bcOfFace(fi);
+      if (pb && pb->potentialKind == BcKind::Dirichlet) {
+        bc.faceDirichlet[fi] = 1;
+        bc.faceValue[fi] = pb->potentialIsRunVoltage ? voltage : pb->potentialValue;
+      }
+    }
+    return bc;
+  }
   const double lx = opt.radialWindowOuterDiameters;
   const double ly = s.collectorDistance / s.outerDiameter;
   const double lz = opt.radialWindowOuterDiameters;
@@ -3001,7 +3020,8 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
     double targetCaE,
     const CandidoTaylorConeJetSetup& setup = {},
     const CandidoConeJetSmokeOptions3D& opt = {},
-    const fvm::Mesh3D* externalMesh = nullptr) {
+    const fvm::Mesh3D* externalMesh = nullptr,
+    const CandidoBoundaryConditions* patchBc = nullptr) {
   const double ly = setup.collectorDistance / setup.outerDiameter;
   const double lx = opt.radialWindowOuterDiameters;
   const double lz = opt.radialWindowOuterDiameters;
@@ -3025,7 +3045,8 @@ inline CandidoConeJetSmokeReport3D runCandidoConeJetSmoke3D(
   fvm::ScalarField rho, eps, sigmaE;
   candidoMixtureFields3D(mesh, alpha, setup, opt, rho, eps, sigmaE);
   fvm::ScalarField rhoE(mesh.cells.size(), 0.0);
-  fvm::PotentialBoundary3D bc = candidoPotentialBoundary3D(mesh, setup, opt, dimensionlessVoltage);
+  fvm::PotentialBoundary3D bc =
+      candidoPotentialBoundary3D(mesh, setup, opt, dimensionlessVoltage, patchBc);
   const double dx = std::cbrt((lx * ly * lz) / static_cast<double>(mesh.cells.size()));
   const double dtAdv = opt.cfl * dx / std::max(1.0, dimensionlessVoltage / std::max(ly, 1e-30));
   const double dtCap = std::sqrt(std::max(dx * dx * dx, 1e-30) / (4.0 * M_PI));

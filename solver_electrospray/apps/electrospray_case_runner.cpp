@@ -162,6 +162,7 @@ void printDefaultsJson(std::ostream& os) {
   os << "  \"surface_tension_drive_scale\": " << o.surfaceTensionDriveScale << ",\n";
   os << "  \"use_electric_force_timestep_limit\": " << o.useElectricForceTimeStepLimit << ",\n";
   os << "  \"electric_force_timestep_safety\": " << o.electricForceTimeStepSafety << ",\n";
+  os << "  \"use_named_patch_boundary_conditions\": " << o.useNamedPatchBoundaryConditions << ",\n";
   os << "  \"inner_diameter\": " << s.innerDiameter << ",\n";
   os << "  \"outer_diameter\": " << s.outerDiameter << ",\n";
   os << "  \"nozzle_length\": " << s.nozzleLength << ",\n";
@@ -546,6 +547,8 @@ electrospray::CandidoConeJetSmokeOptions3D smokeOptionsFromJson(const std::strin
       jsonBoolOr(text, "use_electric_force_timestep_limit", opt.useElectricForceTimeStepLimit);
   opt.electricForceTimeStepSafety =
       jsonDoubleOr(text, "electric_force_timestep_safety", opt.electricForceTimeStepSafety);
+  opt.useNamedPatchBoundaryConditions = jsonBoolOr(
+      text, "use_named_patch_boundary_conditions", opt.useNamedPatchBoundaryConditions);
   return opt;
 }
 
@@ -553,6 +556,7 @@ struct ExternalMeshNormalization {
   fvm::Mesh3D mesh;
   bool inletFromPatch = false;
   double inletPlaneY = 0.0;
+  electrospray::CandidoBoundaryConditions bc;  // P7: per-face named-patch roles (active iff opted in)
 };
 
 ExternalMeshNormalization normalizeExternalCandidoMesh(
@@ -608,6 +612,24 @@ ExternalMeshNormalization normalizeExternalCandidoMesh(
     p.x() = (p.x() - xc) / d0 + 0.5 * lx;
     p.y() = (p.y() - inletY) / d0;
     p.z() = (p.z() - zc) / d0 + 0.5 * lz;
+  }
+  // Capture per-face named-patch roles BEFORE the box-reset (P7 resolved-nozzle BCs). Face indices
+  // are stable across computeGeometry(), so faceRole[fi] stays valid for the solver. Gated by the
+  // opt-in flag so box + existing OpenFOAM runs are byte-identical.
+  if (opt.useNamedPatchBoundaryConditions) {
+    out.bc.faceRole.assign(raw.faces.size(), -1);
+    for (const auto& patch : raw.patches) {
+      const electrospray::BcRole role = electrospray::bcRoleFromPatchName(patch.name);
+      if (role == electrospray::BcRole::Unknown) continue;
+      electrospray::PatchBc pb = electrospray::paperDefaultPatchBc(role);
+      pb.name = patch.name;
+      const int pi = static_cast<int>(out.bc.patches.size());
+      out.bc.patches.push_back(pb);
+      for (int fi : patch.faces) {
+        if (fi >= 0 && fi < static_cast<int>(out.bc.faceRole.size())) out.bc.faceRole[fi] = pi;
+      }
+    }
+    out.bc.active = !out.bc.patches.empty();
   }
   // Reset to the six box patches so computeGeometry() re-tags boundary faces with the
   // structured-box convention the solver's geometric BC classifiers expect.
@@ -791,6 +813,8 @@ int main(int argc, char** argv) {
     // into the solver's nondimensional box convention before injection.
     fvm::Mesh3D externalMesh;
     const fvm::Mesh3D* externalMeshPtr = nullptr;
+    electrospray::CandidoBoundaryConditions externalBc;
+    const electrospray::CandidoBoundaryConditions* externalBcPtr = nullptr;
     int externalInletFaces = 0;
     bool inletFromPatch = false;
     if (meshMode == "openfoam_polyMesh") {
@@ -804,18 +828,20 @@ int main(int argc, char** argv) {
       const auto norm = normalizeExternalCandidoMesh(raw, setup, smokeOpt);
       externalMesh = norm.mesh;
       inletFromPatch = norm.inletFromPatch;
+      externalBc = norm.bc;
       for (const auto& f : externalMesh.faces) {
         if (electrospray::candidoIsInletBoundaryFace3D(externalMesh, f, setup, smokeOpt)) {
           ++externalInletFaces;
         }
       }
       externalMeshPtr = &externalMesh;
+      if (externalBc.active) externalBcPtr = &externalBc;
     } else if (meshMode != "builtin_hex") {
       throw std::runtime_error("unknown mesh_mode for candido_smoke: " + meshMode);
     }
 
-    const auto report =
-        electrospray::runCandidoConeJetSmoke3D(targetCaE, setup, smokeOpt, externalMeshPtr);
+    const auto report = electrospray::runCandidoConeJetSmoke3D(
+        targetCaE, setup, smokeOpt, externalMeshPtr, externalBcPtr);
     writeSmokeSummaryJson(args.outputDir / "summary.json", report, caseName, meshMode, smokeOpt);
     writeSmokeHistoryCsv(args.outputDir / "history.csv", report);
     std::cout << "case_runner_status=pass run_mode=candido_smoke output_dir=" << args.outputDir

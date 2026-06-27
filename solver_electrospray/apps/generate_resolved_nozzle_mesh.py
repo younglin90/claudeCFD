@@ -20,7 +20,10 @@ Lnoz = 300e-6
 Lx = 4.0 * Do
 Lz = 4.0 * Do
 Ly = 1.5e-3
-NX, NY, NZ = 20, 20, 20
+# Resolution: optional CLI args after the output dir -> NX [NY] [NZ]. Bore cells across = NX*Di/Lx.
+NX = int(sys.argv[2]) if len(sys.argv) > 2 else 20
+NY = int(sys.argv[3]) if len(sys.argv) > 3 else NX
+NZ = int(sys.argv[4]) if len(sys.argv) > 4 else NX
 dx, dy, dz = Lx / NX, Ly / NY, Lz / NZ
 cx, cz = 0.5 * Lx, 0.5 * Lz
 

@@ -169,14 +169,36 @@ is typical for a converged 3D run (our 89k smoke mesh is a minimal proof-of-pipe
    structured-hex polyMesh with the four patches and the D1/D2/D3 env-var defects, no OpenFOAM needed
    - good for quick/structured cases; less flexible than (1) for arbitrary defect shapes.
 
-### E. Putting the defect in the geometry
-- **D1 blunting**: round the capillary tip edge with a fillet radius r_b (0 -> sharp; up to 25 um ->
-  fully rounded rim) in the CAD before exporting the STL.
-- **D2 asymmetry**: rotate the whole capillary solid about a point on its axis by the tilt angle
-  (2-10 deg), or translate the tip laterally; the bore tilts with it.
-- **D3 roughness**: add a small boss/notch (a few um) on the tip rim at one azimuthal location.
-Keep the bore, Do, Lnoz, H, and all operating conditions identical across the sweep - vary ONLY the
-tip defect feature.
+### E. Per-defect mesh construction (each defect changes the mesh differently)
+Keep the bore, Do, Lnoz, H, and ALL operating conditions identical across the sweep - vary ONLY the
+tip-defect feature. The three defects have DIFFERENT topology/symmetry/resolution needs:
+
+**D1 - blunting (rounded tip rim).** *Axisymmetric.* In the CAD, round the capillary tip edge with a
+fillet radius r_b (0 = sharp square rim; up to (Do-Di)/2 = 25 um = fully rounded hemispherical rim;
+beyond that = tip recession). Sweep e.g. r_b = {0, 8, 15, 20, 25} um (you may instead express it as a
+tip half-angle to compare to ACS 2024). *Mesh:* the fillet is the field-relevant feature, so the mesh
+must FOLLOW the rounded surface - need ~4-8 cells across the fillet arc (tip cells ~3-6 um for a clean
+fillet; ~10 um is a coarse minimum). snappyHexMesh snaps to the STL fillet; the structured generator
+stair-steps it (use fine tip cells). Because it is axisymmetric you *could* use a wedge for D1 alone,
+but the solver's 3D sin(3*theta) seed + consistency with D2/D3 mean: run full 3D.
+
+**D2 - tilt / asymmetry (off-axis tip).** *Breaks axisymmetry -> MUST be full 3D (no wedge).* In the
+CAD, rotate the whole capillary solid by the tilt angle (sweep {0, 2, 5, 10} deg) about a point on
+its axis - the bore and wall lean together - or translate the tip laterally. *Mesh:* the fine tip
+zone must be centred on the TILTED tip location, not the domain axis. Make the domain WIDE enough for
+the steered plume: a tilt theta steers the impact by ~H*tan(theta) at the collector (8 deg over
+1.5 mm ~ 210 um off-axis), so domain radius >= that + margin. Resolution at the (tilted) tip = same as
+the baseline.
+
+**D3 - protrusion / roughness (local bump).** *Breaks axisymmetry -> full 3D, and the hardest to
+mesh.* In the CAD, add a small boss (or notch/pit) on the tip rim at one azimuthal location, size
+~5-20 um (sweep height {0, 5, 10, 20} um, or several bumps for distributed roughness). *Mesh:* the
+bump is much smaller than the general tip cell, so it needs **LOCAL refinement at the bump (~2-5 um
+cells)** to resolve the feature and its field spike - finer than the ~10 um general tip. snappyHexMesh
+with a refinement surface/region around the bump is the clean way; a uniform tip mesh would have to be
+~2-5 um everywhere (expensive).
+
+See `docs/electrospray/figures/tip_defect_geometries.png` for the four tip cross-sections.
 
 ### F. Quality + sanity
 - Hex-dominant, max non-orthogonality < ~65 deg, max skewness < ~4 near the tip (the pressure/Rhie-

@@ -371,18 +371,32 @@ def gen_acoustic_solve():
 # ===========================================================================
 def _one_step(eos1, eos2, W0, dx, t_end, *, bc_l, bc_r, cfl, dt_fixed,
               alpha_pure_tol, pure_branch=True):
-    return solve(
-        eos1, eos2, W0, dx, t_end,
-        bc_l=bc_l, bc_r=bc_r,
-        cfl=cfl, max_steps=1, dt_fixed=dt_fixed,
-        time_integrator="imex_ad",
-        alpha_scheme="adaptive_bvd",
-        kapila_closure=True,
-        pure_branch=pure_branch,
-        alpha_pure_tol=alpha_pure_tol,
-        primitive_scheme="tmlpu",
-        pressure_closure="regime_auto",
-    )
+    # Production acoustic reconstruction is weno5 (the C++ acoustic_solve.hpp
+    # default; port_spec M7 "weno5 becomes the production acoustic recon default
+    # in C++").  Python's solve() default is 'component', so set weno5 explicitly
+    # here — otherwise the step refs would be generated with a non-production
+    # recon and disagree with the C++ production step on any resolved acoustic
+    # wave (e.g. the 07_B pulse).  02_A has a flat u/p field so both agree.
+    prev = os.environ.get("FIVE_EQ_IMEX_ACOUSTIC_RECON")
+    os.environ["FIVE_EQ_IMEX_ACOUSTIC_RECON"] = "weno5"
+    try:
+        return solve(
+            eos1, eos2, W0, dx, t_end,
+            bc_l=bc_l, bc_r=bc_r,
+            cfl=cfl, max_steps=1, dt_fixed=dt_fixed,
+            time_integrator="imex_ad",
+            alpha_scheme="adaptive_bvd",
+            kapila_closure=True,
+            pure_branch=pure_branch,
+            alpha_pure_tol=alpha_pure_tol,
+            primitive_scheme="tmlpu",
+            pressure_closure="regime_auto",
+        )
+    finally:
+        if prev is None:
+            os.environ.pop("FIVE_EQ_IMEX_ACOUSTIC_RECON", None)
+        else:
+            os.environ["FIVE_EQ_IMEX_ACOUSTIC_RECON"] = prev
 
 
 def gen_step_02A():
@@ -409,7 +423,7 @@ def gen_step_02A():
             "        max_steps=1); IC/EOS from .codex-loop/verify_02_07_acceptance.py::verify_02_A.",
             "eos1=air(ideal gamma=1.4 kv=717.5), eos2=NASG-water.",
             "n=100 dx=0.01 bc=periodic cfl=0.5 dt_fixed=0.01 alpha_floor=1e-3.",
-            "adaptive_bvd / tmlpu / kapila_closure / regime_auto.",
+            "adaptive_bvd / tmlpu / kapila_closure / regime_auto / weno5 acoustic recon.",
             f"dt_used={_g(dt_used)}.",
         ],
         "cell_index alpha1 T1 T2 u p",
@@ -466,7 +480,7 @@ def gen_step_07B():
             "eos1=air(ideal gamma=1.4 kv=717.5), eos2=NASG-water.",
             "n=400 length=1.5 dx=0.00375 bc=(reflective,transmissive) cfl=0.4 alpha_floor=1e-8.",
             "x_intf=0.5 x_src=0.1 sigma=0.014 U_PEAK=0.02; T1 gets theta_L*(p-P0) on left.",
-            "adaptive_bvd / tmlpu / kapila_closure / regime_auto.",
+            "adaptive_bvd / tmlpu / kapila_closure / regime_auto / weno5 acoustic recon.",
             f"dt_used={_g(dt_used)} theta_L={_g(theta_L)}.",
         ],
         "cell_index alpha1 T1 T2 u p",

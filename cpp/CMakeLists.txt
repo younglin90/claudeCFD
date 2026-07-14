@@ -235,3 +235,10 @@ target_link_libraries(test_5eq_energy_flux PRIVATE cfd_flags)
 target_compile_definitions(test_5eq_energy_flux PRIVATE
   ENERGY_FLUX_REF="${CMAKE_CURRENT_SOURCE_DIR}/tests/5eq_ref/energy_flux_ref.txt")
 add_test(NAME test_5eq_energy_flux COMMAND test_5eq_energy_flux)
+
+add_executable(test_5eq_step tests/test_5eq_step.cpp)
+target_link_libraries(test_5eq_step PRIVATE cfd_flags)
+target_compile_definitions(test_5eq_step PRIVATE
+  STEP_02A_REF="${CMAKE_CURRENT_SOURCE_DIR}/tests/5eq_ref/step_02A_ref.txt"
+  STEP_07B_REF="${CMAKE_CURRENT_SOURCE_DIR}/tests/5eq_ref/step_07B_ref.txt")
+add_test(NAME test_5eq_step COMMAND test_5eq_step)

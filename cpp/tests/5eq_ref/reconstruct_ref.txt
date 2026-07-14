@@ -1,0 +1,21 @@
+# tmlpu bounded primitive reconstruction (superbee limiter).
+# Python: solver/five_eq_IMEX/reconstruction.py::reconstruct_upwind_faces
+#         (_limited_value + _tvd_limiter), FIVE_EQ_IMEX_TMLPU_TVD=superbee.
+# phi_ext = 1 1 1.2 1.8 3 3.1000000000000001 3.0499999999999998 2 0.5 0.5 0.59999999999999998 0.59999999999999998 (n_ext=12).
+# u_face  = 2 2 2 2 -1 -1 -1 -1 2 2 2 (n_face=11).
+# dx=0.10000000000000001 dt=0.02; courant=|u|*dt/dx.
+# val_courant: MUSCL-Hancock time-centering active (dt,dx given, floor=None).
+# val_nocourant: no courant factor (dt=dx=None, floor=None).
+# val_floored: courant active with floor=2.0 (np.maximum after recon).
+# columns: face_index u_face val_courant val_nocourant val_floored
+0 2 1 1 2
+1 2 1 1 2
+2 2 1.5600000000000001 1.8 2
+3 2 2.52 3 2.52
+4 -1 3.1000000000000001 3.1000000000000001 3.1000000000000001
+5 -1 3.0519047619047619 3.0523809523809522 3.0519047619047619
+6 -1 2.4199999999999999 2.5249999999999999 2.4199999999999999
+7 -1 0.5 0.5 2
+8 2 0.5 0.5 2
+9 2 0.5 0.5 2
+10 2 0.59999999999999998 0.59999999999999998 2

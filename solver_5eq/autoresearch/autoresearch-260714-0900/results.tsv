@@ -1,0 +1,17 @@
+iter	candidate	env	tv_excess	L2p	amp_p	peak	sym	aw_wiggle	gates	verdict
+0	baseline	-	0.5370	0.09004	1.00	ok	ok	FAIL	all-else-ok	baseline
+1	H11a_pure_tol_consistent	FIVE_EQ_IMEX_ACOUSTIC_PURE_TOL_CONSISTENT=1	0.5345	0.08996	1.00	ok	ok	FAIL	all-else-ok	rejected-ineffective-notch-is-amplifier-not-seed
+2	H11c_diss_consistent	FIVE_EQ_IMEX_ACOUSTIC_DISS_CONSISTENT=1	0.2190	0.30361	0.45	ok	ok	PASS	aw_wiggle-fixed-amp+L2p-damaged	rejected-overdamps-physical-packet-amp1.00to0.45-L2p0.090to0.304
+3	H12b_stencil_clean	FIVE_EQ_IMEX_ACOUSTIC_STENCIL_CLEAN=1	0.4282	0.08382	0.95	ok	ok	FAIL	aw_wiggle-only-fail-tv0.537to0.428-amp0.95/0.89-L2p0.090to0.084-corr0.99-peak/sym-all-intact	keep-tv-20.3pct-improved-zero-gate-damage-amp-preserved(vs-H11c-0.45)-but-tv0.428>0.30-AW-still-fails
+4	M1_SC+centered0	SC=1,CENT=0	pending	0.0838	0.95	ok	ok	FAIL	ok	no-gain-vs-SC
+4	M2_SC+iface_be	SC=1,SCHEME=iface_be	pending	0.0845	0.95	ok	ok	FAIL	ok	no-gain
+4	M3_SC+cent0+ibe	combo3	pending	0.0845	0.95	ok	ok	FAIL	ok	no-gain
+4	M4_SC+puretol	SC=1,PTC=1	pending	0.0838	0.95	ok	ok	FAIL	ok	no-gain
+4	M5_all4	combo4	pending	0.0845	0.95	ok	ok	FAIL	ok	no-gain
+5a	H12_ACID	FIVE_EQ_IMEX_ACOUSTIC_ACID=1	1.3086	0.38252	0.95	FAIL	ok	FAIL	peak317/300-delta17-corr_p0.72-L2p0.383>0.216-profile/hf-fail	rejected-cell-local-Z-breaks-AW-transmission-tv0.537to1.309-primary-worse
+5b	H12_ACID+SC	ACID=1,STENCIL_CLEAN=1	0.7731	0.20152	0.98	FAIL	ok	FAIL	profile+hf+corr0.92-pass-peak306/300-delta6-L2p0.202<0.216	rejected-ACID-worsens-SC-alone-tv0.428to0.773-peak-shifted-6cells
+6a	H15_weno3	FIVE_EQ_IMEX_ACOUSTIC_RECON=weno3	0.2514	0.16092	0.67	ok	ok	PASS	amp_ok-FAIL-amp0.67/0.63<0.85-profile/osc/hf/peak/sym/wiggle-all-pass-corr_p0.96	rejected-overdamps-physical-peak-amp1.00to0.67(milder-than-H11c-0.45)-tv0.537to0.251-same-failure-mode-gate-damage
+6b	H15_weno5	FIVE_EQ_IMEX_ACOUSTIC_RECON=weno5	0.2088	0.04162	1.04	ok	ok	PASS	ALL-PASS-amp1.04/1.02-peak300/300-sym0.04-corr_p1.00-L2p0.042<baseline0.090	SUCCESS-AW-PASS-full07-3pairs-all-pass(HeAir-tv0.062-ArAir-tv0.057)-02A-pass-p_rel2.7e-13-golden-bitident-zero-gate-damage
+6c	H15_weno5+SC	RECON=weno5,STENCIL_CLEAN=1	0.0583	0.04414	0.96	ok	ok	PASS	ALL-PASS-amp0.96/0.91-lower-tv-than-weno5-alone-02A-pass-p_rel3.0e-14	SUCCESS-AW-PASS-lowest-tv0.058-but-amp0.96<weno5-1.04-weno5-alone-preferred(cleaner-no-extra-flag)
+7	H15_weno5_ipm3jac	FIVE_EQ_IMEX_ACOUSTIC_RECON=weno5	0.2037	0.0602	1.00	ok	ok	ok	ALL-PASS+PE-fix(01_A/16_T/17_T)	SUCCESS-torch-weno5-blowup-fixed-rootcause-i±3-recon-coupling-dropped-from-5cell-Jacobian(quasi-Newton)-inconsistent-implicit-op-unstable-in-stiff-water+adaptive-JS-weight-derivative-noise-driven-on-PE-flat-field-FIX-promote-i±3-cells-into-z-stencil(jacrev-captures-coupling,bit-ident-nonweno5)+straight-through-WENO-Jacobian(full-value,linear-optimal-5th-order-grad)-01_A-u2.8e-12-16_T-u2.1e-12-17_T-u2.0e-13-02A-golden-bitident-2.764863893389702e-15-02A-weno5-improved-4.4e-16-AW-tv0.204-amp1.00-allgates
+8	FINAL_weno5_full_suite	ACOUSTIC_RECON=weno5	0.204	0.060	1.00	ok	ok	PASS	core13/13+src4/4+gates	SUCCESS-goal-achieved

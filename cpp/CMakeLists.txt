@@ -217,3 +217,21 @@ target_link_libraries(test_5eq_alpha_bvd PRIVATE cfd_flags)
 target_compile_definitions(test_5eq_alpha_bvd PRIVATE
   ALPHA_BVD_REF="${CMAKE_CURRENT_SOURCE_DIR}/tests/5eq_ref/alpha_bvd_ref.txt")
 add_test(NAME test_5eq_alpha_bvd COMMAND test_5eq_alpha_bvd)
+
+add_executable(test_5eq_acoustic_solve tests/test_5eq_acoustic_solve.cpp)
+target_link_libraries(test_5eq_acoustic_solve PRIVATE cfd_flags)
+target_compile_definitions(test_5eq_acoustic_solve PRIVATE
+  ACOUSTIC_REF="${CMAKE_CURRENT_SOURCE_DIR}/tests/5eq_ref/acoustic_solve_ref.txt")
+add_test(NAME test_5eq_acoustic_solve COMMAND test_5eq_acoustic_solve)
+
+add_executable(test_5eq_material_update tests/test_5eq_material_update.cpp)
+target_link_libraries(test_5eq_material_update PRIVATE cfd_flags)
+target_compile_definitions(test_5eq_material_update PRIVATE
+  MATERIAL_REF="${CMAKE_CURRENT_SOURCE_DIR}/tests/5eq_ref/material_update_ref.txt")
+add_test(NAME test_5eq_material_update COMMAND test_5eq_material_update)
+
+add_executable(test_5eq_energy_flux tests/test_5eq_energy_flux.cpp)
+target_link_libraries(test_5eq_energy_flux PRIVATE cfd_flags)
+target_compile_definitions(test_5eq_energy_flux PRIVATE
+  ENERGY_FLUX_REF="${CMAKE_CURRENT_SOURCE_DIR}/tests/5eq_ref/energy_flux_ref.txt")
+add_test(NAME test_5eq_energy_flux COMMAND test_5eq_energy_flux)

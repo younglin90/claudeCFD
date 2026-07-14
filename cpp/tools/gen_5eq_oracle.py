@@ -50,7 +50,9 @@ from solver.five_eq_IMEX.sound_speed import (                      # noqa: E402
     mixture_sound_speed_sq, phase_sound_speed_sq)
 from solver.five_eq_IMEX.imex_ad import (                          # noqa: E402
     _slau2_faces_np, _weno5_face_left_np, _solve_acoustic_ad,
-    _material_update)
+    _material_update, _face_energy_dict)
+from solver.five_eq_IMEX.primitive import prim_to_cons_W          # noqa: E402
+from solver.five_eq_IMEX.energy_flux import total_energy_flux     # noqa: E402
 from solver.five_eq_IMEX.reconstruction import (                   # noqa: E402
     reconstruct_upwind_faces)
 from solver.five_eq_IMEX.main import solve                         # noqa: E402
@@ -526,6 +528,155 @@ def gen_reconstruct():
     )
 
 
+# ===========================================================================
+# 9. material_update_ref.txt / material_faces_ref.txt (M6)
+#    One forward-Euler material substep _material_update on the production path
+#    (adaptive_bvd / tmlpu / slau2 / kapila mixed_path / allaire energy) for the
+#    02_A IC (density-recon + alpha-FCT branch) and a small 07_B-like interface
+#    state (mixture-hancock recon + primitive-FCT + alpha-FCT branch).
+# ===========================================================================
+def _material_state_02A():
+    """Exact 02_A first-step input state (matches gen_step_02A / verify_02_A)."""
+    eos1, eos2 = eos_air(), eos_water()
+    n = 100
+    dx = 1.0 / n
+    x = (np.arange(n) + 0.5) * dx
+    alpha_floor = 1.0e-3
+    a1 = np.where((x >= 0.4) & (x < 0.6), alpha_floor, 1.0 - alpha_floor)
+    W_n = (a1, np.full(n, 300.0), np.full(n, 300.0),
+           np.full(n, 1.0), np.full(n, P0))
+    return dict(eos1=eos1, eos2=eos2, W_n=W_n, dx=dx, dt=0.01,
+                bc_l="periodic", bc_r="periodic", alpha_pure_tol=alpha_floor)
+
+
+def _material_state_07B():
+    """Small 07_B-like air|water interface with a u/p pulse on the air side.
+
+    Identical construction to gen_acoustic_solve's _material_update input so the
+    mixture-hancock recon + primitive-FCT + alpha-FCT branch is exercised."""
+    eos1, eos2 = eos_air(), eos_water()
+    n = 40
+    alpha_pure_tol = 1.0e-8
+    x = (np.arange(n) + 0.5) / n
+    a1 = np.where(x < 0.5, 1.0 - alpha_pure_tol, alpha_pure_tol)
+    u = 0.02 * np.exp(-((x - 0.25) ** 2) / (2.0 * 0.05 ** 2)) * (x < 0.5)
+    p = P0 + (1.157 * 347.8 * 0.02) * np.exp(
+        -((x - 0.25) ** 2) / (2.0 * 0.05 ** 2)) * (x < 0.5)
+    T1 = np.full(n, _temperature(eos1, 1.157, P0))
+    T2 = np.full(n, _temperature(eos2, 998.0, P0))
+    W_n = (a1, T1, T2, u, p)
+    dx = 1.5 / n
+    dt = 0.4 * dx / 1600.0
+    return dict(eos1=eos1, eos2=eos2, W_n=W_n, dx=dx, dt=dt,
+                bc_l="reflective", bc_r="transmissive",
+                alpha_pure_tol=alpha_pure_tol)
+
+
+def gen_material_update():
+    cases = [("02A", _material_state_02A()), ("07B", _material_state_07B())]
+    out_rows = []
+    for tag, st in cases:
+        out, aux = _material_update(
+            st["W_n"], st["dt"], st["eos1"], st["eos2"], st["dx"],
+            st["bc_l"], st["bc_r"],
+            mixture_kind="kapila", kapila_closure=True,
+            alpha_pure_tol=st["alpha_pure_tol"], alpha_scheme="adaptive_bvd",
+            primitive_scheme="tmlpu", kapila_source_mode="mixed_path",
+            material_energy_form="allaire", return_aux=True)
+        q1_new, q2_new, m_adv, rhoE_new, alpha_new = out
+        rhoE_adv = aux["rhoE_adv"]
+        n = len(q1_new)
+        for i in range(n):
+            out_rows.append([tag == "07B", i,
+                             float(q1_new[i]), float(q2_new[i]),
+                             float(m_adv[i]), float(rhoE_new[i]),
+                             float(rhoE_adv[i]), float(alpha_new[i])])
+    _write(
+        "material_update_ref.txt",
+        [
+            "One production _material_update substep (adaptive_bvd / tmlpu / slau2 /",
+            "kapila_closure mixed_path / allaire energy).",
+            "Python: solver/five_eq_IMEX/imex_ad.py::_material_update.",
+            "case_07B=0 -> 02_A IC (n=100 dx=0.01 dt=0.01 periodic apure=1e-3;",
+            "             density-recon + alpha-FCT branch).",
+            "case_07B=1 -> small 07_B-like air|water pulse (n=40 dx=0.0375",
+            f"             dt={_g(0.4*(1.5/40)/1600.0)} reflective/transmissive apure=1e-8;",
+            "             mixture-hancock recon + primitive-FCT + alpha-FCT branch).",
+            "rhoE_new = U_n[3]-dt*(L_rE_adv+L_pu_old); rhoE_adv = U_n[3]-dt*L_rE_adv.",
+        ],
+        "case_07B cell_index q1_new q2_new m_adv rhoE_new rhoE_adv alpha_new",
+        out_rows,
+    )
+
+
+# ===========================================================================
+# 10. energy_flux_ref.txt (M2)
+#    total_energy_flux (allaire / differential / secant) on an air|water face
+#    dict built by _face_energy_dict, exercising the pure-face collapse.
+# ===========================================================================
+def gen_energy_flux():
+    eos1, eos2 = eos_air(), eos_water()
+    n = 6
+    alpha_pure_tol = 1.0e-8
+    T1v = _temperature(eos1, 1.157, P0)
+    T2v = _temperature(eos2, 998.0, P0)
+    x = (np.arange(n) + 0.5) / n
+    # mixed interface: alpha ramps through the two-phase region + pure ends so the
+    # secant path, the differential path, and the pure-face collapse all fire.
+    a1 = np.clip(np.array([1.0 - alpha_pure_tol, 0.9, 0.6, 0.4, 0.1, alpha_pure_tol]),
+                 alpha_pure_tol, 1.0 - alpha_pure_tol)
+    u = np.array([2.0, 1.5, 1.0, 0.5, 0.2, 0.0])
+    p = P0 + np.array([0.0, 200.0, 500.0, 300.0, 100.0, 0.0])
+    W = (a1, np.full(n, T1v), np.full(n, T2v), u, p)
+    W_ext = extend_W(W, "transmissive", "transmissive", ng=1, eos1=eos1, eos2=eos2)
+    _, c_mix_sq_ext, Z_ext = _phase_acoustic(
+        W_ext, eos1, eos2, mixture_kind="kapila", alpha_pure_tol=alpha_pure_tol)
+    _, _, _, u_ext, p_ext = W_ext
+    p_L, p_R = p_ext[:-1], p_ext[1:]
+    u_L, u_R = u_ext[:-1], u_ext[1:]
+    Z_L, Z_R = Z_ext[:-1], Z_ext[1:]
+    den = np.maximum(Z_L + Z_R, 1e-30)
+    p_star = (Z_R * p_L + Z_L * p_R + Z_L * Z_R * (u_L - u_R)) / den
+    u_star = (p_L - p_R + Z_L * u_L + Z_R * u_R) / den
+    upwind_left = u_star >= 0.0
+    alpha_f = np.where(upwind_left, W_ext[0][:-1], W_ext[0][1:])
+    T1_f = np.where(upwind_left, W_ext[1][:-1], W_ext[1][1:])
+    T2_f = np.where(upwind_left, W_ext[2][:-1], W_ext[2][1:])
+    p_adv_f = np.where(upwind_left, p_ext[:-1], p_ext[1:])
+    rho1_f = np.maximum(eos1.density(p_adv_f, T1_f), 1e-30)
+    rho2_f = np.maximum(eos2.density(p_adv_f, T2_f), 1e-30)
+    face = _face_energy_dict(W_ext, p_star, u_star, upwind_left, alpha_f,
+                             rho1_f, rho2_f, eos1, eos2)
+    # simple conservative face fluxes to fold with the chi coefficients.
+    q1_f = alpha_f * rho1_f
+    q2_f = (1.0 - alpha_f) * rho2_f
+    F_q1 = q1_f * u_star
+    F_q2 = q2_f * u_star
+    F_alpha = alpha_f * u_star
+    F_rho = F_q1 + F_q2
+    rows = []
+    for form in ("allaire", "differential", "secant"):
+        F_rE = total_energy_flux(face, eos1, eos2, F_q1, F_q2, F_alpha, F_rho,
+                                 energy_form=form, alpha_pure_tol=1.0e-12)
+        code = {"allaire": 0, "differential": 1, "secant": 2}[form]
+        for f in range(len(F_rE)):
+            rows.append([code, f, float(face["alpha"][f]),
+                         float(F_q1[f]), float(F_q2[f]), float(F_alpha[f]),
+                         float(F_rho[f]), float(u_star[f]), float(F_rE[f])])
+    _write(
+        "energy_flux_ref.txt",
+        [
+            "total_energy_flux (allaire=0, differential=1, secant=2) on an air|water",
+            "face dict built by _face_energy_dict; pure-face collapse alpha_pure_tol=1e-12.",
+            "Python: solver/five_eq_IMEX/energy_flux.py::total_energy_flux.",
+            "F_rE = F_rho_e(form) + 0.5*u_star^2*F_rho.",
+            "6-cell mixed air|water interface (transmissive), Wood-Z u*/p* faces.",
+        ],
+        "form face_index alpha_f F_q1 F_q2 F_alpha F_rho u_star F_rE",
+        rows,
+    )
+
+
 def main():
     print(f"[oracle] output dir: {OUT_DIR}")
     gen_sound_speed()
@@ -533,6 +684,8 @@ def main():
     gen_alpha_bvd()
     gen_reconstruct()
     gen_slau2()
+    gen_material_update()
+    gen_energy_flux()
     gen_acoustic_solve()
     gen_step_02A()
     gen_step_07B()

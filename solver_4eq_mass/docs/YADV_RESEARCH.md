@@ -805,3 +805,113 @@ python3 scripts/yadv_rhcheck.py           # section 11.5 THE decisive RH residua
 
 `ACID_YADV_VOLFLUX` is a **diagnostic probe only** (§10.4): default OFF, inert unless `ACID_YADV`
 is also set, and it does not touch the published path.
+
+---
+---
+
+# ROUND 3
+
+## 14. Task (a) — conservative `rho*Y` transport. Partial positive, §10.4's target still not met.
+
+### 14.1 What was implemented
+
+`cpp/denner_1d/src/acid.cpp`, the `yadv` branch of the colour-function transport block only (the
+`!yadv` / default alpha branch is byte-for-byte the same three lines as rounds 1-2, reverified
+below). Makes `rho*Y` the transported conserved quantity instead of advecting `Y` with the
+volume-average stencil (rounds 1-2's mismatch, §10.4):
+
+1. an OLD-level cell `alpha` is recovered from `Yv` at `(p_o,T_o)` — used only as the ACID
+   mass-flux blend weight, not written to `s.alpha`;
+2. OLD-level upwind phase densities `ra_o[f]`/`rb_o[f]` are evaluated at **every** face (not only
+   where THINC fires), upwind selection by the sign of `thf[f]`;
+3. an OLD-level per-cell mass flux is built mirroring ACID Eqs.41-42 **exactly** (cell `i`'s own
+   `alpha` as the blend weight, upwind-cell phase densities, `thf` as the face velocity) — the
+   same asymmetric per-cell (not per-face) construction the implicit residual uses;
+4. `(rho*Y)_i = rho_old*Y_i - dt/dx*(mdotR_o*Yface_R - mdotL_o*Yface_L)`, then
+   `Y_new = clamp((rho*Y)_i / rho_star, 0, 1)`, where `rho_star = rho_old - dt/dx*div(mdot_o)` —
+   the density the SAME old-level mass flux predicts by discrete continuity. This is explicit and
+   introduces no circularity (it is not task (b)'s alpha-in-Newton problem).
+
+**`rho_star`, not `rho_old`, is required — measured, not a style choice.** Dividing by `rho_old`
+breaks the pure-cell invariant: with `Y==1` everywhere the numerator reduces to `rho_star`, so
+dividing by `rho_old` instead returns `1 - dt/(dx*rho_old)*div(mdot)` — a compressed or expanded
+**single-phase** cell spontaneously grows the other phase. Measured: suite 13/19 (case13 `l2_rho`
+0.1219 vs 0.0227, `max|d alpha|` vs the alpha path 0.998 vs 0.070; case30 FAILS, `l2_rho` 0.1243
+vs 0.0092). Reachable for reproduction behind `ACID_YADV_RHOOLD=1` (default OFF, inert unless
+`ACID_YADV` is also set, never touches the published path).
+
+`af[]`/`thf[]`/THINC/the rho-monotonicity guard are untouched — the reconstruction stays in
+`Y`-space (round 2 already refuted alpha-space reconstruction, §10). `beta=3.5` remains the only
+tunable constant in the subsystem. `cases.cpp`/`validation.cpp` untouched.
+
+### 14.2 Verified independently (clean rebuild, not just the implementer's report)
+
+```
+denner1d_unit ok
+OFF: DENNER1D_CPP_METRIC pass_count=19 total=19
+(1) ACID_YADV unset vs solver_denner published binary: case01..case34 BYTE-IDENTICAL (9/9)
+ON:  DENNER1D_CPP_METRIC pass_count=15 total=19   (fails: 15, 24, 33, 34 -- same four as rounds 1-2)
+```
+
+### 14.3 Before (round-2 v1) vs after (round-3 conservative `rho*Y`)
+
+| case | metric | v1 (round 1, Y-space non-conservative) | **v3 (conservative rho\*Y)** |
+|---|---|---|---|
+| 02 | l2_rho / corr_rho | 0.04378 / 0.9940 | 0.05559 / 0.99036 (worse) |
+| 13 | l2_p / l2_u / linf_p / linf_u | 0.01711 / 0.04247 / 0.1690 / 0.4376 | 0.02073 / 0.05000 / 0.25065 / 0.62873 (win shrinks) |
+| 13 | `peak_delta_u` (shock front, cells) | **0** | **397 — v1's exact front placement LOST** |
+| 14 | l2_rho / corr_rho | 0.07636 / 0.9715 | 0.07691 / 0.97177 (no recovery) |
+| 15 | `amp_ratio_p` / `l2_p` | 0.330034 / 0.166533 | **0.330034 / 0.166533 — bit-identical to v1** |
+| 24 | l2_p / corr_rho | 1.123 / 0.4072 | 0.83737 / 0.16354 |
+| 33 | l2_p / corr_rho | 1.574 / 0.5081 | 1.57341 / 0.49358 |
+| 34 | l2_p / corr_rho | 0.7831 / 0.4460 | 0.83916 / 0.16166 |
+
+case15's bit-identical reproduction of v1 is expected and diagnostic: in a uniform-`Y` field both
+stencils reduce to the same update, so its failure is orthogonal to the flux form and confirms
+§7.2's frozen-alpha-through-Newton mechanism, unaffected by this change.
+
+**The one new result — the §11.5 Rankine-Hugoniot residual test**, rerun unmodified
+(`scripts/yadv_rhcheck.py`), independently reproduced:
+
+| case | path | momentum resid (rel) | energy resid (rel) |
+|---|---|---|---|
+| 24 | alpha | -2.48e-06 | +1.81e-06 |
+| 24 | **Y (v3)** | **+1.32e-13** | **-1.61e-12** |
+| 33 | alpha | -2.91e-05 | +5.83e-05 |
+| 33 | **Y (v3)** | **+8.81e-01** | **+6.46e-01** |
+| 34 | alpha | -1.59e-06 | +3.82e-07 |
+| 34 | **Y (v3)** | **+7.16e-13** | **-1.01e-12** |
+
+Under round-1 v1, cases 24/34's leading shock had left the domain entirely (§11.5 could not even
+measure it). Under v3 it is back in-domain and closes Rankine-Hugoniot to machine precision —
+conservative transport genuinely fixed the discrete conservation law there. **Case33 is
+unchanged: still an 88%/65% momentum/energy violation.** The O(1) conservation defect of §11.6 is
+therefore *partially* closed by (a) alone, not closed — exactly the outcome §12 predicted
+("(a) without (b) leaves the frozen-alpha conservation defect").
+
+### 14.4 Verdict
+
+1. **§10.4's target is refuted again.** Conservative `rho*Y` does not recover case02/14 (both
+   flat-to-worse) and costs case13 its exact shock-front placement, the round-1 headline result.
+   The mass/volume cell-state mismatch was a real defect and this is the structurally correct fix
+   for it, but the THINC face reconstruction is a separate source of the case02/14 residual that
+   this change does not touch.
+2. **Genuine partial win on discrete conservation** (§11.5): cases 24/34 now satisfy their own
+   leading-shock RH jump to 1e-13; case33 does not move. Consistent with the single-cause
+   diagnosis of §11.6/§7.2 — the frozen-`alpha`-through-Newton lag still dominates wherever it is
+   active on a strong shock (case33 being the sharpest of the three, `alpha_pre=0.75`).
+3. **`ACID_YADV` stays default OFF, unpromoted.** Round 3 does not clear the bar. The single
+   remaining ranked item from §12 is task (b): `alpha` inside the Newton Jacobian
+   (`d(alpha)/dp`, `d(alpha)/dT`), which both §7.2 (case15) and §11.6 (24/33/34) independently
+   point at as the one remaining cause neither round 1/2's reconstruction fix nor round 3's flux
+   fix could reach.
+
+### 14.5 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+bash scripts/yadv_r3_build.sh    # clean rebuild + unit test
+bash scripts/yadv_r3_ab.sh       # OFF + ON validate sweeps
+python3 scripts/yadv_verify.py   # byte-identity vs published binary
+python3 scripts/yadv_rhcheck.py  # section 14.3 RH residual table
+```

@@ -548,6 +548,12 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     //      variable is Yv[]; s.alpha is recovered from it algebraically each step so that every
     //      downstream consumer (EOS blend, MWI, fluxes, dumps, metrics) is unchanged.
     const bool yadv = std::getenv("ACID_YADV") != nullptr;
+    // DIAGNOSTIC ONLY (default OFF, inert unless ACID_YADV is also set, never touches the
+    // published path): recover Y from the conserved rho*Y by dividing by the OLD density
+    // instead of the discrete-continuity predictor rho_star. See the rho_star note in the
+    // conservative-transport block below -- this form breaks the pure-cell property and is kept
+    // solely so the measurement in docs/YADV_RESEARCH.md can be reproduced.
+    const bool yadv_rhoold = std::getenv("ACID_YADV_RHOOLD") != nullptr;
     const bool thinc_dbg = std::getenv("ACID_THINC_DBG") != nullptr;
     long thinc_hits = 0;  // debug: how many faces ever activated THINC (nonzero => case activates)
     long thinc_rej = 0;   // debug: THINC candidates rejected by the rho-monotonicity BVD guard
@@ -753,22 +759,112 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             if (lbc == "reflective") thf[0] = 0.0;
             if (rbc == "reflective") thf[n] = 0.0;
             Vec anew(n);
-            for (int i = 0; i < n; ++i) {
-                const double flux = thf[i + 1] * af[i + 1] - thf[i] * af[i];
-                const double divu = (thf[i + 1] - thf[i]) / dx;
-                anew[i] = std::clamp(cvar[i] - dt / dx * flux + dt * cvar[i] * divu, 0.0, 1.0);
-            }
-            if (yadv) {
-                // The SAME stencil now discretises  Y_t + theta Y_x = 0  (flux minus the
-                // colour*div(theta) term = the non-conservative advective form), which for a
-                // no-phase-change mixture is EXACT: d(rho Y)/dt + d(rho Y u)/dx = 0 combined
-                // with continuity leaves Y purely advected. alpha is then a DERIVED quantity,
-                // recovered algebraically from the new Y at the OLD (p,T) -- placed here, right
-                // before the ACID old-level rho_o/h_o re-evaluation, so the two use the same
-                // (alpha, p_o, T_o) triple. alpha is deliberately NOT a Newton unknown in this
-                // first attempt (that would add d(alpha)/dp, d(alpha)/dT rows to the analytic
-                // Jacobian); within a step alpha is frozen at its old-(p,T) value exactly as it
-                // is on the alpha path.
+            if (!yadv) {
+                for (int i = 0; i < n; ++i) {
+                    const double flux = thf[i + 1] * af[i + 1] - thf[i] * af[i];
+                    const double divu = (thf[i + 1] - thf[i]) / dx;
+                    anew[i] = std::clamp(cvar[i] - dt / dx * flux + dt * cvar[i] * divu, 0.0, 1.0);
+                }
+                s.alpha = anew;
+            } else {
+                // ---- ACID_YADV round 3: CONSERVATIVE rho*Y transport ----
+                // Round 1/2 advected Y with the alpha stencil
+                //   c - dt/dx*(thf*cf)|_L^R + dt*c*div(theta),
+                // i.e. the non-conservative advective form. That form is the update for a
+                // quantity whose CELL AVERAGE is a VOLUME average (true for alpha). Y's cell
+                // average is a MASS average, so in a cut cell the cell state and the stencil
+                // live in different spaces and no face map can reconcile them (measured three
+                // ways in docs/YADV_RESEARCH.md sect.10.4). The repair is to make the CONSERVED
+                // variable rho*Y and discretise its own conservation law
+                //   d(rho Y)/dt + d(rho Y u)/dx = 0,
+                // which is exact for a no-phase-change mixture (sect.1.3) and puts cell state
+                // and flux in the same space.
+                //
+                // The face mass flux mirrors ACID Eqs.41-42 exactly (the PER-CELL construction
+                // used by the implicit mass/momentum/energy residual further below), evaluated
+                // at the OLD time level: cell i's own outflow/inflow uses cell i's OWN alpha as
+                // the phase blend weight, with the phase densities taken at the face's UPWIND
+                // cell (p,T). That asymmetric-but-locally-consistent form is what makes a
+                // uniform-velocity contact produce no spurious source.
+                //
+                // DOCUMENTED APPROXIMATION (the one place this update is not exact). The
+                // conserved quantity is assembled with the OLD accepted-step mixture density
+                // s.rho[], which is the correct old level; but recovering Y needs the NEW
+                // density, and the true new density is not defined until s.alpha has been
+                // re-derived (below) and the implicit step has run. What is used instead is
+                // rho_star = rho_old - dt/dx*(mdotR_o - mdotL_o), i.e. the density predicted by
+                // the SAME old-level mass flux (a discrete continuity predictor). This is
+                // explicit -- it introduces no circularity and is NOT the alpha-inside-the-
+                // Newton problem (YADV_RESEARCH sect.12 task (b), still out of scope) -- but it
+                // is a lagged/explicit stand-in for the density the implicit step will actually
+                // produce, so the recovered Y is O(dt) inconsistent with the final state.
+                //
+                // Why rho_star and not rho_old (MEASURED, do not "simplify" this back).
+                // Dividing by rho_old breaks the pure-cell property: with Y == 1 everywhere the
+                // numerator is rho_old - dt/dx*(mdotR_o - mdotL_o) = rho_star, so dividing by
+                // rho_old returns 1 - dt/(dx*rho_old)*div(mdot), i.e. a compressed or expanded
+                // SINGLE-PHASE cell spontaneously grows the other phase. Measured on this
+                // workspace: suite 13/19 with rho_old vs 15/19 with rho_star; case13 l2_rho
+                // 0.1219 vs 0.02268 and max|d alpha| vs the alpha path 0.998 vs 0.070; case30
+                // FAILS with rho_old (l2_rho 0.1243 vs 0.00922). With rho_star, Y == const is
+                // preserved exactly for any velocity field, which is the discrete consistency
+                // condition a conservative colour-function flux must satisfy. The rho_old form
+                // is kept reachable for reproduction behind the default-OFF diagnostic env
+                // ACID_YADV_RHOOLD (inert unless ACID_YADV is also set; the published path is
+                // untouched either way).
+                //
+                // alpha stays a DERIVED quantity, recovered from the NEW Y at the OLD (p,T)
+                // right before the ACID old-level rho_o/h_o re-evaluation, so the two use the
+                // same (alpha, p_o, T_o) triple -- unchanged from rounds 1/2.
+
+                // (1) OLD-level cell alpha implied by the transported Y at (p_o,T_o). Needed
+                //     here (before the flux) purely as the ACID mass-flux blend weight; it is
+                //     NOT written to s.alpha (that happens below, from the NEW Y).
+                Vec al_o(n);
+                for (int i = 0; i < n; ++i) {
+                    const double pu = std::max(p_o[i], 1.0), Tu = std::max(T_o[i], 1e-6);
+                    al_o[i] = std::clamp(alpha_from_mass_fraction(Yv[i],
+                                                                  phase_props(pu, Tu, A).rho,
+                                                                  phase_props(pu, Tu, B).rho),
+                                         0.0, 1.0);
+                }
+                // (2) OLD-level UPWIND phase densities at EVERY face (the mass flux needs them
+                //     everywhere, not only where THINC activates). Upwind selection by the sign
+                //     of thf[f], mirroring the af[] loop above; boundary faces read the ghost
+                //     (p,T), which is what apply_ghost already defines for every BC this solver
+                //     supports (transmissive/inlet copy the end cell, reflective mirrors the
+                //     scalar, periodic wraps) -- no new boundary behaviour is invented.
+                const auto peo = apply_ghost(p_o, lbc, rbc, 2, false);
+                const auto Teo = apply_ghost(T_o, lbc, rbc, 2, false);
+                Vec ra_o(n + 1), rb_o(n + 1);
+                for (int f = 0; f <= n; ++f) {
+                    const int g = (thf[f] >= 0.0) ? (f + 1) : (f + 2);  // upwind ghost index
+                    const double pu = std::max(peo[g], 1.0), Tu = std::max(Teo[g], 1e-6);
+                    ra_o[f] = phase_props(pu, Tu, A).rho;
+                    rb_o[f] = phase_props(pu, Tu, B).rho;
+                }
+                // (3) OLD-level per-cell face mass flux (ACID Eqs.41-42 structure, with the
+                //     OLD-level alpha / phase densities / face velocity substituted for the
+                //     Newton-level ones). thf[] already carries the reflective zeroing applied
+                //     above; the explicit zeroing here mirrors the Eqs.41-42 block verbatim.
+                Vec mdR_o(n), mdL_o(n);
+                for (int i = 0; i < n; ++i) {
+                    mdR_o[i] = (al_o[i] * ra_o[i + 1] + (1.0 - al_o[i]) * rb_o[i + 1]) * thf[i + 1];
+                    mdL_o[i] = (al_o[i] * ra_o[i]     + (1.0 - al_o[i]) * rb_o[i])     * thf[i];
+                }
+                if (lbc == "reflective") mdL_o[0] = 0.0;
+                if (rbc == "reflective") mdR_o[n - 1] = 0.0;
+                // (4) conservative update of rho*Y, then back to Y (see the approximation note).
+                //     af[] is the SAME THINC/upwind-reconstructed face Y built above.
+                for (int i = 0; i < n; ++i) {
+                    const double rho_old = std::max(s.rho[i], 1e-300);
+                    const double rY = rho_old * Yv[i]
+                                    - dt / dx * (mdR_o[i] * af[i + 1] - mdL_o[i] * af[i]);
+                    const double rho_star =
+                        yadv_rhoold ? rho_old
+                                    : std::max(rho_old - dt / dx * (mdR_o[i] - mdL_o[i]), 1e-300);
+                    anew[i] = std::clamp(rY / rho_star, 0.0, 1.0);
+                }
                 Yv = anew;
                 for (int i = 0; i < n; ++i) {
                     const double pu = std::max(p_o[i], 1.0), Tu = std::max(T_o[i], 1e-6);
@@ -777,8 +873,6 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                                                                      phase_props(pu, Tu, B).rho),
                                             0.0, 1.0);
                 }
-            } else {
-                s.alpha = anew;
             }
         }
 

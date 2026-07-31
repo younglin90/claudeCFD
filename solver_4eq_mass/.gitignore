@@ -8,3 +8,4 @@ autoresearch-results/
 __pycache__/
 *.docx
 *.tar.gz
+.claude/worktrees/

@@ -378,7 +378,15 @@ excursion.
 
 ---
 
-## 8. Verdict
+## 8. Verdict (round 1 — SUPERSEDED IN PART, see §10-§12)
+
+> **Round 2 has since measured both of the follow-ups this section recommends.**
+> §10 tests the alpha-space THINC reconstruction: it is a **negative** result — case02 gets
+> markedly *worse*, not better. §11 computes the Y-consistent Hugoniot for cases 24/33/34 and
+> **overturns §7.1**: the alpha-held reference is an exact Rankine-Hugoniot solution of the true
+> NASG mixture EOS, and the Y-path solver satisfies *no* Rankine-Hugoniot jump at all
+> (momentum residual 88%). 24/33/34 are a **solver defect**, not an unanswerable closure
+> conflict. §12 is the revised verdict.
 
 **Transporting `Y` instead of `alpha` does not "work as well" as a drop-in replacement, but the
 experiment produced a real positive result and a sharp diagnosis of the negatives.**
@@ -439,3 +447,361 @@ g++ -O2 -Icpp/denner_1d/include scripts/yadv_cond.cpp \
 Harness note (this workspace, WSL through the agent tooling): inline `for` loops lose variables
 and `>` redirects intermittently produce 0-byte files. Every measurement above was taken through a
 script file or through Python `subprocess` capture. Never build with `-march=native`.
+
+---
+---
+
+# ROUND 2
+
+Two questions, both measured on a **fully clean rebuild**
+(`rm -rf build-cpp && cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8`,
+wrapped as `scripts/yadv_clean_build.sh`):
+
+* **§10** — does reconstructing the THINC tanh in `alpha` (interface geometry is volumetric) and
+  converting only the FACE value to `Y` recover cases 02/14 while keeping the case13 win?
+* **§11** — what is the mass-fraction-consistent Hugoniot for cases 24/33/34, and is the Y-path
+  solver converging to *its own* consistent post-shock state?
+
+Default-path guarantee, re-verified after every change in this round:
+
+```
+(1) ACID_YADV unset vs solver_denner published binary
+    case01 .. case34 : BYTE-IDENTICAL   (9/9, incl. 01,02,13,14,25)
+    OFF: DENNER1D_CPP_METRIC pass_count=19 total=19
+```
+
+---
+
+## 10. Task A — alpha-space THINC reconstruction with a `Y` flux. NEGATIVE.
+
+### 10.1 What was implemented
+
+In `cpp/denner_1d/src/acid.cpp`, inside the colour-function transport block:
+
+* a cell `alpha` field is recovered from the transported `Yv` at the current old-level `(p,T)`
+  (`alpha_cell[i] = alpha_from_mass_fraction(Yv[i], rho_a(p_o,T_o), rho_b(p_o,T_o))`);
+* the ghost array `arec` built from it is what the tanh profile **and the interface indicator**
+  (`straddle` / `steep` / `monotone` / `unsat`) now read — under `ACID_YADV` they never see a
+  mass fraction again;
+* the BVD clamp is applied in that same reconstruction space;
+* the rho-monotonicity guard receives the face `alpha` **directly** — it keeps its published
+  semantics verbatim (the `alpha_from_mass_fraction` hop that round 1 needed is gone);
+* only the ACCEPTED face value is converted, `Y_f = mass_fraction_from_alpha(alpha_f, ra, rb)`
+  at the upwind cell's `(p,T)`, then re-bounded between the two neighbour `Y` values.
+
+`beta` stays `3.5`. **No new tunable constant, no per-case logic**, and `cases.cpp` /
+`validation.cpp` are untouched. With the switch OFF, `arec` *is* `ae` — same object, no extra
+work — so the default path is byte-identical (verified above).
+
+### 10.2 Result: 15/19, and case02 is much worse
+
+`DENNER_ACID=1 ACID_YADV=1 ./build-cpp/cpp/denner_1d/denner1d_validate` -> `pass_count=15 total=19`,
+the same four failures (15, 24, 33, 34) as round 1.
+
+Naming: **v1** = round 1 (reconstruct in `Y`), **v2** = this change (reconstruct in `alpha`,
+convert the face value).
+
+| case | metric | alpha path | v1 (Y-THINC) | **v2 (alpha-THINC)** | v2 vs the goal |
+|---|---|---|---|---|---|
+| **02** | `l2_rho`   | 0.03052 | 0.04378 | **0.1579** | **3.6x WORSE than v1** |
+| | `corr_rho` | 0.9971 | 0.9940 | **0.9274** | worse |
+| | `linf_rho` | 0.6623 | 0.9559 | 0.9137 | ~unchanged |
+| | `hf_rho`   | 1.302 | 1.502 | **0.0789** | 19x smoother |
+| **14** | `l2_rho`   | 0.03819 | 0.07636 | **0.07630** | **no recovery (-0.08%)** |
+| | `corr_rho` | 0.9929 | 0.9715 | 0.9716 | no recovery |
+| | `linf_rho` | 0.2727 | 0.5352 | 0.5348 | no recovery |
+| **13** | `linf_p`   | 0.2637 | 0.1690 | 0.1691 | win survives |
+| | `linf_u`   | 0.6643 | 0.4376 | 0.4373 | win survives |
+| | `l2_rho`   | 0.01707 | 0.01645 | 0.01616 | slightly better |
+| | `peak_delta_u` | 373 | **0** | **395** | **v1's win LOST** |
+| **30** | `l2_rho`   | 0.01642 | 0.008497 | **0.007524** | best of the three |
+| | `linf_rho` | 0.3039 | 0.1049 | **0.08741** | best of the three |
+| **25** | all | — | — | neutral to 4 digits | unchanged |
+| 15/24/33/34 | all | — | — | unchanged | indicator never fires there |
+
+So the hypothesis is **refuted on its own target**: case02 degrades by 3.6x instead of
+recovering, case14 does not move at all, and case13 keeps its norm-metric win but loses the
+exact shock-front placement (`peak_delta_u` 0 -> 395) that was round 1's headline.
+
+### 10.3 Why — measured, not assumed
+
+`scripts/yadv_case02_probe.py` prints the interface band. case02 is a pure gas_a|gas_b contact
+at **uniform (p,T)**, `rho_a/rho_b = 7.231`, advected at `u=1`; Y-transport and alpha-transport
+are the same PDE there, so every difference is reconstruction/flux only.
+
+```
+| i | x | alpha OFF | alpha ON(v2) | rho OFF | rho ON | rho_ref |
+| 392 | 0.7850 | 0.998596 | 0.172596 | 1.15561 | 0.33208 | 1.15701 |
+| 398 | 0.7970 | 0.983750 | 0.092972 | 1.14080 | 0.25269 | 1.15701 |
+| 399 | 0.7990 | 0.335726 | 0.083597 | 0.49472 | 0.24335 | 1.15701 |
+| 400 | 0.8010 | 0.056587 | 0.075091 | 0.21642 | 0.23487 | 0.160001 |
+l1_rho  alpha = 0.00293   Y(v2) = 0.03958      (13x worse)
+```
+
+The alpha path holds a 2-cell contact. The v2 Y path has no contact left at all — `alpha` decays
+smoothly from 0.17 across ~150 cells. THINC has switched itself off:
+
+```
+scripts/yadv_thincdbg.sh
+case02  ALPHA: activations=1426  rho_guard_rejects=82
+case02  YADV : activations= 306  rho_guard_rejects=75      <- 4.7x fewer
+```
+
+The mechanism is the **non-commutation of the semi-Lagrangian average with the mass map**. Write
+`M(a) = a*ra/(a*ra + (1-a)*rb)`. The flux needs the departure-region average of the transported
+variable; v2 supplies `M(mean(alpha))` instead of `mean(M(alpha))`. `M` is concave for
+`ra > rb`, so `M(mean) > mean(M)` and every face **over-delivers** `Y` downstream. The step
+degrades, the recovered `alpha` stops satisfying `straddle` (a 0.5 crossing) and `steep`
+(a >0.5 jump), the indicator stops firing, first-order upwind takes over, and the front
+collapses into the 150-cell ramp above. This is self-reinforcing, which is why the loss is so
+much larger than round 1's.
+
+### 10.4 The obvious "fix" was tested and is WORSE — so the defect is deeper
+
+If the conversion is the problem, the natural repair is to drop it: pointwise `Y` is the *same*
+0/1 step as `alpha`, so the volume average of `Y` over the swept region simply **is**
+`alpha_bar`. That was measured behind a default-OFF diagnostic switch `ACID_YADV_VOLFLUX`
+(`scripts/yadv_volflux.sh`; the switch changes nothing unless `ACID_YADV` is also set, and the
+default path stays byte-identical):
+
+| case02 `l2_rho` | alpha | v1 (Y-THINC) | v2 (alpha-THINC + `M`) | v3 probe (alpha-THINC, no `M`) |
+|---|---|---|---|---|
+| | 0.03052 | 0.04378 | 0.1579 | **0.3058** |
+| suite | 19/19 | 15/19 | 15/19 | **14/19** (case02 now FAILS) |
+
+**Removing the conversion makes it worse still.** The ordering is monotone in how far the flux
+space is from the transported variable's own space, which identifies the real defect:
+
+> The Y path's cell state `Yv[i]` is a **mass** average (`Y = mass of A / total mass` — that is
+> how it is initialised and what the EOS inverse expects), but the transport stencil
+> `c - dt/dx*flux + dt*c*div(theta)` is the update for a **volume** average. For pure cells the
+> two coincide, which is why case01 is exact and most of the domain is unaffected; in a cut cell
+> they differ by exactly the density-ratio factor. No pointwise face map can reconcile them,
+> because the mismatch is between the cell state and the stencil, not between two face values.
+
+Round 1's v1 was the least-bad of the three only because fitting the tanh in `Y` and averaging in
+`Y` is at least *self-consistent* — it is the wrong shape, but it is a genuine average of the
+variable being updated.
+
+**Consequence:** "reconstruct in alpha" cannot be made to work as an incremental change. A
+correct Y path needs the **conservative** form `d(rho Y)/dt + d(rho Y u)/dx = 0` with `rho*Y` as
+the transported conserved variable, so that cell state and flux live in the same space. That is
+a different experiment, not a tweak to this one.
+
+---
+
+## 11. Task B — the Y-consistent Hugoniot for cases 24/33/34
+
+Computed by `scripts/yadv_hugoniot.cpp` (standalone; links only `libdenner1d.a` for
+`phase_props`; **`cases.cpp` and `validation.cpp` are neither modified nor linked in**).
+Build/run: `bash scripts/yadv_hugoniot.sh`.
+
+### 11.1 Derivation
+
+Both closures share the pre-shock state and the shock speed
+`Vs = Ms * a_mix` with Denner's thermo-consistent Eq.57-58 mixture speed, `Ms = 10`.
+
+**(A) alpha-held** — verbatim what `cases.cpp:compute_case24_shock` builds: the equivalent
+stiffened gas `1/(gamma_mix-1) = sum psi_k/(gamma_k-1)` (Eq.57), `Pihat` (Eq.60), the pressure
+multiplier (Eq.59), `rho_post` (Eq.61), `u_post` (Eq.62), then `alpha_post := alpha_pre`.
+
+**(B) Y-held** — mass fractions fixed across the shock (no phase change), the jump conditions
+imposed with the **true NASG mixture EOS at a single `(p,T)`**. In the shock frame with the
+pre-shock state stationary, `mdot = rho_pre*Vs`, `v = 1/rho`:
+
+```
+  Rayleigh :  p_post = p_pre + mdot^2 (v_pre - v_post)
+  Hugoniot :  h_post - h_pre = 0.5 (p_post - p_pre)(v_pre + v_post)
+  EOS      :  v_post = Y/rho_a(p_post,T_post) + (1-Y)/rho_b(p_post,T_post)
+  h        :  h = Y h_a(p,T) + (1-Y) h_b(p,T)
+```
+
+Two equations in `(v_post, T_post)`: bracket-and-bisect on `v_post`, with `T_post` recovered from
+the EOS constraint at each trial (specific volume is monotone in `T` at fixed `p`). Then
+
+```
+  u_post     = Vs (1 - v_post/v_pre)
+  alpha_post = Y rho_post / rho_a(p_post, T_post)      <- a RESULT, not an input
+```
+
+### 11.2 The two closures, side by side
+
+| | | case24 (`alpha_pre`=0.50) | case33 (0.75) | case34 (0.25) |
+|---|---|---|---|---|
+| `a_mix` Eq.57 [m/s] | | 642.676 | 545.649 | 820.139 |
+| `Vs` [m/s] | | 6426.761 | 5456.494 | 8201.394 |
+| pre: `rho`, `Y` | | 499.5787, 1.158045e-3 | 250.3681, 3.466107e-3 | 748.7894, 3.863132e-4 |
+| **`p_post` [Pa]** | (A) | 1.508398e+10 | 5.877237e+09 | 3.162353e+10 |
+| | **(B)** | **8.273766e+09** | **3.389760e+09** | **1.950648e+10** |
+| **`rho_post`** | (A) | 1857.257 | 1183.346 | 2012.204 |
+| | **(B)** | **833.977** | **459.160** | **1222.104** |
+| **`u_post` [m/s]** | (A) | 4698.044 | 4302.029 | 5149.460 |
+| | **(B)** | **2576.926** | **2481.210** | **3176.357** |
+| **`T_post` [K]** | (A) | 16938.19 | 13837.32 | 21767.26 |
+| | **(B)** | **7114.23** | **5689.28** | **11106.29** |
+| **`alpha_post`** | (A) | 0.500000 | 0.750000 | 0.250000 |
+| | **(B)** | **2.392475e-04** | **7.695523e-04** | **7.744281e-05** |
+| `Y_post` | (A) | 8.321540e-01 | 9.343885e-01 | 6.265147e-01 |
+| | (B) | 1.158045e-03 | 3.466107e-03 | 3.863132e-04 |
+| (B)/(A) `p` | | 0.5485 | 0.5768 | 0.6168 |
+
+### 11.3 The alpha-held reference is NOT an artefact — it is an exact RH solution
+
+The standalone program also feeds closure (A)'s own post-shock state back into the **true NASG
+mixture** jump conditions:
+
+| case | Rayleigh residual | Hugoniot residual | `(Y_post-Y_pre)/Y_pre` |
+|---|---|---|---|
+| 24 | +1.9e-06 Pa (rel **1.26e-16**) | +3.7e-09 J/kg (rel **1.89e-16**) | **+717.6** |
+| 33 | +1.9e-06 Pa (rel **3.25e-16**) | -5.6e-09 J/kg (rel **-3.78e-16**) | **+268.6** |
+| 34 | +1.5e-05 Pa (rel **4.83e-16**) | 0.0e+00 J/kg (rel **0.00**) | **+1620.8** |
+
+This corrects §7.1. Both phases here have NASG `b = 0`, so an alpha-frozen mixture is *exactly*
+an equivalent stiffened gas — Denner's Eq.57-62 is not an approximation of the mixture EOS, it
+**is** the mixture EOS under that closure. So (A) and (B) are *both* exact Rankine-Hugoniot
+solutions of the same EOS at the same `Vs`; the jump conditions are 3 equations for 4 unknowns
+and each closure supplies the missing constraint. They differ in physics, not in rigour:
+closure (A) permits enormous interphase mass transfer (`Y` rises by 268x-1621x across the
+shock), which is precisely what K=0 Allaire `alpha`-transport does implicitly. The reference is
+legitimate.
+
+### 11.4 The test problem DRIVES the Y path with a closure-(A) state
+
+`cases.cpp:689-694` seeds `x < 0.1` with `sh24.{alpha,u,p,T}_post` — closure (A) — and the left
+BC is `transmissive`, so that state acts as a sustained piston. Reconstructing `Y` from the
+dumps (`scripts/yadv_yprofile.py`; NASG with `b=0` makes `T` explicit from `(p,rho,alpha)`):
+
+| case | inflow `Y` (closure A) | undisturbed pre-shock `Y` | ratio | `alpha` on the two sides of x=0.1 |
+|---|---|---|---|---|
+| 24 | 0.832154 | 1.158045e-03 | **718.6x** | 0.50 and 0.50 — **no jump** |
+| 33 | 0.934388 | 3.466107e-03 | **269.6x** | 0.75 and 0.75 — **no jump** |
+| 34 | 0.626515 | 3.863132e-04 | **1622x** | 0.25 and 0.25 — **no jump** |
+
+So the initial data contains a large material contact **in the transported variable** that the
+alpha model literally cannot see. The Y path therefore solves a Riemann problem, not a single
+travelling shock. Measured structure (`scripts/yadv_struct.py`, case33, the one case whose front
+is still inside the domain at `t_end`):
+
+```
+ x<0.11   inflow (closure A)          p=5.877e9   u=4302   rho=1183   Y=0.9344
+ x~0.12   LEFT-FACING SHOCK
+ 0.15-0.39                            p=1.4993e10 u=2443.5 rho=2118.8 Y=0.9344
+ x~0.45   CONTACT (p,u continuous; Y drops 0.9344 -> 3.466e-3)
+ 0.50-0.93 shock-processed material   p=1.4992e10 u=2443.6 rho=1525.7 Y=3.466107e-03  <- = Y_pre
+ x~0.94   LEADING SHOCK               (reference front position is 0.800)
+ x>0.95   undisturbed                 p=1e5 u=0 rho=250.37 alpha=0.75
+```
+
+`Y` is preserved to 7 significant figures through the leading shock — the transport itself is
+doing its job. But the shock is **overdriven**: closure (A)'s piston velocity is 1.7x-1.8x
+closure (B)'s, so the front runs to `x=0.939` instead of `0.800` on case33 and has left the
+domain entirely on cases 24 and 34 (`scripts/yadv_front.py`).
+
+### 11.5 The decisive test: the Y path satisfies NO Rankine-Hugoniot jump
+
+Whatever colour function is transported and however the problem is driven, **any** valid weak
+solution of the Euler system must satisfy mass, momentum and energy across its own shock. That
+is closure-agnostic. `scripts/yadv_rhcheck.py` takes the undisturbed pre-shock state and the
+plateau behind the leading front straight out of the dump, infers `Vs` from **mass**
+conservation, and reports the momentum and energy residuals. The alpha path is the built-in
+control that validates the algebra:
+
+| case | path | `p_post` | `rho_post` | `u_post` | `Vs` (mass) | momentum resid (rel) | energy resid (rel) |
+|---|---|---|---|---|---|---|---|
+| 24 | alpha | 1.50840e+10 | 1857.25 | 4698.0 | 6426.8 | **-2.48e-06** | **+1.81e-06** |
+| 24 | **Y** | — leading shock has left the domain, no undisturbed state — | | | | | |
+| 33 | alpha | 5.87723e+09 | 1183.22 | 4302.0 | 5456.6 | **-2.91e-05** | **+5.83e-05** |
+| 33 | **Y** | 1.49921e+10 | 1525.65 | 2443.6 | 2923.3 | **+8.81e-01** | **+6.46e-01** |
+| 34 | alpha | 3.16235e+10 | 2012.20 | 5149.5 | 8201.4 | **-1.59e-06** | **+3.82e-07** |
+| 34 | **Y** | — leading shock has left the domain, no undisturbed state — | | | | | |
+
+The alpha path closes to 1e-6..1e-5 relative. The Y path misses **momentum by 88% and energy by
+65%**. Its plateau is dead flat (relative spread ~1e-5), so this is a converged, steady, and
+**inadmissible** state — not a transient.
+
+### 11.6 Verdict on 24/33/34
+
+**No — the Y-path solver is not converging to its own Y-consistent Hugoniot, and the reason is a
+solver defect, not a modelling difference.** Three findings, in increasing severity:
+
+1. The alpha-held reference is an exact Rankine-Hugoniot solution of the true NASG mixture EOS
+   (§11.3). It is a legitimate reference; §7.1's "the reference defines the answer" framing was
+   too generous to the Y path.
+2. The cases *are* configured against the alpha closure at a level §7.1 did not identify: the IC
+   and the sustained inflow are a closure-(A) state, which under Y-transport injects a 270x-1620x
+   contact in the transported variable and overdrives the shock (§11.4). Any comparison of
+   post-shock plateaus on these cases is confounded by that, in either direction.
+3. **But the RH residual test is immune to all of it**, and the Y path fails it by O(1) (§11.5).
+   A correct scheme must produce admissible weak solutions from *any* initial data. It does not.
+
+The mechanism is the §2.3 design compromise, now shown to bite far harder than §7.2 suspected:
+`alpha` is recovered at the OLD `(p,T)` and then **frozen through the Newton solve**, so the EOS
+closure `rho = rho(p,T,alpha)` used inside the implicit mass/momentum/energy update is
+inconsistent with the `Y` that was actually transported. Across these shocks `alpha` moves by
+three orders of magnitude in a single step, so the lag is O(1) and discrete conservation breaks
+by O(1). §7.2 diagnosed this as an amplitude-convergence failure on case15; §11.5 shows it is a
+**conservation** failure wherever `d(alpha)/dp` is large. The two failures have one cause.
+
+Nothing was changed to make any of this pass: no gate, no reference, no case definition.
+
+---
+
+## 12. Revised verdict
+
+1. **The default path remains bit-preserved.** `ACID_YADV` unset reproduces the published
+   `solver_denner` binary byte-for-byte on 9/9 dumps at 19/19 PASS, re-verified after every edit
+   in this round on a fully clean rebuild.
+2. **Task A is a negative result and the hypothesis behind it is refuted.** Reconstructing the
+   THINC tanh in `alpha` and converting the face value to `Y` makes case02 3.6x worse
+   (`l2_rho` 0.0438 -> 0.1579), does not move case14 at all, and costs case13 its exact
+   shock-front placement. Dropping the conversion is worse again (0.3058, case02 FAILS). The
+   real defect is that the Y path's cell state is a **mass** average while its transport stencil
+   is the update for a **volume** average — a cell-state/stencil mismatch that no face map can
+   repair (§10.4).
+3. **Task B overturns §7.1.** The alpha-held reference is an exact RH solution of the true NASG
+   mixture EOS, and the Y-path solver violates momentum by 88% and energy by 65% across its own
+   shock. Cases 24/33/34 are a **solver defect**, not an unanswerable closure conflict.
+4. **The case15 stiffness failure and the 24/33/34 conservation failure have a single cause**:
+   `alpha` recovered at the old `(p,T)` and frozen through the Newton.
+5. `ACID_YADV` should stay **default OFF and unpromoted**. The case13 win (§6) is real but it is
+   the only one, and it now sits next to a demonstrated O(1) conservation failure elsewhere.
+
+Ranked next experiments, both of which are rewrites rather than tweaks:
+
+* **(a) Conservative `rho*Y` transport.** Make the conserved variable `rho*Y` with
+  `d(rho Y)/dt + d(rho Y u)/dx = 0`, so cell state and flux occupy the same space. This is the
+  only route that addresses §10.4, and it would also let the reconstruction question be asked
+  again cleanly.
+* **(b) `alpha` inside the Newton.** Add `d(alpha)/dp`, `d(alpha)/dT` to the analytic Jacobian so
+  `alpha` is an implicit function of the unknowns. This is what §11.6 and §7.2 both point at.
+
+Either one alone is insufficient: (a) without (b) leaves the frozen-`alpha` conservation defect,
+(b) without (a) leaves the averaging mismatch.
+
+---
+
+## 13. Round 2 reproduction
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+bash scripts/yadv_clean_build.sh          # rm -rf build-cpp, reconfigure, build, unit test
+
+python3 scripts/yadv_verify.py            # default path byte-identity vs the published binary
+bash    scripts/yadv_run_ab.sh v2         # OFF + ON validate sweeps -> /tmp/yadv_v2_{off,on}.txt
+python3 scripts/yadv_table3.py            # three-way A/B table of section 10.2
+                                          #   (needs /tmp/yadv_v1_on.txt from a round-1 build)
+
+python3 scripts/yadv_case02_probe.py      # section 10.3 interface band
+bash    scripts/yadv_thincdbg.sh          # section 10.3 THINC activation counts
+bash    scripts/yadv_volflux.sh           # section 10.4 ACID_YADV_VOLFLUX probe
+
+bash    scripts/yadv_hugoniot.sh          # section 11.2/11.3 two-closure table (standalone)
+python3 scripts/yadv_plateau.py           # section 11 plateau vs both closures
+python3 scripts/yadv_yprofile.py          # section 11.4 reconstructed Y field
+python3 scripts/yadv_struct.py            # section 11.4 wave structure
+python3 scripts/yadv_front.py             # section 11.4 front positions
+python3 scripts/yadv_rhcheck.py           # section 11.5 THE decisive RH residual test
+```
+
+`ACID_YADV_VOLFLUX` is a **diagnostic probe only** (§10.4): default OFF, inert unless `ACID_YADV`
+is also set, and it does not touch the published path.

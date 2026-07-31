@@ -45,6 +45,29 @@ def stream(f):
     return fnew
 
 
+def stream_cavity_bounceback(fstar, U_wall):
+    """Closed cavity streaming with link-wise bounce-back at physical walls."""
+    fnew = stream(fstar)
+    rho_wall = fstar.sum(axis=0)
+
+    # Stationary walls: missing incoming links are reflected from the same node.
+    fnew[1, :, 0] = fstar[3, :, 0]
+    fnew[5, :, 0] = fstar[7, :, 0]
+    fnew[8, :, 0] = fstar[6, :, 0]
+    fnew[3, :, -1] = fstar[1, :, -1]
+    fnew[6, :, -1] = fstar[8, :, -1]
+    fnew[7, :, -1] = fstar[5, :, -1]
+    fnew[2, 0, :] = fstar[4, 0, :]
+    fnew[5, 0, :] = fstar[7, 0, :]
+    fnew[6, 0, :] = fstar[8, 0, :]
+
+    # Moving lid: diagonal momentum corrections cancel in mass.
+    fnew[4, -1, :] = fstar[2, -1, :]
+    fnew[7, -1, :] = fstar[5, -1, :] - 6.0 * W[7] * rho_wall[-1, :] * U_wall
+    fnew[8, -1, :] = fstar[6, -1, :] + 6.0 * W[8] * rho_wall[-1, :] * U_wall
+    return fnew
+
+
 def apply_cavity_bc(f, U_wall):
     """Lid-driven cavity boundary conditions.
 
@@ -100,8 +123,7 @@ class LBMCavity:
         rho, ux, uy = moments(f)
         feq = equilibrium(rho, ux, uy)
         fstar = f - self.omega * (f - feq)
-        fnew = stream(fstar)
-        return apply_cavity_bc(fnew, self.U_wall)
+        return stream_cavity_bounceback(fstar, self.U_wall)
 
     def residual(self, f):
         return f - self.lbe_step(f)

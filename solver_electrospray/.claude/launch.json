@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "electrospray-gui",
+      "runtimeExecutable": "wsl.exe",
+      "runtimeArgs": [
+        "-d",
+        "ubuntu",
+        "bash",
+        "-lc",
+        "cd ~/work/claude_code/claudeCFD/solver_electrospray && exec python3 apps/electrospray_gui_server.py --host 127.0.0.1 --port 8765"
+      ],
+      "port": 8765
+    }
+  ]
+}

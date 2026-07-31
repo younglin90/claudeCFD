@@ -1,0 +1,1526 @@
+arXiv:1811.01379v2  [physics.comp-ph]  6 Nov 2018
+A ﬁfth-order shock capturing scheme with cascade boundary variation
+diminishing algorithm
+Xi Denga,∗, Yuya Shimizua, Feng Xiao a,∗
+aDepartment of Mechanical Engineering, Tokyo Institute of Technology, 2-12-1 Ookayama, Meguro-ku, Tokyo, 152-8550, Japan.
+Abstract
+A novel 5th-order shock capturing scheme is presented in this paper. The scheme, so-called P4-THINC-BVD (4th
+degree polynomial and THINC reconstruction based on BVD algorithm), is formulated as a two-stage cascade BVD
+(Boundary Variation Diminishing) algorithm following the BVD principle that minimizes the jumps of reconstructed
+values at cell boundaries. In the P4-THINC-BVD scheme, polynomial of degree four and THINC (Tangent of Hy-
+perbola for INterface Capturing) functions with adaptive steepness are used as the candidate reconstruction functions.
+The ﬁnal reconstruction function is selected from the candidate functions by a two-stage cascade BVD algorithm so as
+to eﬀectively control numerical oscillation and dissipation. Spectral analysis and numerical veriﬁcations show that the
+P4-THINC-BVD scheme possesses the following desirable properties: 1) it eﬀectively suppresses spurious numerical
+oscillation in the presence of strong shock or discontinuity; 2) it substantially reduces numerical dissipation errors; 3)
+it automatically retrieves the underlying linear 5th-order upwind scheme for smooth solution over all wave numbers;
+4) it is able to resolve both smooth and discontinuous ﬂow structures of all scales with substantially improved solution
+quality in comparison to other existing methods; and 5) it faithfully maintains the free-mode solutions in long term
+computation. P4-THINC-BVD, as well as the underlying idea presented in this paper, provides an innovative and
+practical approach to design high-ﬁdelity numerical schemes for compressible ﬂows involving strong discontinuities
+and ﬂow structures of wide range scales.
+Keywords: shock capturing, high order schemes, boundary variation diminishing, THINC scheme, hyperbolic
+systems
+1. Introduction
+Developing shock capturing schemes for compressible ﬂows involving both discontinuous and smooth solutions
+still remains a challenging problem to computational ﬂuid dynamics community. The coexistence of discontinuities
+and smooth structures of diﬀerent scales poses diﬃculties to existing numerical schemes. On the one hand, high order
+∗Corresponding author: Mr. X. Deng (Email: deng.xi98@gmail.com), Dr. F. Xiao (xiao.f.aa@m.titech.ac.jp)
+Preprint submitted to Elsevier
+November 9, 2018
+
+schemes with less numerical dissipation are demanded to resolve structures in vortical and turbulent ﬂows. On the
+other hand, high order schemes may cause spurious numerical oscillations when solving discontinuities such as shock
+waves, contacts and material interfaces. The common practice to suppress numerical oscillations associated with high
+order reconstruction is to introduce certain amount of numerical dissipations by projecting high order interpolation
+polynomials to lower order or smoother ones, which is also known as limiting projection. An ideal limiting projection
+is expected to introduce as small as possible numerical dissipations to smooth solutions while suﬃciently suppressing
+spurious numerical oscillations around discontinuous or large gradient regions. Unfortunately, the current limiting
+projection methods which are based on polynomial form and the compromise between numerical oscillation and
+numerical dissipation cannot satisfactorily resolve both smooth and non-smooth solutions. Thus, new methods of
+better ﬁdelity are highly demanded in the simulations of high-Mach compressible ﬂow and interfacial multiphase ﬂow
+where both discontinuous and vortical structures are dominant.
+Over the decades, a great deal of eﬀorts have been made to construct shock capturing schemes. TVD (Total
+Variation Diminishing) schemes [1, 2], or equivalently the MUSCL (Monotone Upstream-centered Schemes for Con-
+servation Law) schemes [3], can eﬀectively eliminate numerical oscillations by introducing ﬂux or slope limiters
+which are solution dependent and thus lead to a class of nonlinear schemes widely used in simulating ﬂows with
+discontinuous solutions. However, TVD schemes, which can be of 2nd-order accuracy in 1D at most, suﬀer from
+excessive numerical dissipation and smear out ﬂow structures, like vortices and contact discontinuities.
+A remedy to numerical dissipation is using higher order polynomials for smooth solutions, and ENO (Essentially
+Non-oscillatory) scheme [4, 5, 6, 7] has been proposed to suppress numerical oscillation where high-order polyno-
+mials are used. The basic idea of ENO is to construct several polynomial interpolations over diﬀerent candidate
+stencils and to choose the smoothest one as the ﬁnal reconstruction function, where a numerical formula, so-called
+smoothness indicator, is devised to quantify the smoothness of each interpolation polynomial. Following the ENO
+schemes, WENO (Weighted Essentially Non-oscillatory) schemes have been devised in [8, 9]. Instead of choosing
+the smoothest stencil, WENO reconstructions are built on a weighted average of polynomial approximations over
+all candidate stencils. The weight of each stencil is assigned according to smoothness indicators. In the vicinity of
+discontinuities, ENO property is recovered through assigning small weights to less smooth candidates. In smooth
+regions, weights are designed to restore the underlying linear schemes. With more candidate polynomials involved,
+WENO schemes are more accurate in smooth region than ENO schemes. As shown in [9], the WENO scheme achieves
+expected high order accuracy for smooth solution while keeps the essentially non-oscillatory property near disconti-
+nuities. The underlying idea of WENO indicates a practical strategy to design schemes that can be of arbitrarily high
+order yet eﬀectively suppress numerical oscillation to an extent less restrictive than the TVD criterion. Hence, WENO
+2
+
+scheme substantially reduces numerical dissipation compared to the TVD schemes. However, WENO scheme is still
+found to be too dissipative in some applications, as addressed in [10, 11, 12] for example, WENO scheme generates
+excessive numerical dissipation that tends to smear out contact discontinuities or jumps across material interfaces,
+as well as the small-scale ﬂow structures in simulations including acoustic eﬀect or turbulence. In successive works
+following [8, 9], eﬀorts have been made to reduce numerical dissipation. Variants of the smoothness indicator have
+been proposed in [13, 14, 15, 16] where contributions of the less smooth candidate stencils are optimized to reduce
+numerical dissipation. Being a particular tuning for simulation of turbulent ﬂow, numerical dissipation can be further
+reduced by employing central discretization [17]. It is observed that the spectral property of the WENO scheme is
+inferior to that of the corresponding linear scheme. In [18], a family of high order targeted ENO (TENO) schemes
+are proposed to restore the low-dissipation feature of the linear schemes. In [19], a new design strategy named em-
+bedded WENO is devised to utilize all adjacent smooth substencils to construct the interpolation so as to improve the
+spectral property. All these works attempt to decrease the eﬀect of nonlinear WENO adaptation and to retrieve the
+low-dissipation linear scheme as much as possible. The present work demonstrates another path to make the largest
+possible use of high-order linear schemes for spatial reconstruction.
+A novel guideline for constructing high-ﬁdelity shock capturing schemes with small numerical dissipation, so-
+called BVD (Boundary Variation Diminishing), was proposed in [20] for general ﬁnite volume method. The BVD
+principle requires that the jumps of the reconstructed values at cell boundaries should be minimized so as to reduce the
+eﬀective numerical dissipation in Riemann solvers. In [20], a hybrid reconstruction of WENO and THINC (Tangent
+of Hyperbola for INterface Capturing) is designed with a BVD algorithm which automatically switches to the WENO
+reconstruction for smooth region and to the THINC reconstruction for discontinuous solution. The resulting scheme,
+WENO-THINC-BVD, maintains the accuracy (convergence rate) of the WENO scheme for smooth solution, while
+substantially improves the solution quality for discontinuity. Since then, several BVD variant algorithms and other
+BVD-admissible reconstruction functions have been devised and tested to facilitate the implementation of the BVD
+principle[21, 22, 23]. It is found that the BVD principle with THINC as one of the candidate reconstruction schemes
+provides a framework to design schemes that are able to resolve both smooth and discontinuous solutions with superior
+accuracy to the existing methods. It also indicates the possibility and necessity to explore new methods with better
+numerical properties in spirit of the BVD principle.
+In the present work, we propose a new BVD reconstruction strategy using the linear 5th order upwind scheme of
+4th degree polynomial as one of the candidate reconstruction functions to enjoy the advantages of the linear schemes
+for smooth solutions. The new method, so-called P4-THINC-BVD (4th-degree polynomial and THINC reconstruction
+based on BVD algorithm) scheme makes use of a two-stage cascade BVD algorithm to get high order and oscillation-
+3
+
+less numrical results. In the ﬁrst stage, the 4th-degree polynomial and a THINC function with a moderate steepness
+are used as the candidate reconstruction functions in the BVD framework, which results in oscillation-less numerical
+results. The second stage is devised to reduce numerical dissipation associated with less smooth solutions, where
+sharp discontinuities are captured with a steeper THINC function. The spectral analysis shows that the new scheme
+can restore the underlying low-dissipation linear scheme even for high wavenumber band. The superior capability of
+P4-THINC-BVD in capturing sharp discontinuity and resolving small-scale ﬂow structures with low-dissipation has
+been veriﬁed through widely used benchmark tests.
+The remainder of this paper is organized as follows. In Section 2, after a brief review of the ﬁnite volume method,
+the details of the new scheme for spatial reconstruction are presented. The spectral property of the new scheme will
+also be presented. In Section 3, the performance of the new scheme will be examined through benchmark tests in 1D
+and 2D with comparison with the 5th-order WENO schemes. Some concluding remarks are given in Section 4.
+2. Numerical methods
+We use the 1D scalar conservation law in the following form to introduce the new scheme
+∂q
+∂t + ∂f(q)
+∂x
+= 0,
+(1)
+where q(x, t) is the solution function and f(q) is the ﬂux function. We assume that the ﬂux function has hyperbolicity,
+i.e. ∂f(q)/∂q = a, the characteristic speed, is a real number.
+2.1. Finite volume method
+We divide the computational domain into N non-overlapping cell elements, Ii : x ∈[xi−1/2, xi+1/2], i = 1, 2, . . ., N,
+with a uniform grid spacing h = ∆x = xi+1/2 −xi−1/2. For a standard ﬁnite volume method, the volume-integrated
+average value ¯qi(t) in cell Ii is deﬁned as
+¯qi(t) ≈1
+∆x
+ˆ xi+1/2
+xi−1/2
+q(x, t) dx.
+(2)
+The semi-discrete version of Eq. (1) in the ﬁnite volume form for cell Ii can be expressed as an ordinary diﬀerential
+equation (ODE)
+∂¯qi(t)
+∂t
+= −1
+∆x( ˜fi+1/2 −˜fi−1/2),
+(3)
+where the numerical ﬂuxes ˜f at cell boundaries can be computed by a Riemann solver
+˜fi+1/2 = f Riemann
+i+1/2
+(qL
+i+1/2, qR
+i+1/2),
+(4)
+4
+
+once the reconstructed left-side value qL
+i+1/2 and right-side value qR
+i+1/2 at cell boundaries are provided. Essentially, the
+Riemann ﬂux can be written into a canonical form as
+f Riemann
+i+1/2
+(qL
+i+1/2, qR
+i+1/2) = 1
+2
+
+f(qL
+i+1/2) + f(qR
+i+1/2)
+
+−|ai+1/2|
+2
+
+qR
+i+1/2 −qL
+i+1/2
+
+,
+(5)
+where ai+1/2 stands for the characteristic speed of the hyperbolic conservation law. The remaining main task is how to
+calculate qL
+i+1/2 and qR
+i+1/2 through the reconstruction process.
+2.2. Reconstruction process
+In this subsection, we describe the details of how to calculate qL
+i+1/2 and qR
+i+1/2 using the BVD principle. This new
+scheme, P4-THINC-BVD scheme, is designed by using a cascade BVD algorithm where a linear upwind scheme of
+4th degree polynomial and a THINC function are employed as the candidate interpolants to get high ﬁdelity solutions
+for both smooth and discontinuous solutions. Next, we introduce the candidate interpolants before the description of
+the BVD algorithm.
+2.2.1. Candidate interpolant 1: linear upwind scheme of 4th degree polynomial
+A ﬁnite volume scheme of (D + 1)th order can be constructed from a spatial approximation for the solution in
+the target cell Ii with a polynomial ˜qPD
+i
+(x) of degree D. The D + 1 unknown coeﬃcients of the polynomial are
+determined by requiring that ˜qPD
+i
+(x) has the same cell averages on each cell over an appropriately selected stencil
+S = {i −D−, . . . , i + D+} with D−+ D+ = D, which is expressed as
+1
+∆x
+ˆ xj+1/2
+xj−1/2
+˜qPD
+i
+(x)dx = ¯q j,
+j = i −D−, i −D−+ 1, . . ., i + D+.
+(6)
+To construct 2r −1 order upwind-biased ﬁnite volume schemes as detailed in [8, 9, 25], the stencil is deﬁned with
+D−= D+ = r −1. The unknown coeﬃcients of polynomial of 2r −2 degree can be then calculated from (6). With the
+polynomial ˜qPD
+i
+(x), high order approximation for reconstructed values at the cell boundaries can be obtained by
+qL,PD
+i+ 1
+2
+= ˜qPD
+i
+(xi+ 1
+2 ) and qR,PD
+i−1
+2
+= ˜qPD
+i
+(xi−1
+2 ).
+(7)
+The analysis of [8, 9, 25] shows that in smooth region, the approximation with polynomial (7) can achieve 2r−1 order
+accuracy. In this work, we use the ﬁfth order (r = 3) upwind-biased scheme as the underlying scheme for smooth
+solution. We denote the upwind scheme with polynomial of degree four reconstruction function in cell Ii by ˜qP4
+i (x)
+and the reconstructed value at cell boundaries as qL,P4
+i+1/2 and qR,P4
+i−1/2. The explicit formulas of qL,P4
+i+1/2 and qR,P4
+i−1/2 are given
+by
+qL,P4
+i+1/2 = 1
+30 ¯qi−2 −13
+60 ¯qi−1 + 47
+60 ¯qi + 9
+20 ¯qi+1 −1
+20 ¯qi+2,
+qR,P4
+i−1/2 = 1
+30 ¯qi+2 −13
+60 ¯qi+1 + 47
+60 ¯qi + 9
+20 ¯qi−1 −1
+20 ¯qi−2.
+(8)
+5
+
+It is noted that beyond the 5th order upwind scheme used in this work, polynomials of higher degree can also be
+used alternatively as the candidate interpolants to get higher order convergence rates for smooth solution following
+the same spirit.
+2.2.2. Candidate interpolant 2: non-polynomial THINC function
+Another candidate interpolation function in our scheme makes use of the THINC interpolation which is a diﬀer-
+entiable and monotone Sigmoid function [26, 27]. The piecewise THINC reconstruction function is written as
+˜qT
+i (x) = ¯qmin + ¯qmax
+2
+"
+1 + θ tanh
+ 
+β
+ 
+x −xi−1/2
+xi+1/2 −xi−1/2
+−˜xi
+!!#
+,
+(9)
+where ¯qmin = min(¯qi−1, ¯qi+1), ¯qmax = max(¯qi−1, ¯qi+1) −¯qmin and θ = sgn(¯qi+1 −¯qi−1). The jump thickness is controlled
+by the parameter β, i.e. a small value of β leads to a smooth proﬁle while a large one leads to a sharp jump-like
+distribution. The unknown ˜xi, which represents the location of the jump center, is computed from constraint condition
+¯qT
+i = 1
+∆x
+ˆ xi+1/2
+xi−1/2
+˜qi(x) dx.
+Since the value given by hyperbolic tangent function tanh(x) lays in the region of [−1, 1], the value of THINC
+reconstruction function ˜qT
+i (x) is rigorously bounded by ¯qi−1 and ¯qi+1. Given the reconstruction function ˜qT
+i (x), we
+calculate the boundary values qL,T
+i+1/2 and qR,T
+i−1/2 by qL,T
+i+1/2 = ˜qT
+i (xi+1/2) and qR,T
+i−1/2 = ˜qT
+i (xi−1/2) respectively.
+In [24], the eﬀect of the sharpness parameter β on numerical dissipation of the THINC scheme has been inves-
+tigated with approximate dispersion relation (ADR) analysis. It is concluded that (i) with β = 1.1, denoted by βs
+hereafter, THINC has much smaller numerical dissipation than TVD scheme with Minmod limiter [28], and has sim-
+ilar but slightly better performance than the Van Leer limiter[3]; (ii) with a larger β, denoted by βl, compressive or
+anti-diﬀusion eﬀect will be introduced, which is preferred for discontinuous solutions. Based on this observation, a
+reconstruction strategy for both smooth and discontinuous solutions is proposed by adaptively choosing the sharpness
+parameter β with the BVD principle[24].
+Following [24], in this work we use THINC functions with diﬀerent β to realize non-oscillatory and less-dissipative
+reconstructions for various ﬂow regions. A THINC reconstruction function ˜qT s
+i (x) with βs = 1.1 is prepared to
+represent a relatively smoother solution, which gives the reconstructed values qL,T s
+i+1/2 and qR,T s
+i−1/2. To obtain better-
+resolved discontinuities, another THINC reconstruction function ˜qTl
+i (x) with a larger βl = 1.6 is employed as an
+alternative candidate for reconstruction. The values at cell boundaries qL,Tl
+i+1/2 and qR,Tl
+i−1/2 are then obtained from ˜qTl
+i (x)
+accordingly.
+2.2.3. The cascade BVD algorithm
+As discussed above, the underlying ﬁfth order upwind scheme can achieve optimal order for smooth region. How-
+ever, numerical oscillations will appear in the presence of discontinuities such as contact discontinuities and shocks
+6
+
+in compressible ﬂow. Limiting projection is the common practice used in existing methods to suppress numerical
+oscillation, where nonlinear weights are introduced to the polynomial function so as to degrade the interpolating poly-
+nomial to lower order. However, these limiting processes tend to undermine the accuracy of the background linear
+high order schemes in spite of continuous eﬀorts to explore better nonlinear weights. An ideal limiting projection
+should maintain as much as possible the numerical properties of the scheme that uses the original polynomial recon-
+struction. In this work, we present a novel reconstruction scheme based on the BVD algorithm, where the linear high
+order schemes are directly used for smooth solutions.
+In [24], a variant BVD algorithm was devised to minimize the total boundary variation (TBV), which implies that
+using monotonic interpolations in the neighboring cells results in smaller boundary variation values in presence of
+discontinuous solution, while high-order interpolations are preferred to minimize the boundary variations for smooth
+region. In the P4-THINC-BVD scheme presented in this work, reconstruction function is determined from the candi-
+date interpolants with two-stage cascade BVD algorithm so as to minimize the TBV of the target cell. We denote the
+reconstruction function in the target cell Ii after the ﬁrst stage BVD as ˜q<I>
+i
+(x) and the ﬁnal reconstruction function
+after the second stage as ˜q<II>
+i
+(x).
+The two-stage cascade BVD algorithm is formulated as follows.
+(I) The ﬁrst stage with polynomial of degree four and THINC(βs):
+(I-I) Use the ﬁfth order upwind scheme as the base reconstruction scheme and initialize the reconstructed
+function at the ﬁrst stage as ˜q<I>
+i
+(x) = ˜qP4
+i (x).
+(I-II) Calculate the TBV values for target cell Ii from the reconstruction of 4th degree polynomial as
+T BVP4
+i
+=
+qL,P4
+i−1/2 −qR,P4
+i−1/2
+ +
+qL,P4
+i+1/2 −qR,P4
+i+1/2
+
+(10)
+and from the THINC function with a moderate steepness βs as
+T BVT s
+i
+=
+qL,T s
+i−1/2 −qR,T s
+i−1/2
+ +
+qL,T s
+i+1/2 −qR,T s
+i+1/2
+.
+(11)
+(I-III) Modify the reconstruction function for cells i −1, i and i + 1 according to the following BVD algorithm
+˜q<I>
+j
+(x) = ˜qT s
+j (x), j = i −1, i, i + 1;
+if T BVT s
+i
+< T BVP4
+i .
+(12)
+(II) The second stage with ˜q<I>
+i
+(x) and THINC(βl):
+(II-I) Compute the TBV using the reconstructed cell boundary values from stage (I) by
+T BV<I>
+i
+=
+qL,<I>
+i−1/2 −qR,<I>
+i−1/2
+ +
+qL,<I>
+i+1/2 −qR,<I>
+i+1/2
+,
+(13)
+7
+
+and the TBV for THINC function of a larger steepness parameter βl by
+T BVTl
+i
+=
+qL,Tl
+i−1/2 −qR,Tl
+i−1/2
+ +
+qL,Tl
+i+1/2 −qR,Tl
+i+1/2
+.
+(14)
+(II-II) Determine the ﬁnal reconstruction function for cell Ii using the BVD algorithm as
+˜q<II>
+i
+(x) =
+
+˜qTl
+i ;
+if T BVTl
+i
+< T BV<I>
+i
+,
+˜q<I>
+i
+;
+otherwise
+.
+(15)
+(II-III) Compute the reconstructed values on the left-side of xi+ 1
+2 and the right-side of xi−1
+2 respectively by
+qL
+i+ 1
+2 = ˜q<II>
+i
+(xi+ 1
+2 ) and qR
+i−1
+2 = ˜q<II>
+i
+(xi−1
+2 ).
+(16)
+Remark 1.
+The multi-stage cascade BVD algorithm enables to reinforce the desired numerical properties respec-
+tively at diﬀerent stages. As formulated in the present method, the oscillation-free property is realized in stage
+(I), while stage (II) is devised to improve numerical dissipation. It implies a great ﬂexibility in designing more
+sophisticated high-resolution schemes.
+Remark 2. Instead of the THINC function with βs, other oscillation-suppressing reconstruction schemes can also be
+used in stage (I) to remove numerical oscillation. We demonstrate other options of the candidate interpolants in
+appendix A, which shows that the BVD scheme with 4th degree polynomial and other TVD schemes can also
+work eﬀectively to eliminate numerical oscillation.
+Remark 3.
+The BVD scheme retrieves the spectral properties of the underlying linear upwind scheme for all
+resolvable waves as shown later in 2.2.4 and appendix B.
+Remark 4.
+As demonstrated in [24] as well as the numerical results later in this paper, using the THINC function
+with a larger steepness parameter (βl) in stage (II) provides an eﬃcient and robust scheme to reduce numerical
+dissipation.
+2.2.4. Spectral property
+We analyzed the spectral property of the proposed scheme by using the approximate dispersion relation (ADR)
+method described in [29]. The numerical dissipation and dispersion of a scheme can be evaluated respectively from
+the imaginary and real parts of the modiﬁed wavenumber.
+The spectral property of the proposed scheme are shown in Fig. 1 in which we also include the 5th order WENO
+scheme, WENO-Z scheme and linear 5th order upwind scheme using (8) for comparisons. The WENO schemes show
+signiﬁcant discrepancies with the linear scheme for high wavenumber regime. It is partly owed to the fact that the
+8
+
+WENO smoothness indicators tend to mis-interpret among high-wavenumberstructures and discontinuities. Although
+the eﬀorts in designing more sophisticated smoothness indicators, including WENO-Z [13] and more recent works
+[18], resolving high-wavenumber structures still remains challenging for WENO schemes.
+On the contrary, the proposed scheme has almost the same spectral property as its underlying linear scheme. In
+appendix B, we extensively examine the spectral properties of the BVD algorithm with other options of the candidate
+interpolants instead of the THINC function. It is found that the BVD algorithm using 4th degree polynomial and other
+existing TVD schemes can also retrieve the spectral properties of the 5th-order linear upwind scheme for all resolvable
+waves except the TVD scheme with the superbee limiter [2] which modulates the solution in the high-wavenumber
+region.
+The BVD method proposed in this work preserves the spectral property of the high order linear interpolation for all
+wave numbers, which surpasses all existing schemes using WENO methodology. The present BVD method creates a
+new path to devise schemes that eliminate numerical oscillation yet enable to take the full advantage of the underlying
+line scheme of high-order polynomials.
+w
+Imag
+0
+0.5
+1
+1.5
+2
+2.5
+3
+-1.5
+-1
+-0.5
+0
+Exact
+5th Upwind
+Present
+WENO-Z
+WENO
+w
+Real
+0
+0.5
+1
+1.5
+2
+2.5
+3
+0
+0.5
+1
+1.5
+2
+2.5
+3
+Exact
+5th Upwind
+Present
+WENO-Z
+WENO
+Figure 1: Approximate dispersion and dissipation properties for diﬀerent schemes. Imaginary parts of modiﬁed wavenumber are shown in the left
+panel, while real parts are shown in the right.
+3. Numerical results
+In this section, we show numerical results for benchmark tests of linear advection equation and Euler equations
+to verify the proposed scheme. All numerical results in one- and two- dimensions are compared with those of the
+WENO schemes. The CFL number 0.4 is used in our tests unless speciﬁcally noted.
+9
+
+3.1. Accuracy test for advection of one-dimensional sine wave
+This test is carried out on gradually reﬁned grids to evaluate the convergence rate of the proposed scheme. The
+initial smooth distribution is given by
+q (x) = sin (πx) , x ∈[−1, 1].
+(17)
+We ran the computation for one period (at t = 2.0) and summarize the numerical errors and the convergence rates
+for WENO, WENO-Z and the proposed scheme in Table 1. Compared with WENO scheme and WENO-Z scheme, the
+proposed scheme generally has smaller L1 and L∞errors. Moreover, the L1 and L∞errors from the proposed scheme
+are exactly the same as those calculated by the 5th order linear upwind scheme, which is in line with the conclusion
+drawn from the spectral property analysis in the previous section. The superior accuracy of the proposed scheme is
+more remarkable when the mesh is coarse. Since the non-linear weights of the WENO schemes cannot recover their
+optimal counterparts under the coarse mesh, the accuracy degrades in spite of smooth initial proﬁle. The WENO-Z
+scheme improves the behavior of non-linear weights by redesigning the smoothness indicator, which makes WENO-Z
+more accurate than the original WENO scheme even though it still does not recover exactly the 5th order linear upwind
+scheme. As stated in [16], high gradients and ﬁne smooth structures may be both regarded as discontinuities by the
+WENO smoothness indicators when grids are relatively coarse. On the contrary, the proposed scheme, without the
+non-linear weights, chooses the 5th order linear upwind scheme exactly following the BVD principle. It is revealed
+that the proposed scheme is able to achieve the highest possible accuracy of the linear high-order reconstruction for
+smooth solutions on all grid resolutions tested.
+3.2. Accuracy test for advection of a smooth proﬁle containing critical points
+We conduct the accuracy test which is more challenging for numerical schemes to distinguish smooth and non-
+smooth proﬁles because the initial distribution contains critical points where high order derivative does not simultane-
+ously vanish. It has been reported in [10] that WENO schemes do not reach their formal order of accuracy at critical
+points. Same as [9], the initial condition is given by
+q (x) = sin4 (πx) , x ∈[−1, 1].
+(18)
+We ran the computation for one period (at t = 2.0) and plot the numerical errors L1 and L∞for WENO, WENO-Z and
+the proposed scheme in Fig. 2. It can be seen that the proposed P4-THINC-BVD scheme exactly restores the accuracy
+of its underlying ﬁfth order upwind scheme as the number of grid cells increase. However, both WENO and WENO-Z
+schemes lose accuracy even with reﬁned mesh. The reason is that the mechanism of WENO non-linear adaptation
+will treat the critical point as non-smooth region. It is also noteworthy that at the coarsest mesh the P4-THINC-BVD
+even gives smaller errors than its underlying linear scheme. Since the distribution of initial proﬁle is less smooth at
+10
+
+Table 1: Numerical errors and convergence rates for linear advection test. Comparisons are made among diﬀerent schemes.
+Schemes
+Mesh
+L1 errors
+L1 order
+L∞errors
+L∞order
+WENO
+20
+1.431 × 10−3
+2.511 × 10−3
+40
+4.473 × 10−5
+5.00
+8.799 × 10−5
+4.83
+80
+1.396 × 10−6
+5.00
+2.822 × 10−6
+4.96
+160
+4.361 × 10−8
+5.00
+8.487 × 10−8
+5.06
+320
+1.361 × 10−9
+5.00
+2.544 × 10−9
+5.06
+WENO-Z
+20
+2.143 × 10−4
+3.537 × 10−4
+40
+6.399 × 10−6
+5.07
+1.029 × 10−5
+5.10
+80
+2.004 × 10−7
+5.00
+3.181 × 10−7
+5.02
+160
+6.320 × 10−9
+4.99
+9.955 × 10−9
+5.00
+320
+2.035 × 10−10
+4.96
+3.197 × 10−10
+4.96
+Present
+20
+1.993 × 10−4
+3.154 × 10−4
+40
+6.372 × 10−6
+4.97
+1.001 × 10−5
+4.98
+80
+2.003 × 10−7
+5.00
+3.147 × 10−7
+4.99
+160
+6.319 × 10−9
+4.99
+9.926 × 10−9
+4.99
+320
+2.035 × 10−10
+4.96
+3.197 × 10−10
+4.96
+5th Upwind
+20
+1.993 × 10−4
+3.154 × 10−4
+40
+6.372 × 10−6
+4.97
+1.001 × 10−5
+4.98
+80
+2.003 × 10−7
+5.00
+3.147 × 10−7
+4.99
+160
+6.319 × 10−9
+4.99
+9.926 × 10−9
+4.99
+320
+2.035 × 10−10
+4.96
+3.197 × 10−10
+4.96
+the coarse mesh, the BVD algorithm will prefer THINC reconstruction which gives smaller numerical errors. This
+test shows that unlike WENO schemes the proposed P4-THINC-BVD can achieve the formal order of accuracy even
+for proﬁles containing critical points. Also, the BVD algorithm will choose the reconstruction function which gives
+smaller numerical dissipation errors.
+3.3. Advection of complex waves
+To examine the performance of the proposed scheme in solving proﬁles of diﬀerent smoothness, we further sim-
+ulated the propagation of a complex wave [9], which includes both discontinuous and smooth solutions. This sample
+test is usually employed to verify the non-oscillatory property as well as numerical dissipation of shock-capturing
+schemes.
+As a commonly reported case in the literature, the numerical results at t = 2.0 (1.0 × 103 steps) on a 200-cell
+mesh of the proposed scheme are plotted in Fig. 3 against the original WENO and WENO-Z schemes. The proposed
+scheme eﬀectively suppresses numerical oscillation as the WENO schemes, while resolving more accurately the
+discontinuous proﬁle. In order to evaluate the performance of the schemes in simulations for long time periods, we
+show the numerical results on a 400-cell mesh at t = 80 (4.0 × 104 steps) and t = 2000 (1.0 × 106 steps) in Figs. 4
+and 5 respectively. More profoundly, the advantage of the proposed scheme becomes more visible in these cases.
+From the results of t = 80 and t = 2000 , it can be seen that the WENO schemes gradually distort the initial proﬁle
+11
+
+log(N)
+Log(L1)
+1.4
+1.6
+1.8
+2
+2.2
+2.4
+-7
+-6
+-5
+-4
+-3
+-2
+5th upwind
+Present
+WENO
+WENO-Z
+log(N)
+Log(L00)
+1.4
+1.6
+1.8
+2
+2.2
+2.4
+-7
+-6
+-5
+-4
+-3
+-2
+-1
+5th upwind
+Present
+WENO
+WENO-Z
+Figure 2: Numerical errors L1 and L∞as a function of the number of grid cells. Comparison are made between WENO, WENO-Z and the proposed
+P4-THINC-BVD scheme.
+and continuously worsen the solution quality, while the proposed scheme adequately resolves both discontinuities and
+smooth solutions even after one million steps of computation as an extreme case. It reveals that the present scheme
+is well suited for simulating physical problems where the free modes are of importance but easily contaminated by
+numerical errors.
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+Present
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+WENO
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+WENO-Z
+Figure 3: Numerical results for advection of complex waves. The numerical solutions at t = 2.0 with 200 mesh cells are presented. Comparisons
+are made among the proposed scheme, the original WENO scheme and the WENO-Z scheme.
+3.4. Sod’s problem
+The Sod problem, which is one of famous benchmark tests for shock-capturing schemes, is employed here to test
+the performance of numerical schemes in solving Euler equations, which include discontinuous solutions like shock
+12
+
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+Present
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+WENO
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+WENO-Z
+Figure 4: Same as Fig. 3, but with 400 mesh cells at t = 80 which corresponds to 4.0 × 104 steps.
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+Present
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+WENO
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+WENO-Z
+Figure 5: Same as the Fig. 3 but with 400 mesh cells at t = 2000 which corresponds to 1.0 × 106 steps.
+front and contact discontinuity. The initial distribution on computational domain [0, 1] is speciﬁed as [30]
+(ρ0, u0, p0) =
+
+(1, 0, 1) ,
+0 ≤x ≤0.5
+(0.125, 0, 0.1) ,
+otherwise
+.
+(19)
+The computation is carried out on a mesh with 100 uniform cells up to t = 0.25. The numerical results calculated from
+the proposed scheme are shown in Fig. 6 for density and velocity ﬁelds respectively. It is observed that the proposed
+scheme can solve both the shock wave and contact discontinuity without numerical oscillations. Moreover, diﬀerent
+from other existing shock-capturing schemes which produce diﬀusive solution around contact discontinuities, the
+proposed scheme can resolve the density jump at the contact discontinuity with only two or three cells.
+3.5. Lax’s problem
+To evaluate the ability of the proposed numerical scheme to capture relatively strong shock, we solve the Lax
+problem [6] in this subsection. The initial condition is given by
+(ρ0, u0, p0) =
+
+(0.445, 0.698, 3.528),
+0 ≤x ≤0.5
+(0.5, 0.0, 0.571),
+otherwise
+.
+(20)
+13
+
+x
+rho
+0
+0.2
+0.4
+0.6
+0.8
+0.2
+0.4
+0.6
+0.8
+1
+exact
+present
+x
+velocity
+0
+0.2
+0.4
+0.6
+0.8
+0
+0.2
+0.4
+0.6
+0.8
+exact
+present
+Figure 6: Numerical results of Sod’s problem for density (left) and velocity (right) ﬁelds at t = 0.25 with 100 mesh cells.
+With 200 uniform cells, the numerical result at t = 0.16 of the proposed scheme is plotted in Fig. 7 in comparison
+with the original WENO scheme. The proposed scheme produces accurate solutions without numerical oscillations.
+Again, the contact discontinuity is resolved very sharply while the result of the WENO scheme looks more diﬀu-
+sive. Compared with other published works [16, 18] which simulate this case with improved schemes using WENO
+methodology, the current result is still one of best.
+To further test the performance of current scheme on problems with stronger discontinuities, we conduct another
+Lax problems with following initial conditions:
+(ρ0, u0, p0) =
+
+(1.0, 0.0, 1000.0),
+0 ≤x ≤0.5
+(1.0, 0.0, 0.01),
+otherwise
+.
+(21)
+With initial high pressure ratio, a right-moving Mach 198 shock and a contact is generated. The computation lasts until
+time t = 0.012 with 200 cell elements. The numerical solutions from diﬀerent schemes for density ﬁeld are plotted
+in Fig. 8. In the same manner, the proposed scheme can resolve the contact discontinuity with superior accuracy
+in comparison with other schemes. For more detailed comparison, we show the zoomed region around the highly
+compressed region in Fig. 8(d). It can be seen that the proposed scheme gives more faithful solution with reduced
+errors in both dissipation and overshooting. The WENO-Z scheme produces the largest overshoot among the tested
+schemes as WENO-Z scheme assigns larger weights to less-smooth stencils in order to reduce numerical dissipation.
+This test justiﬁes the proposed scheme as a robust solver for strong discontinuities with high accuracy.
+14
+
+x
+rho
+0
+0.2
+0.4
+0.6
+0.8
+0.4
+0.6
+0.8
+1
+1.2
+exact
+present
+x
+rho
+0
+0.2
+0.4
+0.6
+0.8
+0.4
+0.6
+0.8
+1
+1.2
+exact
+WENO
+Figure 7: Numerical results of Lax’s problem for density ﬁeld at time t = 0.16 with 200 mesh cells. Comparisons are made between the proposed
+scheme (left panel) and WENO scheme (right panel) against the exact solution (black straight line).
+3.6. Shock/density wave interaction problem
+A high-order shock capturing scheme is expected to be able to solve problems containing shocks and complex
+smooth ﬂow features. Here, we simulate the case proposed by [7], which serves as a good model to mimic the
+interactions in compressible turbulence. In this case, a Mach 3 shock wave interacts with a density disturbance and
+generates a ﬂow ﬁeld containing both smooth structures and discontinuities. The initial condition is set as
+(ρ0, u0, p0) =
+
+(3.857148, 2.629369, 10.333333),
+if 0 ≤x ≤0.1,
+(1 + 0.2 sin (50x −25) , 0, 1) ,
+otherwise.
+(22)
+The numerical solutions at t = 0.18 computed on 200 and 400 mesh elements are shown in Fig. 9, where the reference
+solution plotted by the solid line is computed by the classical 5th-order WENO scheme with 2000 mesh cells. It is
+obvious that the proposed scheme resolves better density perturbations and captures more accurately the peak of the
+waves, especially for the case of coarse mesh.
+To further demonstrate the high resolution property of the new scheme, another shock density wave interaction
+problem is tested here. The initial condition is speciﬁed similarly as [31]
+(ρ0, u0, p0) =
+
+(1.515695, 0.523346, 1.805),
+if x ≤−4.5,
+(1 + 0.1 sin(10πx), 0, 1) ,
+otherwise.
+(23)
+This test involves waves of higher wavenumber thus is a better model for shock-turbulence ﬂow containing wider
+scale of waves.
+The computation is carried out up to t = 5.0. The numerical solutions with 600 and 800 cells are shown in Fig. 10,
+15
+
+x
+rho
+0
+0.2
+0.4
+0.6
+0.8
+0.5
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+5
+5.5
+6
+exact
+present
+(a)
+x
+rho
+0
+0.2
+0.4
+0.6
+0.8
+0.5
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+5
+5.5
+6
+exact
+WENO
+(b)
+x
+rho
+0
+0.2
+0.4
+0.6
+0.8
+0.5
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+5
+5.5
+6
+exact
+WENO-Z
+(c)
+x
+rho
+0.68
+0.7
+0.72
+0.74
+0.76
+0.78
+5.6
+5.8
+6
+exact
+present
+WENO
+WENO-Z
+(d)
+Figure 8: Numerical results of strong Lax’s problem with Mach 198 for density ﬁeld at time t = 0.012 with 200 cells. Comparisons are made
+among diﬀerent schemes. In the right bottom panel, the zoomed region around density peak is presented.
+16
+
+x
+rho
+0.4
+0.6
+0.8
+0
+0.5
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+exact
+present
+WENO
+x
+rho
+0.4
+0.6
+0.8
+0
+0.5
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+exact
+present
+WENO
+Figure 9: Numerical results of shock/density wave interaction problem. Comparisons are made between the proposed scheme and WENO scheme
+against the exact solution. The results with 200 mesh cells are shown in the left panel and those with 400 mesh cells in the right panel.
+where a comparison with the original WENO scheme is included. It can be seen that with a relatively coarse mesh, the
+ﬂow structures from WENO are largely smeared out, while the new scheme has ability to capture small-scale waves
+with high accuracy. We further illustrate the performance of the new scheme in comparison with WENO-Z scheme
+in Fig. 11 which shows a zoomed region for density perturbation. It is obvious that the new scheme shows the best
+solution in maintaining the amplitudes of density waves. It reveals that the new scheme has high resolution property
+to solve complex ﬂow features and is promising to be employed for shock-turbulence interaction problems.
+3.7. Two interacting blast waves
+This benchmark test involves multiple interactions of strong shocks and rarefaction waves, and has been used as a
+challenging problem to shock capturing schemes since it was introduced in [32]. The initial distribution is given by
+(ρ0, u0, p0) =
+
+(1, 0, 1000),
+if 0 ≤x < 0.1,
+(1, 0, 0.01),
+if 0.1 ≤x < 0.9,
+(1, 0, 100),
+if 0.9 ≤x < 1.
+(24)
+Reﬂective boundary conditions are imposed at the two ends of computational domain. Two blast waves are
+generated by the initial jumps in pressure and then develop complex structures through violent interactions. We use
+400 mesh cells as usually found in the literature for this test problem. The numerical result of density at time t = 0.038
+is depicted in Fig. 12 against a reference solution obtained with WENO scheme on a very ﬁne mesh. The solution
+produced by various WENO schemes on 400-cell mesh can be found in many published works, such as [9, 13] where
+contact discontinuities are smeared signiﬁcantly, especially the left-most contact discontinuity around x ≃0.6. On the
+17
+
+x
+rho
+-4
+-2
+0
+2
+4
+1
+1.2
+1.4
+1.6
+exact
+present
+WENO
+x
+rho
+-4
+-2
+0
+2
+4
+1
+1.2
+1.4
+1.6
+exact
+present
+WENO
+Figure 10: Numerical results of another shock/density wave interaction problem. The results with 600 mesh elements are shown in the left panel
+and those with 800 mesh elements in the right panel.
+x
+rho
+-2
+-1.8
+-1.6
+-1.4
+-1.2
+-1
+1.35
+1.4
+1.45
+1.5
+1.55
+1.6
+1.65
+exact
+present
+WENO
+WENO-Z
+x
+rho
+-2
+-1.8
+-1.6
+-1.4
+-1.2
+-1
+1.35
+1.4
+1.45
+1.5
+1.55
+1.6
+1.65
+exact
+present
+WENO
+WENO-Z
+Figure 11: The same as the Fig. 10, but for a zoomed region of high-wavenumber perturbations.
+18
+
+x
+rho
+0
+0.2
+0.4
+0.6
+0.8
+0
+0.5
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+5
+5.5
+6
+6.5
+exact
+present
+Figure 12: Numerical results (density ﬁeld) of two interacting blast waves at t = 0.038 with 400 cells.
+contrary the proposed scheme shows overall better resolution and can capture the left-most contact discontinuity with
+only three points.
+4. Conclusion remarks
+A novel ﬁfth order shock capturing scheme named P4-THINC-BVD is proposed in the context of ﬁnite volume
+method to solve compressible ﬂows that have both smooth and discontinuous solutions of wide-band scales. In P4-
+THINC-BVD, a two-stage cascade BVD algorithm is designed to get high-ﬁdelity solutions for both smooth and
+discontinuous solutions. The present scheme employs the linear ﬁfth order upwind-biased scheme and the THINC
+functions of adaptive steepness as the reconstruction candidates. The ﬁnal reconstruction function is selected from
+these candidates through a two-stage cascade BVD algorithm that minimizes the jumps of the reconstructed values at
+cell boundaries.
+As shown in spectral analysis, if a linear scheme with high order polynomial is used together with other monotonic-
+ity reinforced schemes, like TVD or THINC schemes, the BVD algorithm can retrieve the underlying low-dissipation
+linear scheme for all wave numbers in smooth solutions. The benchmark tests verify that with eﬀectively suppressed
+numerical oscillations and signiﬁcantly reduced numerical dissipation, the proposed P4-THINC-BVD is capable of
+capturing sharp discontinuities and resolving small-scale ﬂow structures with substantially improved solution quality
+in comparison with other existing methods. The P4-THINC-BVD scheme as well as the basic idea presented in this
+paper provides an innovative and practical alternative approach for spatial reconstructions in high order ﬁnite volume
+method to solve hyperbolic conservative systems.
+19
+
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+Numerical
+(a) Minmod
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+Numerical
+(b) Van Leer
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+Numerical
+(c) Superbee
+x
+y
+-0.5
+0
+0.5
+0
+0.2
+0.4
+0.6
+0.8
+1
+Exact
+Numerical
+(d) THINC(βs)
+Figure 13: Numerical results for advection of complex waves at t = 2.0 with 200 mesh cells. Displayed are solutions of the ﬁrst-stage BVD
+presented in §2.2.3 where the minmod (a), van Leer (b), superbee (c) and THINC(βs) (d) schemes are used respectively as the candidate interpolants
+together with the polynomial of degree four.
+Acknowledgment
+This work was supported in part by the fund from JSPS (Japan Society for the Promotion of Science) under Grant
+Nos. 15H03916, 15J09915 and 17K18838.
+Appendix A. Oscillation-free solution of BVD method with 4th-degree polynomial and TVD candidate inter-
+polants
+In this appendix, we show that the BVD algorithm in stage (I) described in §2.2.3 also eﬀectively suppresses
+numerical oscillation when the THINC interpolant is replaced by other existing TVD schemes. Numerical results for
+the advection test of complex waves in subsection 3.3 are presented in Fig. 13. It can be seen that numerical solutions
+are essentially non-oscillatory. Thus, BVD algorithm provides a new general strategy that are not only limited to the
+THINC function but also admits other monotonicity-reinforced schemes as the candidate reconstruction functions to
+suppress numerical oscillations caused by high order interpolations.
+20
+
+Appendix B. Spectral analysis of the BVD method with 4th-degree polynomial and TVD candidate interpolants
+We examine the spectral properties of the BVD method that uses other existing monotonic interpolations instead
+of the THINC function. Fig. 14 shows the numerical dissipations (imaginary parts of the modiﬁed wavenumbers) of
+the BVD algorithm in stage (I) presented in §2.2.3 with diﬀerent TVD type candidate schemes. It is observed that
+the BVD limiting projection which combines the high-order linear upwind scheme with other nonlinear oscillation-
+suppressing schemes can also preserve the spectral properties of the underlying linear upwind scheme with high-order
+polynomials. It implies a great advantage of the BVD method over the schemes based on WENO methodology.
+21
+
+w
+Imag
+0
+0.5
+1
+1.5
+2
+2.5
+3
+-1.5
+-1
+-0.5
+0
+Exact
+5th Upwind
+Minmod-BVD
+WENO
+(a) Minmod
+w
+Imag
+0
+0.5
+1
+1.5
+2
+2.5
+3
+-1.5
+-1
+-0.5
+0
+Exact
+5th Upwind
+VanLeer-BVD
+WENO
+(b) Van Leer
+w
+Imag
+0
+0.5
+1
+1.5
+2
+2.5
+3
+-1.5
+-1
+-0.5
+0
+Exact
+5th Upwind
+Superbee-BVD
+WENO
+(c) Superbee
+w
+Imag
+0
+0.5
+1
+1.5
+2
+2.5
+3
+-1.5
+-1
+-0.5
+0
+Exact
+5th Upwind
+THINC-BVD
+WENO
+(d) THINC(βs)
+Figure 14: Comparison of the spectral properties of the BVD schemes and the WENO scheme. Displayed are the imaginary parts of the modiﬁed
+wavenumber calculated by the ﬁrst-stage BVD presented in §2.2.3 where the minmod (a), van Leer (b), superbee (c) and THINC(βs) (d) schemes
+are used respectively as the candidate interpolants together with the polynomial of degree four.
+22
+
+References
+[1] A. Harten, High resolution schemes for hyperbolic conservation laws, J. Comput. Phys. 49 (1983) 357-393.
+[2] P.K. Sweby, High resolution schemes using ﬂux-limiters for hyperbolic conservation laws, SIAM J. Num. Anal., 21(1984) 995-1011.
+[3] B. Van Leer, Towards the ultimate conservative diﬀerence scheme. V. A second-order sequel to Godunov’s method, J. Comput. Phys. 32
+(1979) 101-136.
+[4] A. Harten, S. Osher, Uniformly high-order accurate non-oscillatory schemes, IMRC Technical Summary Rept. 2823, Univ. of Wisconsin,
+Madison, WI, May 1985.
+[5] A. Harten, B. Engquist, S. Osher, S. Chakravarthy, Uniformly high order accurate essentially non-oscillatory schemes III, J. Comput. Phys.
+71 (1987) 231-323.
+[6] C.W. Shu, S. Osher, Eﬃcient implementation of essentially non-oscillatory shock capturing schemes, J. Comput. Phys. 77 (1988) 439-471.
+[7] C.W. Shu, S. Osher, Eﬃcient implementation of essentially non-oscillatory shock capturing schemes,II, J. Comput. Phys. 83 (1989) 32-78.
+[8] X.D. Liu, S. Osher, T. Chan, Weighted essentially non-oscillatory schemes, J. Comput. Phys. 115 (1994) 200-212.
+[9] G.S. Jiang, C.-W. Shu, Eﬃcient implementation of weighted ENO schemes, J. Comput. Phys. 126 (1996) 202-228.
+[10] A.K. Henrick, T.D. Aslam, J.M. Powers, Mapped weighted essentially non-oscillatory schemes: achieving optimal order near critical points,
+J. Comput. Phys. 207 (2005) 542-567.
+[11] S. Zhao, N. Lardjane, I. Fedioun, Comparison of improved ﬁnite-diﬀerence WENO schemes for the implicit large eddy simulation of turbulent
+non-reacting and reacting high-speed shear ﬂows, Comput. Fluids 95 (2014) 74-87.
+[12] M.P. Martin, Shock-Capturing in LES of High-Speed Flows, Center for Turbulence Research Annual Research Briefs, 2000.
+[13] R. Borges, M. Carmona, B. Costa, W.S. Don, An improved weighted essentially non-oscillatory scheme for hyperbolic conservation laws, J.
+Comput. Phys. 227 (2008) 3191-3211.
+[14] Y.Ha, C.H. Kim, Y.J. Lee, J. Yoon, An improved weighted essentially non-oscillatory scheme with a new smoothness indicator, J. Comput.
+Phys. 232 (2013) 68-86.
+[15] P.Fan, Y. Shen, B. Tian, C. Yang, A new smoothness indicator for improving the weighted essentially non-oscillatory scheme, J. Comput.
+Phys. 269 (2014) 329-354.
+[16] F. Acker, R. Borges, B. Costa, An improved WENO-Z scheme, J. Comput. Phys. 313 (2016) 726-753.
+[17] X.Y. Hu, Q. Wang, N.A. Adams, An adaptive central-upwind weighted essentially non-oscillatory scheme, J. Comput. Phys. 229 (2010)
+8952-8965.
+[18] L. Fu, X.Y. Hu, N.A. Adams, A family of high-order targeted ENO schemes for compressible-ﬂuid simulations, J. Comput. Phys. 305 (2016)
+333-359.
+[19] B.S. van Lith, J.H. ten Thije Boonkkamp, W.L. IJzerman, Embedded WENO: A design strategy to improve existing WENO schemes, J.
+Comput. Phys. 330 (2017) 529-549.
+[20] Z. Sun, S. Inaba, F. Xiao, Boundary Variation Diminishing (BVD) reconstruction: A new approach to improve Godunov schemes, J. Comput.
+Phys. 322 (2016) 309-325.
+[21] B. Xie, X. Deng, Z. Sun, F. Xiao, A hybrid pressure-density-based Mach uniform algorithm for 2D Euler equations on unstructured grids by
+using multi-moment ﬁnite volume method, J. Comput. Phys. 335 (2017) 637-663.
+[22] X. Deng, S. Inaba, B. Xie, K.M. Shyue, F. Xiao, High ﬁdelity discontinuity-resolving reconstruction for compressible multiphase ﬂows with
+moving interfaces, J. Comput. Phys. 371 (2018) 945-966.
+[23] X. Deng, B. Xie, F. Xiao, H. Teng, New Accurate and Eﬃcient Method for StiﬀDetonation Capturing, AIAA J. (2018) 1-15.
+[24] X. Deng, B. Xie, R. Loub`ere, Y. Shimizu, F. Xiao, Limiter-free discontinuity-capturing scheme for compressible gas dynamics with reactive
+fronts, Comput. Fluids, 171 (2018) 1-14.
+[25] D.S. Balsara, C.W. Shu, Monotonicity prserving WENO schemes with increasingly high-order of accuracy, J. Comput. Phys. 160 (2000)
+405-452.
+[26] F. Xiao, S. Ii, C. Chen, Revisit to the THINC scheme: a simple algebraic VOF algorithm, J. Comput. Phys. 230 (2011) 7086-7092.
+[27] F. Xiao, Y. Honma, T. Kono, A simple algebraic interface capturing scheme using hyperbolic tangent function, Int. J. Numer. Methods Fluids
+48 (2005) 1023-1040.
+[28] C. Hirsch, Numerical computation of internal and external ﬂows: The fundamentals of computational ﬂuid dynamics, Butterworth-Heinemann
+(2007).
+[29] S. Pirozzoli, On the spectral properties of shock-capturing schemes, J. Comput. Phys. 219 (2006) 489-497.
+[30] G.A. Sod, A survey of several ﬁnite diﬀerence methods for systems of nonlinear hyperbolic conservation laws, J. Comput. Phys. 27 (1978)
+1-31.
+[31] V.A. Titarev, E.F. Toro, Finite-volume WENO schemes for three-dimensional conservation laws, J. Comput. Phys. 201 (2004) 238-260.
+[32] P. Woodward, P. Colella, The numerical simulation of two-dimensional ﬂuid ﬂow with strong shocks, J. Comput. Phys. 54 (1984) 115-173.
+[33] P. Buchm¨uller, C. Helzel, Improved accuracy of high-order WENO ﬁnite volume methods on Cartesian grids, J. Sci. Comput. 61 (2014)
+343-368.
+[34] R. Zhang, M. Zhang, C.W. Shu, On the order of accuracy and numerical performance of two classes of ﬁnite volume WENO schemes,
+Commun. Comput. Phys. 9 (2011) 807-827.
+[35] G.A. Gerolymos, D. S´en´echal, I.Vallet, Very-high-order WENO schemes, J. Comput. Phys. 228 (2009) 8481-8524.
+[36] Z.H. Jiang, C. Yan, J. Yu, Eﬃcient methods with higher order interpolation and MOOD strategy for compressible turbulence simulations, J.
+Comput. Phys. 371 (2018) 528-550.
+[37] E.F. Toro, 2013. Riemann solvers and numerical methods for ﬂuid dynamics: a practical introduction. Springer Science & Business Media.
+[38] C.W. Schulz-Rinne, Classiﬁcation of the Riemann problem for two-dimensional gas dynamics, SIAM J. Math. Anal 24 (1993) 76-88.
+[39] A. Kurganov, E. Tadmor, Solution of two-dimensional Riemann problems for gas dynamics without Riemann problem solvers, Numer.
+Methods Partial Diﬀerential Equations 18 (2002) 584-608.
+23
+
+[40] M. Dumbser, O. Zanotti, R. Loub`ere, S. Diot, A posteriori subcell limiting of the discontinuous Galerkin ﬁnite element method for hyperbolic
+conservation laws, J. Comput. Phys. 278 (2014) 47-75.
+[41] Y. Ha, C.H. Kim, Y.J. Lee, J. Yoon, An improved weighted essentially non-oscillatory scheme with a new smoothness indicator, J. Comput.
+Phys. 232 (2013) 68-86.
+[42] P. Buchm¨uller, C. Helzel, Improved accuracy of high-order WENO ﬁnite volume methods on Cartesian grids, J. Sci. Comput. 61 (2014)
+343-368.
+[43] R. Abedian, H. Adibi, M. Dehghan, A high-order symmetrical weighted hybrid ENO-ﬂux limiter scheme for hyperbolic conservation laws,
+Comput. Phys. Comm. 185 (2014) 106-127.
+[44] C.Y. Jung, T.B. Nguyen, Fine structures for the solutions of the two-dimensional Riemann problems by high-order WENO schemes, Adv.
+Comput. Math. (2017) 1-28.
+[45] P. Woodward, P. Colella, The numerical simulation of two-dimensional ﬂuid ﬂow with strong shocks, J. Comput. Phys. 54 (1984) 115-173.
+[46] A. Rault, G. Chiavassa, R. Donat, Shock-vortex interactions at high Mach numbers, J. Sci. Comput. 19 (2003) 347-371
+[47] M. Dumbser, M. K¨aser, V.A. Titarev, E.F. Toro, Quadrature-free non-oscillatory ﬁnite volume schemes on unstructured meshes for nonlinear
+hyperbolic systems, J. Comput. Phys. 226 (2007) 204-243.
+24
+
+This figure "drhoBVD3.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2
+
+This figure "presBVDChar5.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2
+
+This figure "drhoBVD7.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2
+
+This figure "drhoBVDVortNN.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2
+
+This figure "drhoWENOFineNN.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2
+
+This figure "drhoWENOVortNN.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2
+
+This figure "presBVDChar10.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2
+
+This figure "rp5wenozL.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2
+
+This figure "rp6.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2
+
+This figure "rp6L.png" is available in "png"
+ format from:
+http://arxiv.org/ps/1811.01379v2

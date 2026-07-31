@@ -1,0 +1,122 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      snappyHexMeshDict;
+}
+
+castellatedMesh true;
+snap true;
+addLayers true;
+
+geometry
+{
+    electrospray_nozzle_full_cad.stl
+    {
+        type triSurfaceMesh;
+        file "electrospray_nozzle_full_cad.stl";
+        regions
+        {
+            liquid_inlet { name liquid_inlet; }
+            inner_nozzle_wall { name inner_nozzle_wall; }
+            nozzle_electrode { name nozzle_electrode; }
+            collector_ground { name collector_ground; }
+            open_atmosphere { name open_atmosphere; }
+        }
+    }
+    nozzleTipRefinement
+    {
+        type searchableSphere;
+        centre (0 0 0);
+        radius 3.900000000000e-04;
+    }
+    jetCoreRefinement
+    {
+        type searchableCylinder;
+        point1 (0 -3.000000000000e-04 0);
+        point2 (0 1.500000000000e-03 0);
+        radius 5.000000000000e-04;
+    }
+}
+
+castellatedMeshControls
+{
+    maxLocalCells 1000000;
+    maxGlobalCells 3000000;
+    minRefinementCells 0;
+    nCellsBetweenLevels 3;
+    features
+    (
+        { file "electrospray_nozzle_full_cad.eMesh"; level 2; }
+    );
+    refinementSurfaces
+    {
+        electrospray_nozzle_full_cad.stl
+        {
+            level (2 3);
+            regions
+            {
+                liquid_inlet { level (3 4); patchInfo { type patch; } }
+                inner_nozzle_wall { level (4 5); patchInfo { type wall; } }
+                nozzle_electrode { level (4 5); patchInfo { type wall; } }
+                collector_ground { level (2 3); patchInfo { type wall; } }
+                open_atmosphere { level (1 2); patchInfo { type patch; } }
+            }
+        }
+    }
+    refinementRegions
+    {
+        nozzleTipRefinement { mode inside; levels ((1e15 5)); }
+        jetCoreRefinement { mode inside; levels ((1e15 3)); }
+    }
+    locationInMesh (0 6.000000000000e-04 0);
+    allowFreeStandingZoneFaces true;
+    resolveFeatureAngle 30;
+}
+
+snapControls
+{
+    nSmoothPatch 3;
+    tolerance 2.0;
+    nSolveIter 30;
+    nRelaxIter 5;
+    nFeatureSnapIter 10;
+    implicitFeatureSnap false;
+    explicitFeatureSnap true;
+    multiRegionFeatureSnap true;
+}
+
+addLayersControls
+{
+    relativeSizes true;
+    layers
+    {
+        inner_nozzle_wall { nSurfaceLayers 3; }
+        nozzle_electrode { nSurfaceLayers 3; }
+        collector_ground { nSurfaceLayers 2; }
+    }
+    expansionRatio 1.2;
+    finalLayerThickness 0.3;
+    minThickness 0.08;
+    nGrow 0;
+    featureAngle 60;
+    nRelaxIter 5;
+    nSmoothSurfaceNormals 1;
+    nSmoothNormals 3;
+    nSmoothThickness 10;
+    maxFaceThicknessRatio 0.5;
+    maxThicknessToMedialRatio 0.3;
+    minMedianAxisAngle 90;
+    nBufferCellsNoExtrude 0;
+    nLayerIter 50;
+}
+
+meshQualityControls
+{
+    #include "meshQualityDict"
+}
+
+writeFlags (scalarLevels layerSets layerFields);
+mergeTolerance 1e-6;

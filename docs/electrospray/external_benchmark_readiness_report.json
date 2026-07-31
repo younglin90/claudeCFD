@@ -1,0 +1,16 @@
+{
+  "completion_gate": "all required external benchmark suites must contain numeric reference_values in every benchmark block",
+  "missing_reference_blocks": {
+    "das_saintillan_droplet": [],
+    "huh_wirz_conejet": []
+  },
+  "ready": true,
+  "required_suites": [
+    "das_saintillan_droplet",
+    "huh_wirz_conejet"
+  ],
+  "suite_status": {
+    "das_saintillan_droplet": true,
+    "huh_wirz_conejet": true
+  }
+}

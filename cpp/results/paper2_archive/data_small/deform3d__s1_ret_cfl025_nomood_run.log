@@ -1,0 +1,3 @@
+VTK saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_deform_cfl/s1_ret_cfl025_nomood/out.vtk
+DeformUnstr recon=bvd mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh cells=2633856 E1=4.390634e-03 volRatio=1.000000 g_range=[-0.0000,1.0098] steps=4920 t=3.0000 wall=7847.0s
+CSV saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_deform_cfl/s1_ret_cfl025_nomood/out.csv (z~0.35 slab)

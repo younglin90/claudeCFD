@@ -1,0 +1,862 @@
+Contents lists available at ScienceDirect
+
+
+journal homepage: www.elsevier.com/locate/jcp
+
+
+# A hybrid boundary-variation-diminishing scheme for compressible flows in primitive variable space
+
+
+## Yong Li a,b, Nansheng Liu a, Yousheng Zhang b,c,d,∗, Yucang Ruan e
+
+a Department of Modern Mechanics, University of Science and Technology of China, Hefei, 230027, China b Institute of Applied Physics and Computational Mathematics, Beijing, 100094, China c Center for Applied Physics and Technology, HEDPS, College of Engineering, Peking University, Beijing, 100871, China d National Key Laboratory of Computational Physics, Beijing, 100088, China e State Key Laboratory for Turbulence and Complex Systems, College of Engineering, Peking University, Beijing, 100871, China
+
+a r t i c l e  i n f o
+
+Keywords: BVD THINC Sharp interface Diffusive interface
+
+a b s t r a c t
+
+Compressible multi(single)-media flows, ubiquitous in engineering and nature, demand numerical schemes capable of simultaneously achieving high-fidelity resolution of multiscale flow structures, sharp interface capturing, and suppression of nonphysical oscillations. The Boundary Variation Diminishing (BVD) algorithm shows promise but faces critical limitations: conventional implementations in characteristic spaces fail for complex equations of state (EOS), while direct application to primitive variables generates chaotic flow fields. To address these limitations, we first identify the underlying causes by which classical BVD schemes generate nonphysical oscillations when applied independently to all primitive variables. By categorizing flow domains into smooth, transitional, and discontinuous regions, we demonstrate that the suboptimal selection of THINC reconstruction in transitional regions by classical BVD schemes initiates artificial disturbances propagating via convective nonlinearity, corrupting the solution. To eliminate oscillations from classical BVD schemes in primitive variables, we introduce a hybrid approach that reconstructs thermodynamic variables via the BVD scheme to preserve discontinuities while employing highorder WENO for velocity reconstruction. This strategy prevents convective amplification of disturbances by ensuring velocity-field accuracy and maintains sharp thermodynamic jumps. To ensure thermodynamic consistency at material interfaces, we reconstruct the conservative variables (𝜌𝑌𝑖) as composite variables instead of independently treating density and mass fractions. This approach inherently maintains consistency between reconstructed density and species concentrations while reducing numerical dissipation at interfaces. Extensive oneand two-dimensional numerical tests for both singleand multi-media flows demonstrate that the proposed algorithm successfully eliminates the aforementioned limitations while performing well in both discontinuity capturing and oscillation suppression, ultimately solving the key challenge of applying BVD algorithms to engineering practice.
+
+1.  Introduction
+
+As one of the most important flow patterns, compressible multi(single)-media flows widely exist in nature and engineering applications [1]. A typical example can be found in inertial confinement fusion (ICF) [2], where the target capsule can be abstracted
+
+∗Corresponding author. E-mail address: zhang_yousheng@iapcm.ac.cn (Y. Zhang).
+
+https://doi.org/10.1016/j.jcp.2025.114482 Received 30 May 2025; Received in revised form 9 October 2025; Accepted 21 October 2025
+
+Journal of Computational Physics 545 (2026) 114482
+
+Available online 25 October 2025 0021-9991/© 2025 Elsevier Inc. All rights are reserved, including those for text and data mining, AI training, and similar technologies.
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+as an onion-like multi-layer spherical shell. The central spherical cavity contains thermonuclear fuel (deuterium-tritium mixture) for fusion reactions, while the surrounding concentric shells consist primarily of carbon-hydrogen (CH) materials doped with impurities. When high-energy lasers irradiate and ablate the outermost shell surface, the spherical capsule implodes through momentum recoil. The extremely high laser energy rapidly transitions the entire capsule into a fluid state, representing a typical compressible multimedia flow. Furthermore, due to non-spherical-symmetric factors such as implosion loading or engineering imperfections, this process is inevitably accompanied by turbulent mixing phenomena induced by interfacial instabilities, such as Rayleigh-Taylor, RichtmyerMeshkov, and Kelvin-Helmholtz instabilities [3,4]. These instabilities cause material interpenetration that significantly affects nuclear reaction.
+
+To accurately simulate the physical evolution of such flows, numerical schemes must simultaneously fulfill the following requirements: (1) long-term sharp capturing of multi-material interfaces before mixing occurs; (2) high-resolution simulation of multi-scale turbulent mixing after its initiation; (3) natural transition capability from initially sharp interfaces to fully developed diffusive interfaces during turbulent mixing evolution; (4) effective suppression of numerical oscillations that may cause non-physical solutions (e.g., thermodynamic quantities becoming negative, mass fractions outside [0,1] bounds) leading to computational failure; (5) robust handling of general and complex equations of state (EOS) for diverse engineering applications. While existing methods may individually address some of these requirements, the principal challenge lies in developing numerical schemes that satisfy all conditions simultaneously. This becomes particularly demanding when dealing with complex EOS formulations encountered in practical engineering scenarios.
+
+Currently, there are two main approaches for simulating compressible multi(single)-media flows: Eulerian methods with fixed grids [5–7], and Lagrangian methods with moving grids (including their derivative arbitrary Lagrangian-Eulerian (ALE) methods [8,9]). While Lagrangian-based methods exhibit natural advantages in capturing material interfaces for multi-media problems, they face significant difficulties when handling large deformations, particularly in high-resolution simulations of multi-scale turbulent mixing. In contrast, Eulerian methods have reached relative maturity for multi-scale turbulent mixing simulations, especially in single-media flow scenarios [10,11]. This study therefore adopts the Eulerian framework. However, when extended to multi-media problems, these methods present two critical challenges that demand resolution [12–14]: (1) Progressive interface smearing over time, failing to maintain physically desired long-term sharp interface preservation; (2) Spurious numerical oscillations near material interfaces that frequently cause computational failure, particularly when handling general materials with different equations of state (EOS).
+
+To suppress interface diffusion, two primary approaches exist: (1) developing high-order numerical schemes [10,15–20], which can only quantitatively reduce the smearing rate but prove insufficient for long-term simulations requiring sharp interface preservation; (2) developing zero-thickness or sharp interface algorithms [1,21–32], which fundamentally prevent interface diffusion. This capability makes such approaches particularly suitable for the current work. For problems involving physically diffusive mixing (as described earlier), completely zero-thickness interfaces prove inappropriate for engineering applications requiring late-stage material mixing. Significant developments in sharp interface techniques include interface steepening algorithms [27,33–35] and Tangent Hyperbolicbased Interface Capturing (THINC) methods [23,30–32]. The THINC scheme has gained increasing attention due to its conceptual simplicity, implementation ease, excellent interface sharpness, and controllable numerical oscillations [23,29–32].
+
+Similar to zero-thickness interface techniques, the THINC method inherently prevents interface widening, making it equally unsuitable for simulating physically diffusive mixing processes as mentioned above. To achieve the desired natural transition from sharp to diffusive interfaces, novel algorithmic approaches are required. Recent developments in Boundary Variation Diminishing (BVD) algorithms [36–39] offer a promising solution. The BVD framework operates through two fundamental steps: (1) Multi-scheme reconstruction: Physical quantities at cell interfaces are reconstructed using two or more numerical schemes with distinct characteristics; (2) Adaptive selection: The total boundary variation (TBV) is computed for each scheme’s reconstruction, with the minimal-TBV reconstruction selected for subsequent computations. This innovative approach combines the strengths of complementary schemes: (a) Sharp-interface-preserving methods such as THINC prevent artificial diffusion, while (b) high-resolution schemes including WENO [40,41] accurately simulate multiscale and diffusive interfaces. By dynamically selecting between these schemes based on local TBV minimization, the BVD algorithm automatically achieves appropriate numerical treatment throughout the interface evolution process, from initial sharp interfaces to developed turbulent mixing states.
+
+Since its inception, the BVD scheme has been successfully applied to a wide range of compressible flows [36–39]. However, existing studies primarily focus on flows with simple analytical equations of state (EOS), such as the ideal gas. Furthermore, the BVD scheme is typically implemented using characteristic variables, as reconstruction in characteristic space enhances numerical accuracy and suppress spurious oscillations [36]. In practical engineering applications, however, analytical EOS are often unavailable or too complex to permit characteristic-based formulations. Consequently, numerical methods must rely on primitive variables-an approach rarely explored in existing studies. As demonstrated in this study, directly applying the classical BVD scheme to all primitive variables introduces non-physical oscillations. To address this gap, we develop an engineering-oriented BVD algorithm capable of operating in primitive-variable space, a design choice that provides a foundation for accommodating complex EOS formulations in future work. The successful implementation and validation in this study demonstrate the scheme’s capability to fulfill requirements (1) sharp interface capturing and (4) oscillation suppression for flows governed by the ideal gas EOS. Furthermore, its design is conducive to achieving natural transition, an aspect to be fully explored in subsequent studies. This work thereby provides a robust foundation for the simulation of diverse compressible flows and serves as an essential step towards fulfilling all five requirements.
+
+This paper is organized as follows. Section 2 presents the physical model and computational framework for compressible multimedia flows. Section 3 details the fundamental principles and implementation procedures of the BVD algorithm. Section 4 addresses the critical modifications developed for engineering applications, including stability-enhancing measures to prevent computational
+
+Journal of Computational Physics 545 (2026) 114482
+
+2
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+failure. Section 5 demonstrates the method’s performance through comprehensive oneand two-dimensional benchmark validations. Finally, Section 6 provides concluding remarks and discusses their implications.
+
+2.  Physical model and computation procedure
+
+For conciseness without loss of generality, we employ the one-dimensional multi-material Euler equations with concentration diffusion model to present the physical model and computational framework:
+
+𝐔𝑡+ 𝐅𝑥(𝐔) = 𝟎, (1)
+
+where multi-dimensional problems can be directly extended with a dimension-by-dimension method [36]. In Eq.  (1), 𝐔(𝑥, 𝑡) = (𝜌, 𝜌𝑢, 𝐸, 𝜌𝑌𝑖)𝖳 denotes the conserved variables, 𝐅(𝐔) = (𝜌𝑢, 𝜌𝑢2 + 𝑝, (𝐸+ 𝑝)𝑢, 𝜌𝑢𝑌𝑖)𝖳 represents the fluxes, and (𝜌, 𝑢, 𝑝, 𝑌𝑖)𝖳 are referred to as primitive variables. Here, 𝑡 and 𝑥 denote time and space coordinates respectively, 𝜌 is the mixture density, 𝑢 the flow velocity, 𝑝 the pressure, 𝑌𝑖 the mass fraction of species 𝑖, 𝐸≡𝑒+ 𝜌𝑢2∕2 the total energy, and 𝑒 the internal energy. To close the system, the mixture equation of state (EOS) must be introduced:
+
+𝑝, 𝑒= 𝑓(𝜌, 𝑇, 𝑌𝑖). (2)
+
+Eq. (2) provides a general symbolic representation. Notably, unlike the simplified analytical equations of state (e.g., the ideal gas) commonly employed in literature, practical engineering applications typically involve either non-analytical EOS formulations (such as tabulated data) or mathematically complex functional forms. This fundamental characteristic prevents the transformation of Eq. (1) into characteristic space, thereby restricting the numerical solution to primitive variable space.
+
+The modeling of mixture equation of state (EOS) for multi-component flows remains a significant challenge. Different thermodynamic assumptions (e.g., isothermal-isobaric, isothermal-partial-pressure, or isothermal-isentropic conditions) yield distinct EOS formulations. As a representative example, we present a standard mixture EOS for multi-component ideal gases under isothermal partial pressure assumption, which serves as the foundation for simulating both miscible and immiscible systems:
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq001.png)
+
+𝑓= 𝑓1 = ⋯= 𝑓𝑚; 𝑓= 𝑇;
+
+𝑓=
+
+𝑚 ∑
+
+𝑖=1 𝑓𝑖, 𝑓= 𝜌, 𝑝;
+
+𝑓=
+
+𝑚 ∑
+
+𝑖=1 𝑌𝑖𝑓𝑖, 𝑓= 𝑐𝑝, 𝑐𝑣, 𝑒
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq002.png)
+
+where 𝑅 denotes the ideal gas constant, 𝑊𝑖 the molar mass of component 𝑖, 𝑉 the volume, 𝑐𝑝 and 𝑐𝑣 the specific heat capacities at constant pressure and volume, respectively, and 𝑒 the specific internal energy. The specific heat ratio for the mixture is then given by 𝛾mix = 𝑐𝑝,mix∕𝑐𝑣,mix, where 𝑐𝑝,mix = ∑𝑌𝑖𝑐𝑝,𝑖 and 𝑐𝑣,mix = ∑𝑌𝑖𝑐𝑣,𝑖, and the specific internal energy of the mixture is given by 𝑒= ∑𝑌𝑖𝑒𝑖. The isothermal partial pressure assumption provides the thermodynamic closure conditions: all gas components and the mixture are in thermal equilibrium at a common temperature 𝑇 (𝑇1 = 𝑇2 = ⋯= 𝑇𝑚= 𝑇), and the total pressure of the mixture is determined by Dalton’s law as the sum of partial pressures (𝑝= ∑𝑚 𝑖=1 𝑝𝑖), where the partial pressure of each component is given by the ideal gas law (𝑝𝑖= 𝜌𝑖𝑅𝑇∕𝑊𝑖).
+
+The numerical solution of the convection terms in Eq. (1) primarily involves two distinct approaches: flux vector splitting (FVS) methods that decompose fluxes into positive and negative components, and flux difference splitting (FDS) methods that utilize halfpoint reconstruction coupled with Riemann solvers. For engineering problems where the equation of state either lacks an analytical form or exhibits extreme complexity, FVS methods demonstrate poor applicability. Even for cases with simpler equations of state where FVS methods could be applied, previous studies [13,14] have revealed that these methods produce significant non-physical oscillations when simulating multi-material flows. Furthermore, while certain techniques may effectively mitigate these numerical oscillations, they typically fail to maintain strict conservation properties - a critical requirement that cannot be compromised in mass-sensitive applications such as thermonuclear fusion calculations. Based on these considerations, the present work adopts a Godunov-type FDS method, which provides better capability in handling the aforementioned challenges while ensuring the necessary conservation properties for high-fidelity simulations.
+
+The numerical solution of Eq. (1) is implemented using a finite volume method on structured Cartesian grids. Temporal discretization employs an explicit third-order Runge-Kutta scheme [42–44], advancing the solution from 𝑡start to 𝑡end through 𝑁𝑡 dynamically determined time steps. The step size Δ𝑡𝑛= 𝑡𝑛+1 −𝑡𝑛 at each stage is controlled by the Courant-Friedrichs-Lax (CFL) condition to maintain numerical stability. For spatial discretization in one-dimensional problems, the computational domain Ω = [𝑥𝐿, 𝑥𝑅] is uniformly partitioned into 𝑁 cells, where the 𝑖th cell 𝐼𝑖= [𝑥𝑖−1∕2, 𝑥𝑖+1∕2] has a constant width Δ𝑥𝑖= 𝑥𝑖+1∕2 −𝑥𝑖−1∕2. Under the standard finite volume framework, the numerical solution 𝐔𝑖(𝑡) represents the cell-averaged quantity over control volume 𝐼𝑖:
+
+𝐔𝑖(𝑡) = 1 Δ𝑥𝑖∫
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq003.png)
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq004.png)
+
+The semi-discrete formulation advances the solution through:
+
+d𝐔𝑖
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq005.png)
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq006.png)
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq007.png)
+
+Journal of Computational Physics 545 (2026) 114482
+
+3
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+where ̃𝐅𝑖+1∕2(𝑡) denotes the numerical flux at interface 𝑖+ 1∕2. The interface flux is computed via Riemann solver using reconstructed states:
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq008.png)
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq009.png)
+
+where 𝐔𝐿,𝑅 𝑖+1∕2 represent the left/right reconstructed states at the cell interface. Currently, various Riemann solvers [45–51] have been developed to solve these problems. These solvers can be formally expressed as:
+
+̃𝐅𝑅𝑖𝑒𝑚𝑎𝑛𝑛 𝑖+1∕2 = 𝐅 [ 𝐔𝐿 𝑖+1∕2
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq010.png)
+
+]
+
+2 ⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟ central part
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq011.png)
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq012.png)
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq013.png)
+
+]
+
+2 ⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏞⏟ dissipative part
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq014.png)
+
+where 𝐚𝑖+1∕2 represents the characteristic wave speed related to the eigenvalues of the Euler equations. In principle, any existing Riemann solver can be employed to compute Eq. (6). This paper specifically adopts the HLLC Riemann solver [51] due to its low numerical dissipation and excellent contact discontinuity preservation capability.
+
+The key challenge involves reconstructing the left and right states 𝐔𝐿 𝑖+1∕2 and 𝐔𝑅 𝑖+1∕2 at cell interfaces. Following the BVD principle, our methodology combines the THINC scheme for sharp discontinuity with high-order nonlinear schemes for smooth regions, achieving accurate state reconstruction while maintaining numerical stability throughout the computational domain.
+
+3.  BVD principle and computation algorithm
+
+Eq. (7) reveals that the Riemann solver comprises two distinct components, with the latter term representing numerical dissipation. To achieve physically accurate flow simulations, it is imperative to minimize such non-physical dissipation. From Eq. (7), we define the Boundary Variation (BV) at cell interface 𝑖+ 1∕2 as: BV𝑖+1∕2(𝐔) = |𝐔𝑅 𝑖+1∕2(𝑡) −𝐔𝐿 𝑖+1∕2(𝑡)|. Obviously, a smaller BV value directly correlates with reduced numerical dissipation in both the Riemann solver and the overall algorithm. For grid cell 𝐼𝑖, we further define the Total Boundary Variation (TBV) as:
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq015.png)
+
+The BVD algorithm’s core methodology involves three key steps. First, for each grid cell, reconstruct the half-point states 𝐔𝐿,𝑅 𝑖±1∕2(𝑡) using at least two different numerical schemes, employing left-biased and right-biased stencils respectively. Second, compute the corresponding TBV𝑖(𝐔) for each candidate scheme. Third, select the reconstruction scheme yielding the minimal TBV𝑖(𝐔) to determine the final interface values 𝐔𝐿,𝑅 𝑖±1∕2(𝑡) for Riemann solver computations. Although the original BVD framework recommends specific candidate schemes in its documentation, it imposes no fundamental restrictions on either the quantity or type of admissible numerical schemes [39]. In principle, both linear and nonlinear reconstruction schemes are permissible, with the minimum requirement being at least two candidate schemes. This flexibility allows the reconstructed half-point values obtained through the above three-step BVD procedure to be treated as an equivalent reconstruction scheme. Such equivalent schemes can then be combined with additional candidate schemes, enabling the construction of multi-stage BVD algorithms through iterative application of the core methodology. A representative implementation is the 𝑃𝑛𝑇𝑚 scheme [38], where 𝑃𝑛 denotes 𝑛th order linear polynomial reconstruction and 𝑇𝑚 represents 𝑚-level THINC reconstructions with progressively varying steepness parameters. The 𝑃𝑛𝑇𝑚 scheme operates through the following multi-level selection process:
+
+• Stage 1: Apply BVD selection between 𝑃𝑛 (𝑛th order polynomial reconstruction) and first-level THINC reconstruction (𝑇1 with 𝛽1)
+
+• Stage 2: Using the output from Stage 1 as a new equivalent reconstruction scheme, perform another BVD selection between this scheme and a second-level THINC reconstruction (𝑇2 with 𝛽2), where 𝛽2 > 𝛽1 for sharper interface capturing
+
+• Stage k: (For each subsequent stage up to 𝑚 levels): – Take the output from Stage (𝑘−1) as the current equivalent reconstruction scheme – Apply BVD selection between this scheme and a new THINC reconstruction (𝑇𝑘 with 𝛽𝑘) – Progressively increase steepness parameter (𝛽𝑘> 𝛽𝑘−1)
+
+This multi-stage approach systematically combines the advantages of high-order polynomial reconstruction and sharp discontinuity capturing within the BVD framework.
+
+Following the above logical framework, the selection of two appropriate reconstruction schemes for 𝐔𝐿,𝑅 𝑖±1∕2(𝑡) becomes crucial in the BVD algorithm. As previously discussed, accurate simulation of compressible (single and multi-material) flows requires simultaneous resolution of both high-order flow features and material interfaces. This necessitates one scheme capable of capturing strong discontinuities and another specialized for resolving smooth multi-scale flow structures. For discontinuity-preserving reconstruction, the academic community has developed several approaches: monotonicity-preserving schemes based on TVD principles [18,52–54], WENO schemes employing smoothness-indicator-weighted stencil combinations [40,55], and THINC schemes utilizing adjustable hyperbolic tangent functions [23,30–32]. Among these, THINC schemes exhibit better performance in maintaining sharp material interfaces without numerical smearing over time, making them particularly suitable for interface-dominated problems. Consequently, this work selects the THINC scheme as one of the two fundamental reconstruction schemes, whose implementation details will be elaborated below.
+
+Journal of Computational Physics 545 (2026) 114482
+
+4
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+For a three-point stencil {𝑖−1, 𝑖, 𝑖+ 1} with monotonic volume averages (𝑈𝑖−1 −𝑈𝑖)(𝑈𝑖−𝑈𝑖+1) > 0, the THINC reconstruction function see [56] within cell 𝐼𝑖 is given by:
+
+𝑈𝑖(𝑥) = 𝑈min + 𝑈max
+
+2
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq016.png)
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq017.png)
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq018.png)
+
+where 𝑈min = min(𝑈𝑖−1, 𝑈𝑖+1), 𝑈max = max(𝑈𝑖−1, 𝑈𝑖+1) −𝑈min, and Γ = sgn(𝑈𝑖+1 −𝑈𝑖−1). The parameter 𝛽 controls the sharpness of discontinuities (larger 𝛽 yields sharper discontinuities [23,30,32]). While 𝛽 can theoretically take any positive real value, the recommended range is between 1.1 and 2.3 (for the latest understanding of 𝛽 parameter selection, see [57]). The only unknown ̃𝑥𝑖 in Eq. (9) is determined through the finite volume constraint: 1
+
+Δ𝑥𝑖∫𝐼𝑖𝑈𝑖(𝑥)𝑑𝑥= 𝑈𝑖. Substituting the obtained ̃𝑥𝑖 into Eq. (9), the reconstructed
+
+values at cell interfaces 𝑥𝑖±1∕2 are given by [56]:
+
+⎧ ⎪ ⎨ ⎪⎩
+
+𝑈𝐿 𝑖+1∕2 = 𝑈min + 𝑈max
+
+2
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq019.png)
+
+1 + 𝐴tanh 𝛽
+
+)
+
+𝑈𝑅 𝑖−1∕2 = 𝑈min + 𝑈max
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq020.png)
+
+with coefficients defined as: 𝐴= 1 tanh 𝛽
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq021.png)
+
+𝑈max + 2𝜖 , (𝜖= 10−20). For non-monotonic volume av-
+
+erages in adjacent cells (i.e., when 𝑈𝑖 is a local extremum), the interface states can be simply set as: 𝑈𝐿 𝑖+1∕2 = 𝑈𝑅 𝑖−1∕2 = 𝑈𝑖(𝑥) = 𝑈𝑖, or computed using higher-order schemes (e.g., TVD schemes [58]). This paper adopts the former approach.
+
+Building upon the THINC scheme selection, the second reconstruction scheme must effectively capture multi-scale flow structures in smooth regions. Various linear and nonlinear high-order schemes qualify as potential candidates, including the recently developed high-order Monotonicity-Preserving scheme (MP-R) [18]. For the present study, to facilitate direct comparison with the well-established and widely-used 5th-order WENO scheme (WENO5) in subsequent algorithm development, we select WENO5 as the second reconstruction scheme to ensure fair evaluation.
+
+With the two fundamental reconstruction schemes established, this work implements a two-stage BVD algorithm analogous to 𝑃4𝑇2 [38] to simultaneously achieve sharp interface preservation while maintaining essentially oscillation-free solutions near discontinuities. The computational workflow involves:
+
+1) First-stage BVD algorithm:
+
+a) Reconstruct half-point values 𝑅WENO5 (using WENO5 scheme) and 𝑅Th𝛽1 (using THINC scheme with smaller steepness parameter 𝛽1).
+
+b) For each cell 𝐼𝑖, compute the total boundary variations: 𝑇𝐵𝑉𝑅WENO5 𝑖 for WENO5 and 𝑇𝐵𝑉 𝑅Th𝛽1 𝑖 for THINC.
+
+c) Selection criterion: If 𝑇𝐵𝑉𝑅WENO5 𝑖 > 𝑇𝐵𝑉 𝑅Th𝛽1 𝑖 , assign 𝑅Th𝛽1 to the current cell 𝐼𝑖 and its immediate neighbors 𝐼𝑖−1, 𝐼𝑖+1; that is, the half-point values 𝑈𝑅 𝑖−3
+
+2
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq022.png)
+
+2
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq023.png)
+
+2
+
+, 𝑈𝐿 𝑖+ 1
+
+2
+
+, 𝑈𝑅 𝑖+ 1
+
+2
+
+, and 𝑈𝐿 𝑖+ 3
+
+2
+
+are reconstructed by the THINC scheme with 𝛽1. Otherwise,
+
+retain 𝑅WENO5. The final output of the first stage (BVD1) is defined for the stencil {𝐼𝑖−1, 𝐼𝑖, 𝐼𝑖+1} as:
+
+𝑅(𝑘) BVD1 =
+
+⎧ ⎪ ⎨ ⎪⎩
+
+𝑅(𝑘) Th𝛽1, if 𝑇𝐵𝑉𝑅WENO5 𝑖 > 𝑇𝐵𝑉 𝑅Th𝛽1 𝑖 𝑅(𝑘) WENO5, otherwise
+
+for 𝑘= 𝑖−1, 𝑖, 𝑖+ 1
+
+2) Second-stage BVD algorithm:
+
+a) Obtain 𝑅BVD1 from Stage 1 and reconstruct half-point values 𝑅Th𝛽2 with THINC scheme (larger steepness 𝛽2).
+
+b) For each 𝐼𝑖, compute 𝑇𝐵𝑉 𝑅BVD1 𝑖 (from Stage 1 output) and 𝑇𝐵𝑉 𝑅Th𝛽2 𝑖 (new THINC reconstruction).
+
+c) Final selection: If 𝑇𝐵𝑉 𝑅BVD1 𝑖 > 𝑇𝐵𝑉 𝑅Th𝛽2 𝑖 , assign 𝑅Th𝛽2 only to 𝐼𝑖 itself (excluding adjacent cells); that is, the half-point values 𝑈𝑅 𝑖−1
+
+2
+
+and 𝑈𝐿 𝑖+ 1
+
+2
+
+are reconstructed by the THINC scheme with 𝛽2. Otherwise, keep 𝑅BVD1. The ultimate output of the second
+
+stage (BVD2) is defined as:
+
+𝑅(𝑖) BVD2 =
+
+⎧ ⎪ ⎨ ⎪⎩
+
+𝑅(𝑖) Th𝛽2, if 𝑇𝐵𝑉 𝑅BVD1 𝑖 > 𝑇𝐵𝑉 𝑅Th𝛽2 𝑖 𝑅(𝑖) BVD1, otherwise for cell 𝐼𝑖
+
+where 𝑅BVD2 is used for Riemann solver computations.
+
+In the two-stage BVD algorithm described above, to ensure the discontinuity maintains essentially non-oscillatory properties, the 𝛽 value of the THINC scheme in the first-stage BVD should be relatively small. The value 𝛽1 = 1.1 is selected as the steepness parameter for the first-stage BVD reconstruction based on two primary reasons. First, studies by Deng et al. [59] conclude that with 𝛽= 1.1, the THINC scheme exhibits similar but slightly better performance than the TVD scheme with van Leer’s limiter. A larger 𝛽 allows the THINC scheme to generate compressive or anti-diffusion effects on numerical solutions, which effectively preserve discontinuous flow structures. Second, theoretical work by Ruan et al. [60] demonstrated that for the THINC
+
+Journal of Computational Physics 545 (2026) 114482
+
+5
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+scheme to maintain second-order accuracy in smooth regions, the theoretical value of the steepness parameter is 𝛽= ln 3 ≈1.0986. This value is commonly adopted as the infimum for adaptive steepness selection near discontinuities. Building upon this theoretical foundation, our choice of 𝛽1 = 1.1 represents a practical and carefully chosen compromise that balances the sharpness of discontinuity capture with the robustness of the overall computation. In the second-stage BVD, the THINC scheme is selected to further sharpen the discontinuity as much as possible, and the corresponding 𝛽 value should be relatively large. Based on previous literature research, this paper sets 𝛽2 = 1.6 [36], at which value the THINC scheme can effectively prevent significant smearing of the discontinuity sharpness over time. Obviously, other combinations of 𝛽1 and 𝛽2 are theoretically possible, such as setting 𝛽2 to a very large value like 𝛽2 = 2.3. However, an excessively large 𝛽2, while making the discontinuity sharper, may also introduce excessive anti-diffusion that leads to nonphysical solutions and nonphysical numerical oscillations causing divergence.
+
+It is theoretically noted that the hybrid nature of the BVD algorithm could introduce additional Boundary Variation (BV) at interfaces between cells reconstructed with different schemes. However, the two-stage structure is designed to mitigate this. The first stage (BVD1) proactively constructs a stable buffer transition region by applying a low-dissipation, TVD-like THINC scheme to a 3-cell stencil around any candidate cell. This ensures a gradual transition from the high-order WENO scheme and prevents abrupt, spurious jumps in reconstruction methodology that could generate artificial BV. The second stage (BVD2) then acts conservatively on this pre-smoothed field; it applies a sharper reconstruction only to the central cell itself, deliberately minimizing the any potential ‘contamination’ of surrounding smooth regions already regularized by the first stage. This strategic stepped approach ensures that any interfaces between different schemes are managed to minimize non-physical artifacts. The overarching goal is to replace numerical dissipation with a physically sharper profile at discontinuities, where the benefits far outweigh the potential minor artifacts at scheme interfaces, which are negligible in smooth regions. The numerical results presented in Section 4 confirm the effectiveness of this approach in achieving an overall reduction in numerical dissipation while maintaining stability.
+
+The proposed BVD algorithm demonstrates the following characteristics: In smooth regions, the total boundary variation (TBV) computed using high-order schemes is typically smaller than that obtained from THINC schemes. Consequently, the algorithm automatically selects the high-order scheme for computation, ensuring high accuracy. For discontinuous regions, the THINC scheme generally yields smaller TBV values compared to nonlinear high-order schemes, leading the algorithm to preferentially employ the THINC reconstruction. The two-stage BVD algorithm, constructed using THINC schemes with different 𝛽 values, achieves two critical objectives: (1) maintaining essentially non-oscillatory properties at interfaces while (2) preserving sharp interface characteristics. Furthermore, when physical conditions require appropriate dissipation at discontinuities, the BVD principle provides a mechanism to automatically select suitable nonlinear high-order schemes that can effectively simulate diffusion. In summary, this algorithm provides a unified framework that adaptively selects the appropriate reconstruction based on the local flow field. The validation results in this study demonstrate its efficacy in achieving two primary objectives under the ideal gas EOS: (i) maintaining essentially nonoscillatory properties at discontinuities while (ii) preserving sharp interface characteristics. Furthermore, the BVD principle offers a mechanistic pathway to automatically introduce numerical dissipation when needed. The algorithm’s design, particularly its operation in primitive-variable space and its adaptive selection logic, establishes a crucial foundation for pursuing the broader objectives of capturing complex interface phenomena, including diffusive interfaces and adaptive transitions, in future work involving complex EOS and real multi-material flows.
+
+For notational simplicity in subsequent sections, we define: NND2 as the second-order TVD scheme with Minmod limiter, WENO5 as the classical fifth-order WENO scheme, THINC𝛽 as the THINC scheme with specific 𝛽 values in Eq. (9) (where THINC without parameters denotes the default 𝛽= 1.1), and BVD𝛽1 −𝛽2 as the two-stage BVD algorithm applied directly to all primitive variables using the WENO5-THINC𝛽1-THINC𝛽2 combination (with BVD without parameters indicating default parameters 𝛽1 = 1.1, 𝛽2 = 1.6). The notation Current refers to the proposed algorithm in this work, Reference𝑋 denotes reference solutions obtained using classical WENO5 on X grid points, and Exact represents analytical solutions.
+
+4.  Improved BVD scheme
+
+While we have previously established the general methodology for applying the BVD algorithm to reconstruct an arbitrary variable 𝑓, the specific choice of physical variables for implementing this algorithm when solving the governing equations (Eq. (1)) remains unaddressed. Despite its critical importance, the academic community has not yet reached a consensus on this fundamental issue. Existing literature predominantly focuses on flows governed by simple equations of state (e.g., ideal gas), where the BVD algorithm is conventionally applied in characteristic variable space to better suppress numerical oscillations. However, two unresolved questions persist: (1) which specific characteristic variables should be selected for BVD reconstruction, and (2) what execution order should be followed when applying the BVD algorithm to these variables. Currently, these choices lack rigorous theoretical foundations and are primarily determined empirically. Recent work by Siengdy Tann et al. [36] proposed two contrasting approaches: The first treats all characteristic variables as mutually independent quantities, applying BVD reconstruction separately to each variable. This method was found to produce excessive numerical dissipation and generate chaotic flow fields. The second approach considers characteristic variable couplings and implements a complex, sequentially ordered multi-stage BVD strategy based on extensive numerical experimentation [36]. However, the underlying mechanisms of this approach remain unclear, and its application to certain problems (e.g., Rayleigh-Taylor instability) still produces nonphysical numerical disturbances, limiting its generalizability.
+
+Journal of Computational Physics 545 (2026) 114482
+
+6
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 1. Cause analysis of chaotic flow field calculated by the classical BVD scheme.**
+
+4.1.  Analysis of chaotic flow fields in classical BVD implementation
+
+As discussed in previous sections, solving Eq. (1) in characteristic fields becomes infeasible for practical engineering problems with complex physics. Consequently, this work develops a BVD implementation strategy operating entirely in primitive variable space. The most straightforward approach, following the algorithmic framework presented in Section 3, directly applies the BVD algorithm independently to all primitive variables required by the Riemann solver. Specifically, for the system described by Eq. (1), we treat 𝜌, 𝑢, 𝑇 (or equivalently 𝑝), and 𝑌𝑖 as independent variables, sequentially applying BVD reconstruction to each before feeding the reconstructed half-point values into the Riemann solver. We designate this approach as the classical BVD Algorithm. However, as demonstrated by numerous test cases in Section 5, this direct implementation frequently generates nonphysical, chaotic flow fields. The algorithm’s tendency to produce numerical instabilities renders it impractical for engineering applications, despite its conceptual simplicity.
+
+The analysis of chaotic flow fields generated by the classical BVD Algorithm is presented below with reference to Fig. 1. We begin by introducing an abstract zoning of the flow field. While previous studies typically divided flows into just smooth and discontinuous regions, this work proposes an additional critical partition - the “transition region” - to better elucidate the underlying issues. Thus, we categorize the simulated flow field into three distinct zones: (1) smooth regions (continuous and differentiable); (2) discontinuous regions (neither continuous nor differentiable); and (3) transition regions (continuous but non-differentiable).
+
+With the aforementioned region classification established, we now evaluate the performance of different numerical schemes in each region. To isolate and examine the schemes’ accuracy properties, we consider the simplest linear advection equation:
+
+𝜕𝑓
+
+𝜕𝑡+ 𝜕𝑓
+
+𝜕𝑥= 0, (11)
+
+defined on the computational domain [0, 1] discretized with 200 uniform grid points, employing periodic boundary conditions. Corresponding to smooth, discontinuous, and transition regions, we design the following initial conditions respectively:
+
+𝑓(𝑥, 0) = sin(2𝜋𝑥) + 2 (Smooth region), (12)
+
+𝑓(𝑥, 0) =
+
+{ 1, 𝑥< 0.5
+
+2, otherwise (Discontinuous region), (13)
+
+𝑓(𝑥, 0) =
+
+⎧ ⎪ ⎨ ⎪⎩
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq024.png)
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq025.png)
+
+7, elsewhere
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq026.png)
+
+Figs. 2–4 present the computational results for different regions using various schemes, leading to the following key observations: (1) Smooth regions: When employing the THINC1.1 scheme, which produces results similar to the NND2 scheme, its fundamental reconstruction based on discontinuous functions inherently tends to flatten smooth regions (particularly observable at extrema).
+
+Journal of Computational Physics 545 (2026) 114482
+
+7
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 2. Comparison of computational results after one-cycle advection of initial distribution from Eq. (12) using different numerical schemes. Right panel shows local magnification of left panel results.**
+
+
+> **Fig. 3. Comparison of computational results after one-cycle advection of initial distribution from Eq. (13) using different numerical schemes. Right panel shows local magnification of left panel results.**
+
+Furthermore, as the 𝛽 value increases, the scheme’s performance in smooth regions deteriorates progressively, generating stair-like nonphysical disturbances. In summary, for smooth regions, the high-order WENO5 scheme demonstrates optimal simulation accuracy.
+
+(2) Discontinuous regions: Although all schemes maintain non-oscillatory solutions, their capabilities in capturing interface sharpness differ significantly. The NND2 scheme produces the most dissipative results at discontinuities, followed by the THINC scheme with 𝛽= 1.1 (which behaves similarly to NND2), and then the WENO5 scheme. The sharpness of captured discontinuities improves progressively with increasing 𝛽 values. Therefore, for discontinuous regions, THINC schemes with higher 𝛽 values achieve the best simulation performance.
+
+(3) Transition regions: The test case in Fig. 4 contains three critical transition regions (both shoulders and the V-profile valley). High-𝛽 THINC schemes generate nonphysical disturbances in all transition regions, while THINC1.1 outperforms NND2 but still inadequately resolves the valley minimum compared to WENO5. Although no existing scheme perfectly captures transition regions, WENO5 currently offers the best compromise, highlighting the need for developing specialized numerical treatments for non-differentiable transition regions.
+
+Evidently, based on the aforementioned tests, ideally we would expect the reconstruction scheme selector in the BVD algorithm to automatically choose: (1) high-𝛽 THINC schemes for discontinuous regions, and (2) WENO-type schemes that simultaneously maintain high-order accuracy in smooth regions while adequately resolving transition regions. However, in practical computations, the selector often fails to achieve this optimal behavior, frequently employing THINC schemes - sometimes even those with large 𝛽 values - in nondiscontinuous regions. This suboptimal selection inevitably introduces nonphysical numerical disturbances, as demonstrated through the following simple illustrative example.
+
+Journal of Computational Physics 545 (2026) 114482
+
+8
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 4. Comparison of numerical solutions for one-cycle advection of initial distribution defined in Eq. (14) using different schemes. Last three panels display zoomed-in regions of the first panel.**
+
+We consider here a one-dimensional advection problem of a V-shaped density profile using the Euler equations specified in Eq. (1). The initial density distribution follows Eq. (14), while the velocity and pressure fields are initialized uniformly (𝑢= 1, 𝑝= 1∕𝛾 with 𝛾= 1.4). Under these conditions, through straightforward derivation, the Euler Eq. (1) reduce to the simplest linear advection Eq. (11). The computation is performed on the domain [0, 2] discretized with 400 uniform grid points, employing non-reflective outflow boundary conditions at both ends. With a CFL number of 0.5, the simulation terminates at 𝑡= 1. The detailed results are presented in Fig. 5.
+
+In the previous test case, the nonphysical numerical disturbances generated by the THINC scheme with 𝛽= 1.1 in linear advection computations were nearly imperceptible. To more clearly demonstrate the artificial disturbances produced by the BVD algorithm, Fig. 5 intentionally includes an additional test case using the BVD 1.2-1.6 scheme (this parameter combination represents a previously recommended configuration in BVD literature, whose numerical characteristics resemble TVD schemes employing the “VanLeer” limiter [36]). The selection of a slightly larger 𝛽1 = 1.2 enhances the scheme’s tendency to compress smooth regions into stair-stepped profiles, thereby amplifying the observable disturbances. The computational results in Fig. 5 reveal two key observations: First, while the default BVD scheme with 𝛽1 = 1.1 produces no visually detectable disturbances, the BVD 1.2-1.6 scheme generates pronounced artificial oscillations at both shoulder zones of the transition regions. Second, for both schemes, the vicinity of the V-profile’s vertex exhibits only expected numerical dissipation-induced smoothing without significant oscillatory artifacts.
+
+To elucidate the aforementioned phenomena, Fig. 6 presents both the temporal evolution of density profiles and the corresponding scheme selection patterns for the default BVD and BVD 1.2-1.6 algorithms. The analysis reveals several key findings regarding numerical oscillation mechanisms. The absence of significant oscillations near the V-profile vertex directly correlates with both schemes’ consistent selection of WENO5 reconstruction in this region. Examination of the density profiles shows that artificial disturbances generated by BVD 1.2-1.6 originate exclusively at transition regions (shoulder zones) before propagating outward through convective transport. The analysis of scheme selection patterns reveals: in regions exhibiting nonphysical disturbances, the BVD 1.2-1.6
+
+Journal of Computational Physics 545 (2026) 114482
+
+9
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 5. Comparison of results calculated by different methods for the Euler Eq. (1) at 𝑡= 1. Here, the initial density distribution is given by Eq. (14), and the velocity and pressure are constant at the initial values throughout the calculation, so they are omitted here. The last three plots are local enlargements of the first plot.**
+
+algorithm ultimately employs the THINC scheme with 𝛽1 = 1.2 for reconstruction. In contrast, the default BVD scheme selects the WENO5 reconstruction in these regions. As previously demonstrated in Fig. 4, polynomial-based WENO5 reconstructions prove more appropriate than the discontinuity-based THINC schemes for transition zone. The observed numerical artifacts therefore originate from the BVD selector’s failure to choose the optimal WENO5 scheme in transition regions. This improper selection initiates nonphysical disturbances that subsequently amplify through numerical convection, explaining both their emergence at transition regions and subsequent propagation characteristics.
+
+Through the simple Eulerian advection test case with constant velocity, we have clearly demonstrated that selecting THINC reconstruction in non-discontinuous regions may generate nonphysical numerical disturbances, with larger 𝛽1 values producing stronger artifacts. It should be additionally noted that in this simplest test configuration, the uniform flow velocity eliminates relative motion between fluid elements. When observed from a Galilean reference frame moving with the flow velocity (neglecting density disturbances), the entire flow field essentially behaves as a rigid body. The fundamental distinction between fluids and rigid bodies lies precisely in the existence of relative motion between fluid particles. Therefore, we now proceed to examine a more representative Eulerian test case incorporating intrinsic fluid motion with relative velocity.
+
+Building on our previous analysis showing numerical oscillations primarily originate near transition regions, we investigate a one-dimensional 123 near-vacuum problem with the following initial distribution:
+
+(𝜌, 𝑢, 𝑝, 𝛾) = { (7.0, −1.0, 0.2, 1.4) for −1 < 𝑥≤0, (7.0, 1.0, 0.2, 1.4) for 0 < 𝑥≤1. (15)
+
+This configuration exhibits several key features. Initially, both density and pressure remain constant throughout the computational domain. When the simulation begins, fluid elements on the left and right sides move outward with equal but opposite velocities, while the central fluid remains stationary due to symmetry. This creates a perfectly symmetric linear velocity profile centered at
+
+Journal of Computational Physics 545 (2026) 114482
+
+10
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 6. Numerical results computed using (left) default BVD scheme and (right) BVD 1.2-1.6 scheme for the problem in Fig. 5, showing (top) selected reconstruction schemes and (bottom) density profiles at different time instants. The color map indicates the reconstruction scheme selected at each grid point: blue denotes cases where neither stage of the two-stage BVD selected THINC reconstruction; green represents selection of THINC reconstruction exclusively in the first stage; yellow indicates THINC application solely in the second stage; red shows where both stages employed THINC reconstruction. (For interpretation of the references to colour in this figure legend, the reader is referred to the web version of this article.)**
+
+𝑥= 0. As time progresses, the central region’s density decreases continuously, asymptotically approaching vacuum conditions. The flow dynamics generate two symmetric rarefaction waves propagating outward. Both the wave fronts and the central interaction zone represent characteristic transition regions. This test case is ideally suited for our investigation because it contains only rarefaction waves and their induced transition regions, with one of the simplest linear velocity profiles. The absence of shocks or contact discontinuities allows us to isolate the specific numerical artifacts arising in transition regions.
+
+We conduct numerical simulations of this 123 problem using 400 uniform grid points across the domain [−1, 1], with a CFL number of 0.5 and outflow boundary conditions on both ends. The computation proceeds until 𝑡= 0.6. Fig. 7 displays the temporal evolution of velocity and density profiles computed by different schemes, while Fig. 8 presents the spatial distribution of reconstruction schemes selected by our default BVD 1.1-1.6 algorithm at various timesteps. These results demonstrate that a transition region forms at the center where leftand right-propagating rarefaction waves interact, consistent with theoretical expectations. Within this region, the algorithm initially selects the THINC scheme (specifically the secondary THINC variant with 𝛽2 = 1.6), which proves suboptimal for transition zone reconstruction, generating small but measurable nonphysical disturbances. Through the nonlinear coupling inherent in the Euler equations, these density perturbations propagate to the velocity field, inducing artificial oscillations even in regions initially devoid of transition characteristics. This cascade effect ultimately produces spurious oscillations in all primary variables (velocity, density, and pressure) near the central region. Notably, analogous to the V-profile advection case, employing larger 𝛽1 values in this test produces stronger artificial disturbances at the rarefaction wave shoulders (left and right transition regions). The perturbation amplitude exhibits a positive correlation with 𝛽1 magnitude.
+
+4.2.  Hybrid BVD scheme
+
+Our previous analysis demonstrates that for general flow problems, the application of THINC reconstruction in non-discontinuous regions (particularly transition regions) can generate nonphysical numerical oscillations. While complete elimination of these artifacts would require an ideal reconstruction scheme selector (a fundamentally challenging task beyond this study’s scope), we instead address a more practical question within the existing BVD framework: Given the inevitable presence of small disturbances, can we suppress their nonlinear amplification? Indeed, our answer is affirmative, and our proposed solution emerges from three key insights:
+
+Journal of Computational Physics 545 (2026) 114482
+
+11
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 7. (left) Density and (right) velocity profiles at = 0.6 for the 123 problem computed using different numerical schemes. The bottom row shows magnified views of corresponding regions in the top row.**
+
+
+> **Fig. 8. Numerical scheme distributions for reconstructed (left) density and (right) velocity fields at different times for the 123 problem, computed using the default BVD 1.1-1.6 scheme proposed in this work. Color coding follows the same convention as in Fig. 6.**
+
+First, the relative motion between fluid elements, as embodied in velocity field gradients, serves as the primary driver of nonlinear disturbance growth. Second, small density fluctuations might not cause major problems, but the velocity field must stay precise to keep the solution stable. Finally, applying THINC reconstruction to the velocity field in non-discontinuous regions can generate nonphysical numerical oscillations. This leads to our central strategy: By strategically preventing unphysical disturbances from arising in the velocity field, we can suppress the further nonlinear evolution of these disturbances.
+
+Based on the aforementioned considerations, we propose that through simultaneously blocking the generation of unphysical disturbances in the velocity field and inhibiting their convective propagation, we can suppress the development of nonlinear disturbances. Meanwhile, for thermodynamic quantities across discontinuities, we strive to preserve their desired jump characteristics as accurately as possible. To implement this strategy, we deliberately categorize the primitive variables into two groups: thermodynamic quantities (𝜌, 𝑇 or equivalently 𝑝, and 𝑌𝑖) and kinematic quantities (𝑢). In the reconstruction methodology proposed herein, the BVD algorithm is exclusively employed for reconstructing half-point values of thermodynamic variables, with pressure (𝑝) being the primary variable used for reconstruction alongside density (𝜌) and mass fractions (𝑌𝑖). This choice is based on two key considerations: (i) in
+
+Journal of Computational Physics 545 (2026) 114482
+
+12
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+multi-material interfaces, pressure typically remains continuous (or exhibits predictable jumps across shocks), whereas temperature may show sharper gradients that could challenge reconstruction schemes; and (ii) our numerical flux computation relies on Riemann solvers that primarily use pressure and velocity as input variables, thus using pressure for reconstruction ensures consistency with this downstream computation. For kinematic variable reconstruction, we adopt well-established high-order schemes that demonstrate robust performance across smooth regions, transitional zones, and discontinuities (albeit with slightly inferior shock-capturing capability compared to THINC schemes with large 𝛽 parameters), such as high-order WENO schemes. This reconstruction strategy is hereafter referred to as the hybrid-BVD scheme. This approach maximizes the preservation of sharp, oscillation-free characteristics for thermodynamic fields (such as 𝜌, 𝑇, 𝑝, and 𝑌𝑖) at discontinuities while strictly maintaining velocity field accuracy, thereby effectively blocking the feedback mechanism that amplifies disturbances. The implementation of this hybrid reconstruction method yields significant improvements, as evidenced in Fig. 7. First, it effectively suppresses unphysical numerical oscillations while maintaining comparable accuracy to pure conventional WENO schemes in non-discontinuous regions. Second, through the application of THINC reconstruction to thermodynamic quantities at discontinuities, the proposed method demonstrates better shock-capturing capability and better oscillation suppression at discontinuities compared to standard WENO schemes, as will be quantitatively verified by numerous numerical tests in Section 5.
+
+4.3.  Thermodynamically consistent mixture reconstruction for material interfaces
+
+For engineering applications involving complex equations of state (EOS) in multi-material flows, the mixed regions at material interfaces present significant computational challenges. These regions require solving either forward EOS problems to determine internal energy and pressure 𝑒, 𝑝(𝜌, 𝑇, 𝑌𝑖) from known density, temperature and species mass fractions, or inverse EOS problems to obtain temperature and pressure 𝑇, 𝑝(𝑒, 𝜌, 𝑌𝑖) given internal energy, density and composition. A critical issue arises when density 𝜌 and species mass fractions 𝑌𝑖 are independently reconstructed at half-points using the BVD algorithm - their values may become thermodynamically inconsistent. This incompatibility frequently causes non-convergence in EOS calculations, particularly during the more sensitive inverse iterations, often leading to numerical instability and simulation failure. To ensure proper thermodynamic consistency between 𝜌 and 𝑌𝑖 during reconstruction, we implement the following procedure:
+
+1. Treat the conservative variable (𝜌𝑌𝑖) as a single composite variable and apply the BVD algorithm to reconstruct its half-point values (𝜌𝑌𝑖)|𝑥𝑖+1∕2.
+
+2. Compute the half-point density by summing the reconstructed species values: 𝜌|𝑥𝑖+1∕2 = ∑𝑚 𝑖=1(𝜌𝑌𝑖)|𝑥𝑖+1∕2,
+
+3. Calculate the mass fractions 𝑌𝑖|𝑥𝑖+1∕2 at half-points through normalization: 𝑌𝑖|𝑥𝑖+1∕2 = (𝜌𝑌𝑖)|𝑥𝑖+1∕2
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq027.png)
+
+This reconstruction framework ensures thermodynamic consistency between 𝜌 and 𝑌𝑖 while significantly reducing numerical dissipation at multi-material interfaces.
+
+4.4.  A posteriori stabilization via MOOD method
+
+For complex engineering applications, the proposed scheme demonstrably achieves two critical objectives: high-resolution flow field resolution and sharp discontinuity preservation. Furthermore, its design provides the foundational mechanism conducive to achieving natural transition between sharp interfaces and diffused mixing zones in multi-material problem. However, absolute computational stability cannot be guaranteed by this approach. While both WENO5 and THINC schemes demonstrate good performance in suppressing numerical oscillations, neither can completely eliminate them. The emergence of nonphysical oscillations may lead to several catastrophic scenarios: negative values in thermodynamic quantities (density, internal energy), mass fractions exceeding the physical bounds 𝑌𝑖∉[0, 1], or the generation of infinite/NaN values. Crucially, even a single occurrence of any these anomalies at any grid point can trigger complete computational failure. For engineering applications demanding exceptional robustness, we must therefore implement algorithmic safeguards to ensure numerical stability throughout the simulation.
+
+Current approaches to address these stability issues in the scientific community primarily fall into two categories. The first class involves a priori modifications to the convection term computation methodology [61,62], designed to prevent instability occurrences from the outset. The second category employs post-processing techniques, exemplified by the Multidimensional Optimal Order Detection (MOOD) method [63], which performs a posteriori solution verification and correction.
+
+While theoretically sound, the a priori approach suffers from practical limitations in complex engineering applications. Its predetermined modifications often fail to account for all potential instability scenarios during scheme design, resulting in insufficient robustness across diverse flow conditions. In contrast, the MOOD methodology’s inherent adaptability (through its solution validation and correction mechanism) provides better generality, making it particularly suitable for handling the multifaceted challenges encountered in practical engineering simulations.
+
+
+> **Fig. 9 presents our stability-preserving algorithm based on the analysis in Section 2. The primary instability mechanism stems from potential nonphysical values in reconstructed half-point states 𝑈𝐿,𝑅 𝑖+1∕2. Our solution implements a comprehensive verification procedure: After BVD or WENO5 reconstruction, we scan all half-point values and replace any nonphysical reconstruction with loworder alternatives, specifically setting 𝑈𝐿 𝑖+1∕2 = 𝑈𝑖 or 𝑈𝑅 𝑖−1∕2 = 𝑈𝑖 when necessary. This ensures physical validity at half-points provided nodal values 𝑈𝑖 remain physical. To guarantee physical solutions at all nodal points, we incorporate MOOD methodology with a tiered correction strategy. Each substep advancement undergoes domain-wide validation checking for three nonphysical conditions (negative**
+
+Journal of Computational Physics 545 (2026) 114482
+
+13
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 9. Schematic illustration of the strategic stabilization measures implemented in this work to ensure robust engineering computations.**
+
+thermodynamics, unbound mass fractions, or NaN values). Detected problematic points plus adjacent half-point fluxes are flagged for recomputation. These locations are then recalculated using progressively lower-order schemes, first attempting WENO3 to preserve discontinuity sharpness, then falling back to first-order only when essential for stability. Since nonphysical points typically occur locally, this approach minimizes numerical dissipation impacts while leveraging first-order schemes’ unconditional stability to ensure robust computation throughout the domain. It should be noted that the MOOD method introduced in this subsection is specifically employed for addressing complex engineering simulations, and is not applied to the standard test cases presented in Section 5.
+
+5.  Numerical tests
+
+To systematically evaluate the developed algorithm, we first examine its effectiveness for single-medium flows before proceeding to multi-material problems. For both cases, our validation progresses from one-dimensional to two-dimensional configurations. Several important implementation details should be noted. For single-medium test cases, which do not involve species transport equations, we bypass the 𝜌−𝑌𝑖 consistency reconstruction discussed in Section 4.3, performing direct density reconstruction at half-points instead. Multi-material simulations strictly adhere to the previously described consistent reconstruction algorithm for both 𝜌 and 𝑌𝑖. The specific heat ratio 𝛾 for each test case will be explicitly provided in corresponding results sections. While the proposed algorithm is designed with the capability to handle highly complex equations of state (EOS) typical of real multi-material flows, the validation cases presented in this work employ the ideal gas EOS with isothermal and partial pressure mixture assumptions. This choice was
+
+Journal of Computational Physics 545 (2026) 114482
+
+14
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Table 1 𝐿1 and 𝐿2 errors and convergence orders for the smooth problem at 𝑡= 1.0.**
+
+Scheme Mesh (𝑁) 𝐿1 Error Order 𝐿2 Error Order
+
+WENO5
+
+10 8.373589e-03 — 1.008949e-02 — 20 2.516599e-04 5.0563 3.144639e-04 5.0038 40 7.356636e-06 5.0963 8.733690e-06 5.1702 80 2.173149e-07 5.0812 2.512103e-07 5.1196 160 2.828760e-09 6.2635 3.328766e-09 6.2378
+
+Hybrid BVD
+
+10 8.323843e-03 — 9.829397e-03 — 20 2.445338e-04 5.0891 2.970633e-04 5.0483 40 7.220834e-06 5.0817 8.562324e-06 5.1166 80 2.202913e-07 5.0347 2.545506e-07 5.0720 160 2.828760e-09 6.2831 3.328766e-09 6.2568
+
+made primarily to ensure the reproducibility of results and to facilitate direct comparison with established numerical benchmarks and prior studies. We acknowledge that the use of a complex, non-ideal EOS is crucial for truly multi-scale problems, and its absence here is a limitation of the present validation scope. However, this simplification is appropriate for the primary objective of this study, which is to introduce and verify the new BVD scheme’s core functionality in a well-understood framework. The algorithm’s formulation operates in primitive variable space and is constructed to be agnostic to the EOS; its performance in handling complex EOS and real material interfaces will be the critical focus of our immediate subsequent work.
+
+5.1.  Single media tests
+
+5.1.1.  Convergence study for a smooth problem
+
+This subsubsection is dedicated to a quantitative analysis of the formal order of accuracy of the proposed hybrid BVD algorithm. A critical question for any hybrid scheme is whether the switching mechanism degrades the accuracy of the base high-order scheme in smooth regions. To address this concern, a convergence study is performed on a smooth problem to compare the hybrid scheme against the pure WENO5 scheme.
+
+The test case is the advection of a smooth density wave. Despite its simplicity, this case is well-suited for assessing the formal order of accuracy. The initial conditions are given by:
+
+𝜌0(𝑥) = 1 + 0.99 sin(𝑥), 𝑢0 = 1, 𝑝0 = 1. (16)
+
+The computational domain is 𝑥∈[0, 2𝜋] with periodic boundary conditions applied on both ends. The exact solution at time 𝑡 is:
+
+𝜌(𝑥, 𝑡) = 1 + 0.99 sin(𝑥−𝑡), 𝑢(𝑥, 𝑡) = 1, 𝑝(𝑥, 𝑡) = 1. (17)
+
+Notably, this case also serves as a challenging low-density test, with the minimum density value being 0.01. This tests the robustness of the numerical scheme in addition to its accuracy. The 𝐿1 and 𝐿2 error norms of the density field are computed for both schemes at 𝑡= 1.0 for a series of successively refined grids with 𝑁= 10, 20, 40, 80, 160 cells.
+
+The convergence rates, calculated from both the 𝐿1 and 𝐿2 errors of the density field, are presented in Table 1. The results demonstrate that the hybrid BVD algorithm achieves convergence rates virtually identical to those of the pure WENO5 scheme for both error norms, confirming that it maintains the fifth-order formal accuracy of the base scheme in smooth regions. This is because the BVD selector correctly identifies smooth regions and defaults to the WENO5 reconstruction, activating the THINC-based reconstruction only near discontinuities. The good agreement in errors across all grid resolutions further validates the robustness of the hybrid algorithm in handling the low-density condition presented by this test.
+
+5.1.2.  One-dimensional Sod test
+
+The initial condition for a Sod shock tube is [64]
+
+(𝜌, 𝑢, 𝑝, 𝛾) = { (1, 0, 1, 1.4), if 0 < 𝑥≤0.5, (0.125, 0, 0.1, 1.4), if 0.5 ≤𝑥≤1. (18)
+
+The computations employ a uniform 200-cell grid spanning the domain [0, 1], with CFL number 0.5 and outflow boundary conditions at both ends, running until 𝑡= 0.2. Fig. 10 compares results from different numerical schemes, revealing several key observations about our developed algorithm: (1) it produces significantly reduced numerical oscillations in rarefaction waves compared to WENO5, (2) maintains sharper resolution of shock/contact discontinuities, while (3) the original BVD method exhibits visible nonphysical oscillations near the contact discontinuity at 𝑥≈0.73.
+
+A noteworthy finding concerns the WENO5 scheme’s unexpected oscillations in rarefaction waves (contrary to most literature reports). This discrepancy stems fundamentally from our use of primitive variable space formulation. Numerical experiments confirm these oscillations vanish completely when solving the same ideal gas shock tube problem in characteristic variables, explaining why published results (typically using characteristic formulations) appear better. However, since characteristic decomposition proves impractical for general engineering problems with complex equations of state, we deliberately present only primitive-space results
+
+Journal of Computational Physics 545 (2026) 114482
+
+15
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 10. Density profile comparisons for the 1D Sod shock tube problem computed using different numerical schemes. The last three panels show magnified views of the rarefaction wave, contact discontinuity, and shock wave regions from the first panel, respectively.**
+
+despite their oscillatory artifacts. Clearly, reducing numerical oscillations caused by high-order reconstruction in primitive variable space remains an important open challenge. However, this issue falls outside the scope of our current study. The oscillations observed in this test case and subsequent 1D simulations stem from working in primitive variables—this is fundamentally separate from evaluating our improved BVD algorithm’s effectiveness. These two aspects should be considered independently.
+
+5.1.3.  One-dimensional Lax test
+
+Following the benchmark configuration from [43], the initial conditions are defined as:
+
+(𝜌, 𝑢, 𝑝, 𝛾) = { (0.445, 0.698, 3.528, 1.4), if 0 < 𝑥≤0.5, (0.5, 0, 0.571, 1.4), if 0.5 ≤𝑥≤1. (19)
+
+The numerical simulation was conducted on a uniform 200-cell grid covering the domain [0, 1], using a CFL number of 0.5 with outflow boundary conditions at both ends (𝑥= 0 and 𝑥= 1). The computation proceeded until 𝑡= 0.16. Fig. 11 compares the density distributions obtained using different numerical schemes, demonstrating several key advantages of our developed algorithm. Compared to the WENO5 scheme, our method achieves significantly sharper resolution of both contact discontinuities and shock waves, while maintaining solution stability. The original BVD scheme, however, exhibits more pronounced nonphysical oscillations near the rarefaction wave at 𝑥≈0.26. These results collectively validate our algorithm’s better capability in simultaneously preserving discontinuity sharpness and suppressing numerical artifacts across different flow features.
+
+5.1.4.  One-dimensional Lax2 test
+
+The initial condition is
+
+(𝜌, 𝑢, 𝑝, 𝛾) = { (1, 0, 1000, 1.4), if 0 < 𝑥≤0.5, (1, 0, 0.01, 1.4), if 0.5 ≤𝑥≤1. (20)
+
+Journal of Computational Physics 545 (2026) 114482
+
+16
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 11. Density profile comparisons for the 1D Lax shock tube problem computed using different numerical schemes. The last three panels display magnified views of the rarefaction wave, contact discontinuity, and shock wave regions from the first panel, respectively.**
+
+
+> **Fig. 12. Density profile comparisons for the 1D Lax2 shock tube problem computed using different numerical schemes. The bottom panel shows a magnified view of the discontinuity region from the top panel.**
+
+Journal of Computational Physics 545 (2026) 114482
+
+17
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+The computation is performed on a uniform 200-point grid spanning the domain [0, 1], using a CFL number of 0.5 with outflow boundary conditions imposed at both ends (𝑥= 0 and 𝑥= 1). The computation was carried out until the final time 𝑡= 0.012. Fig. 12 presents a comparative analysis of the density distributions obtained using different numerical schemes.
+
+The developed algorithm demonstrates better performance compared to the WENO5 scheme, particularly in achieving sharper resolution of both contact discontinuities and shock waves. For this specific test case, the computational results show comparable performance between the original BVD method and our proposed algorithm, with both schemes exhibiting similar levels of accuracy and stability in capturing the flow features. This observation suggests that our improvements maintain the strengths of the original BVD approach while enhancing its capabilities in other aspects.
+
+5.1.5.  One-dimensional Leblanc test
+
+The Leblanc test is an extreme problem including high density ratio and strong discontinuity. The initial condition is
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq028.png)
+
+The numerical simulation was conducted on a uniform 800-cell grid covering the domain [−1, 1], using a CFL number of 0.5 with outflow boundary conditions at both ends (𝑥= −1 and 𝑥= 1). The computation proceeded until the final time 𝑡= 6. This test case was specifically designed to evaluate the performance of our developed method under extreme conditions, including large density ratios and strong discontinuities. Fig. 13 presents the density distributions obtained using different numerical schemes, revealing that all schemes demonstrate comparable performance for this challenging problem. The similar results across different approaches suggest that our method maintains robust capability in handling these extreme flow conditions while achieving accuracy levels consistent with established schemes.
+
+5.1.6.  One-dimensional Sednov test
+
+The Leblanc test is an extreme problem including blast wave. The initial condition is
+
+
+> **Fig. 13. Density profile comparisons for the 1D Leblanc problem computed using different numerical schemes. The lower three panels show magnified views of (from left to right): the rarefaction wave, contact discontinuity, and shock wave regions from the upper panel.**
+
+Journal of Computational Physics 545 (2026) 114482
+
+18
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 14. Density profile comparisons for the 1D Sedov blast wave problem computed using different numerical schemes. The lower two panels show magnified views of the shock front (left) and rarefaction wave (right) regions from the upper panel.**
+
+
+> **Fig. 15. Density profile comparisons for the 1D Shu-Osher problem computed using different numerical schemes. The right panel shows a magnified view of the selected region from the left panel.**
+
+(𝜌, 𝑢, 𝑝, 𝛾) = { (1, 0, (𝛾−1) × 10−12, 1.4), otherwise , (1, 0, (𝛾−1)∕Δ𝑥× 3.2 × 106, 1.4), if 𝑥= 0. (22)
+
+Numerical simulations were performed on a uniform grid of 801 cells covering the domain [−2, 2], with a CFL number of 0.5 and outflow boundary conditions imposed at both ends. The computation was carried out until the final simulation time of 𝑡= 0.001. This test case was specifically designed to assess the performance of our developed method in handling extreme flow conditions involving detonation waves. Fig. 14 presents a comparison of computational results obtained using different numerical approaches. The results clearly demonstrate that direct application of the classical BVD algorithm to primitive variables introduces significant nonphysical numerical oscillations. In contrast, our improved algorithm successfully maintains sharp resolution of flow discontinuities while effectively suppressing these numerical artifacts. The comparison highlights the robustness of our approach in capturing complex flow features while maintaining numerical stability under extreme conditions.
+
+5.1.7.  One-dimensional Shu-Osher test
+
+The initial condition is
+
+(𝜌, 𝑢, 𝑝, 𝛾) = { (3.857, 2.629, 10.333, 1.4), otherwise 0 < 𝑥≤0.1, (1 + 0.2 sin(50𝑥−25), 0, 1, 1.4), if 0.1 < 𝑥≤1. (23)
+
+The numerical simulation was conducted on a uniform grid comprising 1000 cells spanning the computational domain [0, 1]. The calculation employed a CFL number of 0.5 with outflow boundary conditions imposed at both ends (𝑥= 0 and 𝑥= 1), proceeding until the final simulation time of 𝑡= 0.18. Fig. 15 presents a comparative analysis of results obtained using different numerical schemes. The developed algorithm demonstrates two significant advantages: it maintains high-order accuracy in smooth regions while simultaneously achieving more precise capture of local extrema.
+
+Journal of Computational Physics 545 (2026) 114482
+
+19
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 16. Local density field comparisons at termination time for the two-dimensional double Mach reflection simulation, obtained using (left) standard WENO5 reconstruction, (center) our newly developed algorithm, and (right) traditional BVD scheme.**
+
+
+> **Table 2 Initial configurations of the five 2D single-material Riemann problems.**
+
+cases 𝑦 𝜌(𝑥≤0) 𝑢(𝑥≤0) 𝑣(𝑥≤0) 𝑝(𝑥≤0) 𝜌(𝑥> 0) 𝑢(𝑥> 0) 𝑣(𝑥> 0) 𝑝(𝑥> 0) 𝑡𝑒
+
+1 𝑦> 0 2 −0.75 0.5 1 1 −0.75 -0.5 1 0.23 𝑦≤0 1 0.75 0.5 1 3 0.75 −0.5 1
+
+2 𝑦> 0 2 0 −0.3 1 1 0 −0.4 1 0.30 𝑦≤0 1.0625 0 0.2145 0.4 0.5197 0 −1.125 0.4
+
+3 𝑦> 0 0.5065 0.8939 0 0.35 1.5 0 0 1.5 0.25 𝑦≤0 1.1 0.8939 0.8939 1.1 0.5065 0 0.8939 0.35
+
+4 𝑦> 0 2 0.75 0.5 1 1 0.75 −0.5 1 0.30 𝑦≤0 1 −0.75 0.5 1 3 −0.75 −0.5 1
+
+5 𝑦> 0 1 −0.6259 0.1 1 0.5197 0.1 0.1 0.4 0.25 𝑦≤0 0.8 0.1 0.1 1 1 0.1 −0.6259 1
+
+5.1.8.  Two-dimensional double Mach reflection
+
+We consider the problem from Woodward and Colella [65] on the double Mach reflection of a strong shock. A Mach 10 shock in air is reflected from the wall with incident angle of 60◦. For this case, the initial condition is
+
+(𝜌, 𝑢, 𝑣, 𝑝, 𝛾) = { (1.4, 0, 0, 1, 1.4), if 𝑦≤1.732(𝑥−0.1667), (8, 7.145, −4.125, 116.83333, 1.4), otherwise, (24)
+
+and the final time is 𝑡= 0.2. The computational domain is [0, 4] × [0, 1] with 1920 × 480 grid points, and the reflecting wall lies at the bottom of the computational domain for 1∕6 ≤𝑥≤4. Initially, a right-moving Mach= 10 shock wave is located at (𝑥, 𝑦) = (1∕6, 0) and form a 60◦ with 𝑥-axis. The right unshocked air has a density of 1.4 and a pressure 1. For the boundary, the exact post-shock condition is imposed for the area 𝑥∈[0, 1∕6]. Inflow and outflow boundaries are used for the left and right boundaries. The values at the top boundary are set to describe the exact motion of a Mach 10 shock. The final results computed by different numerical schemes are shown in Fig. 16.
+
+The comparative analysis reveals significant advantages of our developed algorithm over the classical “diffusive interface + WENO5” approach. The proposed method demonstrates substantially reduced numerical dissipation, enabling more accurate resolution of small-scale vortical structures while simultaneously providing better discontinuity (Mach stem) capturing capability. In contrast, direct application of the classical BVD algorithm to all primitive variables introduces numerous nonphysical numerical disturbances throughout the flow field. These artificial oscillations interact with the Kelvin-Helmholtz instability, generating additional spurious vortical structures that corrupt the physical
+
+5.1.9.  Two-dimensional Riemann problems
+
+To systematically validate the accuracy, robustness, and oscillation-free characteristics of our developed method, we conduct numerical experiments using five distinct two-dimensional Riemann problems with initial conditions specified in Table 2. The computational domain spans [−0.5, 0.5] × [−0.5, 0.5] discretized with a uniform 1000 × 1000 grid. Outflow boundary conditions are imposed on all four boundaries, and the computation proceeds with a CFL number of 0.5. The simulation end times for each test case, denoted as 𝑡𝑒, are provided in Table 2. This comprehensive test suite thoroughly examines the algorithm’s performance across various flow configurations, including different types of shock interactions and complex wave patterns.
+
+
+> **Fig. 17 presents detailed comparisons of local density contours at the final simulation time for different test cases using various numerical schemes. The results demonstrate that our developed algorithm outperforms the classical WENO scheme based on diffusive interface treatment in several critical aspects: it captures fine flow structures with greater accuracy, resolves discontinuities with improved sharpness, and maintains essentially oscillation-free solutions. In contrast, the classical BVD approach produces numerous**
+
+Journal of Computational Physics 545 (2026) 114482
+
+20
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 17. Comparison of local density fields at final simulation time for 2D Riemann problems (cases 1–5 from top to bottom), computed using (left) WENO5 scheme, (center) the proposed algorithm, and (right) classical BVD scheme.**
+
+nonphysical disturbances that significantly degrade solution quality. For certain test cases, these numerical artifacts interact with the Kelvin-Helmholtz instability mechanism, generating spurious vortical structures that corrupt the physical flow field.
+
+5.2.  Multi-media tests
+
+5.2.1.  One-dimensional Sod test
+
+The initial condition for a Sod shock tube[64] is :
+
+Journal of Computational Physics 545 (2026) 114482
+
+21
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 18. Density profile comparisons for the 1D two-material Sod shock tube problem computed using different numerical schemes. The lower three panels show magnified views of (from left to right): the rarefaction wave, contact discontinuity, and shock wave regions from the upper panel.**
+
+(𝜌, 𝑢, 𝑝, 𝛾) = { (1, 0, 1, 1.4), if 0 < 𝑥≤0.5, (0.125, 0, 0.1, 5∕3), if 0.5 ≤𝑥≤1. (25)
+
+Numerical simulations were conducted on a uniform 200-cell grid spanning the computational domain [0, 1], employing a CFL number of 0.5 with outflow boundary conditions imposed at both ends (𝑥= 0 and 𝑥= 1). The computation proceeded until the final time 𝑡= 0.2. Fig. 18 presents a comparative analysis of results obtained using different algorithms at the termination time. The developed algorithm demonstrates better discontinuity-capturing capability compared to the WENO5 method, producing sharper resolution of flow discontinuities while maintaining solution stability. In contrast, the classical BVD approach exhibits significantly stronger nonphysical oscillations, particularly in the rarefaction wave region near 𝑥= 0.5.
+
+5.2.2.  One-dimensional stiff shock-tube test
+
+The initial conditions follow the specification from [66]:
+
+(𝜌, 𝑢, 𝑝, 𝛾) = { (1, 0, 100, 1.4), if 0 < 𝑥≤0.5, (0.125, 0, 0.01, 5∕3), if 0.5 ≤𝑥≤1. (26)
+
+Numerical simulations were performed on a uniform 200-cell grid covering the domain [0, 1], using a CFL number of 0.5 with outflow boundary conditions at both ends. The computation proceeded until the final time 𝑡= 0.035. Fig. 19 presents a comparison of results obtained using different algorithms at termination time. The developed algorithm demonstrates better performance in discontinuity resolution compared to conventional approaches, producing significantly sharper representations of both shock waves and contact discontinuities.
+
+Journal of Computational Physics 545 (2026) 114482
+
+22
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 19. Comparison of results for the 1D two-material stiff shock tube problem computed using: classical “diffusive interface + WENO5” scheme (black line), the proposed algorithm (green line), and classical BVD application (blue line). (For interpretation of the references to colour in this figure legend, the reader is referred to the web version of this article.)**
+
+
+> **Fig. 20. Mass fraction contour distributions at 𝑡= 8 for the shock-bubble interaction problem computed using (left) WENO5, (center) the proposed algorithm, and (right) BVD scheme. The bottom row shows results with the steepness parameter 𝛽1 = 1.2.**
+
+5.2.3.  Shock-bubble interaction problem
+
+The following two-dimensional shock-R22-bubble problem [66] is considered:
+
+(𝜌, 𝑢, 𝑣, 𝑝, 𝛾) =
+
+⎧ ⎪ ⎨ ⎪⎩
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq029.png)
+
+𝑥2 + 𝑦2 < 0.5, (1, 0, 0, 1∕1.4, 1.4), otherwise.
+
+
+![Equation](images/2026_Li_Liu_Zhang_Ruan_hybrid_BVD_primitive_variable_space_eq030.png)
+
+The computational domain spans [−3.5, 3] × [−0.89, 0.89] and is discretized using a uniform 651 × 179 grid. The simulation employs a CFL number of 0.5 with symmetric boundary conditions imposed along the top and bottom boundaries, while outflow conditions are applied at the left and right domain boundaries. The computation proceeds until the final simulation time of 𝑡= 8.
+
+
+> **Fig. 20 presents a comprehensive comparison of simulation results at the final time using different numerical algorithms. To investigate the influence of the THINC scheme’s 𝛽 parameter selection in our first-stage BVD algorithm on interface sharpness, we**
+
+Journal of Computational Physics 545 (2026) 114482
+
+23
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 21. Initial computational configuration for the three-material triple-point problem (all regions initialized with zero velocity 𝑢= 0).**
+
+specifically examine two cases with 𝛽1 values of 1.1 and 1.2. The comparative analysis reveals several key observations: First, the WENO5 algorithm exhibits continuous numerical dissipation at material interfaces over time, leading to progressively diffused bubble boundaries. In contrast, our developed algorithm effectively maintains interface sharpness throughout the simulation, demonstrating better capability in capturing evolving material interfaces. Second, increasing the 𝛽 parameter enhances interface resolution, yielding sharper material boundaries with reduced numerical dissipation and more distinct vortical structures. This parametric study confirms the critical role of 𝛽 selection in balancing sharpness and stability. Third, direct application of the classical BVD to all primitive variables introduces significant nonphysical disturbances that artificially enhance flow mixing. The resulting solutions differ markedly from both WENO5 and our improved algorithm, highlighting the importance of proper variable selection in the reconstruction process. These findings collectively demonstrate our algorithm’s advantages in preserving interface sharpness while maintaining solution fidelity, particularly for long-term simulations of multiphase flows with complex interfacial dynamics.
+
+5.2.4.  The triple point problem
+
+Unlike conventional triple-point problems typically featuring three materials with only two distinct specific heat ratios, we consider a more challenging configuration where all three materials possess different specific heat ratios to better demonstrate our algorithm’s capability in handling complex multi-material flows. The initial flow configuration is illustrated in Fig. 21, with wall boundary conditions applied on all four sides of the computational domain. The numerical simulation employs a uniform 800 × 240 grid with a CFL number of 0.5, proceeding until the final time 𝑡= 5. To systematically evaluate the influence of the THINC scheme’s steepness parameter 𝛽1 in our first-stage BVD algorithm on interface sharpness, we present comparative results for two parameter values (𝛽1 = 1.1 and 1.2). This parametric study provides crucial insights into the algorithm’s performance in maintaining sharp material interfaces while ensuring numerical stability for flows involving multiple materials with distinct thermodynamic properties.
+
+
+> **Fig. 22 presents a comparative analysis of simulation results at the final computation time using different numerical algorithms. The results demonstrate three significant findings regarding interface evolution characteristics: First, the conventional WENO5 scheme exhibits progressive numerical dissipation at material interfaces throughout the simulation, leading to continuously diffusing boundaries. In contrast, our developed algorithm successfully maintains interface sharpness over time, effectively achieving the primary objective of sharp interface capturing proposed in this work. Second, increasing the steepness parameter 𝛽 in the THINC scheme yields improved interface resolution, producing sharper material boundaries with reduced numerical diffusion. This parametric dependence confirms the critical role of 𝛽 selection in balancing interface sharpness and numerical stability. Third, direct application of the classical BVD algorithm generates nonphysical disturbances that artificially enhance Kelvin-Helmholtz (KH) instability, producing spurious vortical structures. Notably, larger 𝛽1 values amplify this undesirable effect, creating more pronounced numerical artifacts (as shown, for example, by the results in the second row of Fig. 22), which further validates the rationality of setting 𝛽1 to 1.1 in this paper. The proposed scheme resolves physically consistent vortex structures compared to the dissipative WENO5 result, a consequence of its reduced numerical dissipation. Importantly, these structures are organic and distinct from the non-physical, grid-aligned artifacts generated by the classical BVD scheme, which are a result of numerical instability. This demonstrates our scheme’s ability to enhance resolution of physical flow features while maintaining robustness.**
+
+5.2.5.  Rayleigh-Taylor instability
+
+The Rayleigh-Taylor instability develops at an interface between fluids of different densities when accelerated from the heavier (𝜌= 2) to lighter (𝜌= 1) fluid, a configuration extensively studied in previous works [67]. Our simulation employs a 240 × 960 grid spanning the domain [0, 0.25] × [0, 1], with the initial interface positioned at 𝑦= 0.5 separating the heavy fluid below from light fluid above, under gravitational acceleration in the positive y-direction. Pressure remains continuous across this interface while the velocity field receives a small perturbation in the y-direction:
+
+(𝜌, 𝑢, 𝑣, 𝑝, 𝑌1) = { (2, 0, −0.025𝑐cos(8𝜋𝑥), 2𝑦+ 1, 0), if 0 ≤𝑦< 0.5, (1, 0, −0.025𝑐cos(8𝜋𝑥), 𝑦+ 1.5, 1), if 0.5 < 𝑦≤1, (28)
+
+where 𝑐= √
+
+𝛾𝑝∕𝜌 denotes the sound speed for a gas with specific heat ratio 𝛾= 5∕3. The boundary conditions implement reflection at side boundaries (left/right) and maintain initial 𝜌, 𝑝 values with zero velocity (𝑢= 𝑣= 0) at top/bottom boundaries. Gravity effects
+
+Journal of Computational Physics 545 (2026) 114482
+
+24
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+> **Fig. 22. Third-material component distributions at 𝑡= 5 for the triple-point problem computed using (left) WENO5, (center) the proposed algorithm, and (right) BVD scheme. The bottom row shows corresponding results with interface steepness parameter 𝛽1 = 1.2.**
+
+
+> **Fig. 23. Density field comparison at 𝑡= 1.95 for the Rayleigh-Taylor instability problem computed using (left) WENO5, (center) the proposed algorithm, and (right) the classical BVD scheme.**
+
+enter through source terms: 𝜌 in the y-momentum equation and 𝜌𝑣 in the energy equation. The simulation advances with CFL=0.5 until 𝑡= 1.95, capturing the complete instability evolution from initiation through nonlinear development.
+
+
+> **Fig. 23 presents a comprehensive comparison of simulation results at the final computation time using different numerical algorithms. The analysis reveals several critical aspects of interface evolution and flow development: The conventional WENO5 scheme exhibits progressive numerical dissipation at material interfaces throughout the simulation, leading to continuously diffusing boundaries. In contrast, our developed algorithm effectively maintains interface sharpness during the early instability stages, providing**
+
+Journal of Computational Physics 545 (2026) 114482
+
+25
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+better resolution of the initial interface evolution. The improved method demonstrates enhanced capability in capturing both the sharp material interfaces and the developing multi-scale vortical structures, while maintaining significantly reduced numerical dissipation. Direct application of the classical BVD algorithm to all physical variables introduces numerous small-scale nonphysical disturbances. These numerical artifacts progressively corrupt the flow field, generating unphysical flow features and, more critically, destroying the inherent symmetry that should be maintained throughout the single-mode Rayleigh-Taylor (RT) instability evolution. This undesirable behavior highlights the importance of proper variable selection and scheme formulation in preserving physical solution characteristics. During the late-stage instability development when multi-scale turbulent mixing becomes dominant, our algorithm demonstrates robust capability in handling the complex transitional flow regime. Notably, it achieves smooth transition from sharp interface resolution to diffused mixing representation, establishing a solid numerical foundation for engineering applications involving turbulent mixing simulations or coupling with turbulence models.
+
+6.  Conclusion
+
+Compressible multi-material (and single-material) flows are prevalent throughout natural phenomena and engineering applications, with multi-material interfacial instabilities and their induced turbulent mixing representing a quintessential example. Numerical simulation of such problems demands algorithms capable of simultaneously: maintaining sharp material interfaces, resolving finescale turbulent mixing structures, achieving natural transitions from sharp interfaces to diffusive turbulent mixing, and preventing excessive non-physical oscillations that could lead to computational failure. These four requirements present formidable challenges for numerical methods. The recently developed Boundary Variation Diminishing (BVD) algorithm offers a promising approach to address these challenges. However, existing BVD algorithms have primarily been developed within characteristic variable frameworks for problems with relatively simple equations of state. In engineering applications where operations must be performed in primitive variable space, we observed that direct application of the classical BVD methods produces severely corrupted flow fields.
+
+To address these challenges, our work makes four key innovations: First, we conduct a systematic analysis identifying the root causes of numerical oscillations generated by the direct application of the application BVD scheme in primitive variable space. Second, we develop an improved BVD algorithm specifically designed for robust operation in primitive variables. Third, we introduce a thermodynamically consistent mixture reconstruction method that properly handles complex equations of state at material interfaces. Fourth, we incorporate the MOOD (Multidimensional Optimal Order Detection) paradigm through a high-robustness post-processing technique that locally replaces nonphysical high-order solutions with stable low-order alternatives when necessary, thereby preventing computational crashes in engineering applications. This work successfully develops a versatile numerical framework that addresses two core challenges in compressible flow simulation: maintaining sharp discontinuity resolution and suppressing numerical oscillations. The proposed algorithm, operating in primitive-variable space, demonstrates robust performance across a series of benchmark cases for both single-material and multi-material flows under the ideal gas EOS assumption. These validated capabilities establish a critical foundation for future extensions. However, the present study is intentionally confined to flows governed by the ideal gas EOS and does not encompass validation of multi-scale turbulent mixing phenomena-a limitation that is inherent to this foundational step. Consequently, the broader applicability of the method to flows involving complex, non-ideal EOS and fully developed turbulence remains to be demonstrated. Our immediate future work will therefore focus on two critical extensions: first, rigorously evaluating the scheme’s performance with complex EOS to handle real multi-material interfaces; and second, investigating its ability to capture the natural transition from sharp interfaces to turbulent mixing regions in multi-scale flow problems. This study thus serves as a necessary and robust precursor to achieving the complete set of challenging requirements for simulating real-world engineering applications.
+
+Data availability
+
+The authors do not have permission to share data.
+
+CRediT authorship contribution statement
+
+Yong Li: Writing – review & editing, Writing – original draft, Validation, Investigation, Data curation, Methodology, Visualization; Nansheng Liu: Supervision; Yousheng Zhang: Visualization, Validation, Supervision, Software, Methodology, Investigation, Funding acquisition, Data curation, Conceptualization; Yucang Ruan: Methodology, Investigation, Conceptualization.
+
+Declaration of competing interest
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
+
+Acknowledgement
+
+The authors sincerely thank the reviewers for the constructive suggestions, which significantly improve the quality of this paper. This work was supported by the National Natural Science Foundation of China (Grants No. 12588301, No. 12222203 and No. 12532013) and the National Key Laboratory of Computational Physics (Grant No. 6142A05240201).
+
+Journal of Computational Physics 545 (2026) 114482
+
+26
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+
+## References
+
+[1] C. Liu, C. Hu, Adaptive THINC-GFM for compressible multi-medium flows, J. Comput. Phys. 342 (2017) 43–65. [2] R. Betti, O.A. Hurricane, Inertial-confinement fusion with lasers, Nat. Phys. 12 (2016) 435–448. [3] Y. Zhou, Rayleigh-Taylor and Richtmyer-Meshkov instability induced flow, turbulence, and mixing. II, Phys. Rep. 723–725 (2017) 1–160. [4] Y. Zhou, Rayleigh-Taylor and Richtmyer-Meshkov instability induced flow, turbulence, and mixing. I, Phys. Rep. 720–722 (C) (2017) 1–136. [5] T.G. Liu, B.C. Khoo, K.S. Yeo, The simulation of compressible multi-medium flow. I. A new methodology with test applications to 1D gas–gas and gas–water cases, Comput. Fluids 30 (3) (2001) 291–314. [6] T.G. Liu, B.C. Khoo, K.S. Yeo, The simulation of compressible multi-medium flow: II. Applications to 2D underwater shock refraction, Comput.Fluids 30 (3) (2001) 315–337. [7] X. Qi, Y. Yang, L. Tian, Z. Wang, N. Zhao, A parallel methodology of adaptive Cartesian grid for compressible flow simulations, Adv. Aerodyn. 4 (1) (2022) 21. [8] D.-H. Wang, N. Zhao, Y.-J. Wang, A cell-centered Lagrangian scheme for compressible multi-medium flow, Mod. Phys. Lett. B 24 (13) (2010) 1283–1286. [9] M. Kucharik, R.V. Garimella, S.P. Schofield, M.J. Shashkov, A comparative study of interface reconstruction methods for multi-material ALE simulations, J. Comput. Phys. 229 (7) (2010) 2432–2452. [10] M. Capuano, C. Bogey, P.D.M. Spelt, Simulations of viscous and compressible gas-gas flows using high-order finite difference schemes, J. Comput. Phys. 361 (2018) 56–81. [11] P. Cinnella, C. Content, High-order implicit residual smoothing time scheme for direct and large eddy simulations of compressible flows, J. Comput. Phys. 326 (2016) 1–29. [12] Z. He, B. Tian, Y. Zhang, F. Gao, Characteristic-based and interface-sharpening algorithm for high-order simulations of immiscible compressible multi-material flows, J. Comput. Phys. 333 (2017) 247–268. [13] Z. He, Y. Zhang, X. Li, B. Tian, Preventing numerical oscillations in the flux-split based finite difference method for compressible flows with discontinuities, II, Int. J. Numer. Methods Fluids 80 (2016) 306–316. [14] Z. He, Y. Zhang, X. Li, L. Li, B. Tian, Preventing numerical oscillations in the flux-split based finite difference method for compressible flows with discontinuities, J. Comput. Phys. 300 (2015) 269–287. [15] F. Liao, G. He, High-order adapter schemes for cell-centered finite difference method, J. Comput. Phys. 403 (2020) 109090. [16] Y. Su, S.H. Kim, An improved consistent, conservative, non-oscillatory and high order finite difference scheme for variable density low Mach number turbulent flow simulation, J. Comput. Phys. 372 (2018) 202–219. [17] P. Trisjono, S. Kang, H. Pitsch, On a consistent high-order finite difference scheme with kinetic energy conservation for simulating turbulent reacting flows, J. Comput. Phys. 327 (2016) 612–628. [18] Z. He, Y. Zhang, F. Gao, X. Li, B. Tian, An improved accurate monotonicity-preserving scheme for the Euler equations, Comput. Fluids 140 (2016) 1–10. [19] C. Wang, H. Luo, A reconstructed discontinuous Galerkin method for compressible flows on moving curved grids, Adv. Aerodyn. 3 (1) (2021) 1. [20] X. Meng, Y. Xu, Adaptive local discontinuous Galerkin methods with semi-implicit time discretizations for the Navier-Stokes equations, Adv. Aerodyn. 4 (1) (2022) 22. [21] P. Das, H.S. Udaykumar, A sharp-interface method for the simulation of shock-induced vaporization of droplets, J. Comput. Phys. 405 (2020) 109005. [22] Y. shen, Y. Ren, H. Ding, A 3D conservative sharp interface method for simulation of compressible two-phase flows, J. Comput. Phys. 403 (2020) 109107. [23] H.Y. Zhao, P.J. MIng, W.P. Zhang, J.K. Chen, A direct time-integral THINC scheme for sharp interfaces, J. Comput. Phys. 393 (2019) 139–161. [24] J. Luo, X.Y. Hu, N.A. Adams, A conservative sharp interface method for incompressible multiphase flows, J. Comput. Phys. 284 (2015) 547–565. [25] F. Denner, B.G.M. van Wachem, Compressive VOF method with skewness correction to capture sharp interfaces on arbitrary meshes, J. Comput. Phys. 279 (2014) 127–144. [26] D. Zhang, C. Jiang, D. Liang, Z. Chen, Y. Yang, Y. Shi, A refined volume-of-fluid algorithm for capturing sharp fluid interfaces on arbitrary meshes, J. Comput. Phys. 274 (2014) 709–736. [27] C.-H. Chang, X. Deng, T.G. Theofanous, Direct numerical simulation of interfacial instabilities: a consistent, conservative, all-speed, sharp-interface method, J. Comput. Phys. 242 (2013) 946–990. [28] L. Qian, Y. Wei, F. Xiao, Coupled THINC and level set method: a conservative interface capturing scheme with high-order surface representations, J. Comput. Phys. 373 (2018) 284–303. [29] K.-M. Shyue, F. Xiao, An Eulerian interface sharpening algorithm for compressible two-phase flow: the algebraic THINC approach, J. Comput. Phys. 268 (2014) 326–354. [30] F. Xiao, S. Ii, Ii, C. Chen, Revisit to the THINC scheme: a simple algebraic VOF algorithm, J. Comput. Phys. 230 (2011) 7086–7092. [31] K. Yokoi, Efficient implementation of THINC scheme: a simple and practical smoothed VOF algorithm, J. Comput. Phys. 226 (2) (2007) 1985–2002. [32] S. Ii, Ii, K. Sugiyama, S. Takeuchi, S. Takagi, Y. Matsumoto, F. Xiao, An interface capturing method with a continuous function: the THINC method with multi-dimensional reconstruction, J. Comput. Phys. 231 (5) (2012) 2328–2358. [33] L. Tao, X.L. Deng, A new and improved cut-cell-based sharp-interface method for simulating compressible fluid elastic-perfectly plastic solid interaction, Math. Comput. Simul. 171 (2020) 246–263. [34] M.Y. Zhang, X.L. Deng, Z.J. Shen, A robust sharp interface method for SPH, Eng. Anal. Bound. Elem. 106 (2019) 275–285. [35] X. Bai, X.L. Deng, A sharp interface method for compressible multi-Phase flows based on the cut cell and ghost fluid methods, Adv. Appl. Math. Mech. 9 (2017) 1052–1075. [36] S. Tann, X. Deng, Y. Shimizu, R. Loubère, F. Xiao, Solution property preserving reconstruction for finite volume scheme: a boundary variation diminishing+ multidimensional optimal order detection framework, Int. J. Numer. Methods Fluids 92 (6) (2020) 603–634. [37] X. Deng, Y. Shimizu, B. Xie, F. Xiao, Constructing higher order discontinuity-capturing schemes with upwind-biased interpolations and boundary variation diminishing algorithm, Comput. Fluids 200 (2020) 104433. [38] X. Deng, Y. Shimizu, F. Xiao, A fifth-order shock capturing scheme with two-stage boundary variation diminishing algorithm, J. Comput. Phys. 386 (2019) 323–349. [39] Z. Sun, S. Inaba, F. Xiao, Boundary variation diminishing (BVD) reconstruction: a new approach to improve godunov schemes, J. Comput. Phys. 322 (2016) 309–325. [40] X.-D. Liu, S. Osher, T. Chan, Weighted essentially non-oscillatory schemes, J. Comput. Phys. 115 (1994) 200–212. [41] P. Fan, High order weighted essentially nonoscillatory WENO-eta schemes for hyperbolic conservation laws, J. Comput. Phys. 269 (2014) 355–385. [42] S. Gottlieb, On high order strong stability preserving Runge-Kutta and multi step time discretizations, J. Sci. Comput. 25 (2005) 105–128. [43] C.-W. Shu, S. Osher, Efficient implementation of essentially non-oscillatory shock-capturing schemes, J. Comput. Phys. 77 (1988) 439–471. [44] C.-W. Shu, S. Osher, Efficient implementation of essentially non-oscillatory shock-capturing schemes, II, J. Comput. Phys. 83 (1989) 32–78. [45] M. Hennessey, A.K. Kapila, D.W. Schwendeman, An HLLC-type Riemann solver and high-resolution Godunov method for a two-phase model of reactive flow with general equations of state, J. Comput. Phys. 405 (2020) 109180. [46] F. Qu, D. Sun, J.Q. Bai, C. Yan, A genuinely two-dimensional Riemann solver for compressible flows in curvilinear coordinates, J. Comput. Phys. 386 (2019) 47–63. [47] S. Bhat, J.C. Mandal, Contact preserving Riemann solver for incompressible two-phase flows, J. Comput. Phys. 379 (2019) 173–191. [48] D.S. Balsara, J.Q. Li, G.I. Montecinos, An efficient, second order accurate, universal generalized Riemann problem solver based on the HLLI Riemann solver, J. Comput. Phys. 375 (2018) 1238–1269. [49] B. Schmidtmann, A.R. Winters, Hybrid entropy stable HLL-type Riemann solvers for hyperbolic conservation laws, J. Comput. Phys. 330 (2017) 566–570. [50] J.C. Mandal, V. Sharma, A genuinely multidimensional convective pressure flux split Riemann solver for Euler equations, J. Comput. Phys. 297 (2015) 669–688. [51] E.F. Toro, Riemann Solvers and Numerical Methods for Fluid Dynamics : A Practical Introduction, Springer-Verlag, third edition, 2009.
+
+Journal of Computational Physics 545 (2026) 114482
+
+27
+
+Y. Li, N. Liu, Y. Zhang et al.
+
+[52] C.-T. Ha, J.H. Lee, A modified monotonicity-preserving high-order scheme with application to computation of multi-phase flows, Comput. Fluids 197 (2020) 104345. [53] M.-H. Ahn, D.-J. Lee, Hybrid flux method in monotonicity-preserving scheme for accurate and robust simulation in supersonic flow, Math. Probl. Eng. 2019 (2019) 1–19. [54] G. Capdeville, A high-order monotonicity-preserving scheme for hyperbolic conservation laws, Comput. Fluids 144 (2017) 86–116. [55] G.-S. Jiang, C.-W. Shu, Efficient implementation of weighted ENO schemes, J. Comput. Phys. 126 (1996) 202–228. [56] F. Xiao, Y. Honma, T. Kono, A simple algebraic interface capturing scheme using hyperbolic tangent function, Int. J. Numer. Methods Fluids 48 (9) (2005) 1023–1040. [57] Z. He, Y. Ruan, Y. Yu, B. Tian, F. Xiao, Self-adjusting steepness-based schemes that preserve discontinuous structures in compressible flows, J. Comput. Phys. 463 (2022) 111268. [58] B. Van Leer, Towards the ultimate conservative difference scheme. V. A second-order sequel to Godunov’s method, J. Comput. Phys. 32 (1) (1979) 101–136. [59] X. Deng, B. Xie, R. Loubère, Y. Shimizu, F. Xiao, Limiter-free discontinuity-capturing scheme for compressible gas dynamics with reactive fronts, Comput. Fluids 171 (2018) 1–14. [60] Y. Ruan, B. Tian, X. Zhang, Z. He, On the supremum of the steepness parameter in self-adjusting discontinuity-preserving schemes, Comput. Fluids 245 (2022) 105588. [61] X.X. Zhang, C.W. Shu, On positivity-preserving high order discontinuous Galerkin schemes for compressible Euler equations on rectangular meshes, J. Comput. Phys. 229 (2010) 8918–8934. [62] X.X. Zhang, On positivity-preserving high order discontinuous Galerkin schemes for compressible Navier-Stokes equations, J. Comput. Phys. 328 (2017) 301–343. [63] S. Clain, S. Diot, R. Loubère, A high-order finite volume method for systems of conservation laws-multi-dimensional optimal order detection (MOOD), J. Comput. Phys. 230 (2011) 4028–4050. [64] G.A. Sod, A survey of several finite difference methods for systems of nonlinear hyperbolic conservation laws, J. Comput. Phys. 27 (1978) 1–31. [65] P. Woodward, P. Colella, The numerical simulation of two-dimensional fluid flow with strong shocks, J. Comput. Phys. 54 (1984) 115–173. [66] T. Nonomura, K. Fujii, Characteristic finite-difference WENO scheme for multicomponent compressible fluid analysis: overestimated quasi-conservative formulation maintaining equilibriums of velocity, pressure, and temperature, J. Comput. Phys. 340 (2017) 358–388. [67] Z. Xu, C.-W. Shu, Anti-diffusive flux corrections for high order finite difference WENO schemes, J. Comput. Phys. 205 (2005) 458–485.
+
+Journal of Computational Physics 545 (2026) 114482
+
+28
+

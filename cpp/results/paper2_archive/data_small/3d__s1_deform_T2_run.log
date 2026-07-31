@@ -1,0 +1,4 @@
+VTK saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_deform_T2/out.vtk
+DeformUnstr recon=bvd mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh cells=2633856 E1=2.088622e-02 volRatio=1.000000 g_range=[-0.0000,1.0081] steps=1233 t=1.5000 wall=1512.0s
+CSV saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_deform_T2/out.csv (z~0.35 slab)
+your 131072x1 screen size is bogus. expect trouble

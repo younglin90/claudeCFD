@@ -1,0 +1,30 @@
+iter	change	metric	delta	verdict	notes
+0	N=100 baseline (carry-over from N=50: TVB M=16, IDW p=6)	0.02835	0	keep	Case A=0.02835, Case B=0.04881, Case C=0.06797 (oscillating)
+1	TVB M=16 -> M=32	0.02819	-0.56%	keep	cone peak 0.9686 -> 0.9723 sharper
+2	TVB M=32 -> M=64	0.02809	-0.36%	keep	cone peak 0.972 -> 0.975, undershoot -0.0005 -> -0.0016
+3	TVB M=64 -> M=128	0.02813	+0.14%	revert	M=64 sweet spot at N=100. Peak 0.975 -> 0.980 sharper, but cone L1 regressed.
+4	IDW p=6 -> p=8	0.02859	+1.78%	revert	p=6 sweet spot. Slot regressed (0.157 -> 0.160). Note Case B also changed (0.04881 -> 0.04912) because LSQ weighting affects both.
+5	IDW p=6 -> p=7	0.02832	+0.82%	revert	p=6 still best at N=100. Slot regressed (0.157 -> 0.159).
+6	smoothness threshold 0.1 -> 0.07	0.02818	+0.32%	revert	0.1 still optimal at N=100. Tighter relaxation hurt cone (0.01355 -> 0.01390).
+7	face GQ 2pt -> 3pt	0.02815	+0.21%	revert	2pt sufficient. Wall +38% for nothing.
+8	vertex_mlp=True (PYG2010)	0.04676	+66.5%	revert	severe overcrushing, peak 0.97 -> 0.86. Same finding as N=25 iter 12.
+9	virtual_uu_gradient=True (Darwish-Moukalled)	DIVERGED	+inf	revert	1e+23 blow-up. virt-UU r approx 1 (downwind psi=2 max compression). Geometric UU has natural self-shutoff at curved regions; gradient-based loses that brake. extremum_relax bypasses LMP at smooth cells - compounds.
+10	parallel 4-case + perf-opt + CICSAM Case D added	0.02818	0%	keep	Case A unchanged metric. Wall 91min seq -> 38min parallel (-58%). CICSAM (Case D)=0.02098 BEATS A by -26% (slot -33%, hump -8%). switch primary to CICSAM next iter.
+11	swap Case A: downwind -> CICSAM (primary metric switch)	0.02098	-25.5%	keep	new baseline. Case D=downwind ref=0.02818. BLAS pin no help (single-thread bound). Wall 36.8min unchanged.
+12	parallel CICSAM TVB M scan (B=128, D=32 vs A=64)	0.02095	-0.14%	keep	M=128 marginal best (hump -1.7%). M=32 +0.14% worse. Adopt M=128.
+13	parallel CICSAM Co scan (B=0.3, D=0.45 vs A=0.4)	0.02095	0%	keep	A=0.02095 best TOTAL. B=0.02124 BEST slot (-15%) but worst cone. D=0.02320 BEST cone/hump but worst slot. Trade-off: single Co optimal=0.4. Need adaptive Co or UQ blend.
+14	parallel CICSAM fine Co scan (B=0.38, D=0.42 vs A=0.40)	0.02054	-2.0%	keep	Co=0.38 NEW BEST. slot -5.5% (0.105->0.099). Cumulative -27.1% from iter 0.
+15	Full CICSAM (HC+UQ+cos²(2θ) blend)	0.03028	+47%	revert	criss-cross mesh: 50% faces have 45° angle between grad and d_UD -> cos²(2θ)=0 -> UQ used at slot edges -> diffusion. Mesh-dependent failure. HC-only Co=0.38 retained as best.
+16	Adaptive limiter (cicsam_co38 sharp / van_leer smooth, mesh-independent)	0.02026	-1.4%	keep	NEW BEST. Adaptive via LSQ residual (mesh-independent) WINS. All shapes improve, overshoot 40% lower. cicsam_co38/minmod also good (0.02045). Adaptive technique works on criss-cross unlike Full CICSAM cos²(2θ).
+17	smooth limiter scan (B=van_albada D=mc vs A=van_leer)	0.02026	0%	keep	van_leer best for slot+hump. mc beats van_leer at cone (0.0185 vs 0.0199, -7%) but loses elsewhere. Adopt van_leer.
+18	smoothness_threshold scan (B=0.07 D=0.15 vs A=0.10)	0.02026	0%	keep	threshold=0.10 sweet spot. 0.07 hurts slot+hump (overshoot). 0.15 underrestricts all. Robustness margin tight.
+19	TVB M scan (B=64 D=256 vs A=128)	0.02026	0%	keep_M64	M=64 has 4x better monotonicity (overshoot 0.007->0.002) for tiny TOTAL +0.4%. Cone -7%, hump -1.7%, slot +2%. For paper robustness M=64 preferable. Adopt M=64.
+20	IDW p scan (B=5 D=7 vs A=6)	0.02033	0%	keep	p=6 sweet spot at adaptive M=64 too. p=5 +3.6%, p=7 +2.0% (only hump -1.7%). PLATEAU on canonical knobs (TVD/M/p/threshold/smooth).
+21	3-tier limiter (cicsam_co38/van_leer/minmod, threshold 0.10/0.05)	0.02008	-1.2%	keep	NEW BEST. 3-tier wins. Slot -2.1%, mass drift 50x better (6.3e-7 -> 1.2e-8). Very-smooth minmod adds diffusion only where it helps.
+22	threshold2 scan (B=0.03 D=0.07 vs A=0.05)	0.02008	0%	keep	t2=0.05 sweet spot. 0.03 too narrow (+2.1%), 0.07 too wide (+1.2%, only hump -3%). Plateau on 6 knobs.
+23	CFL scan (B=0.3 D=0.5 vs A=0.4)	0.02008	0%	keep	cfl=0.4 sweet spot. 0.3 more recon overhead +1.4%. 0.5 less temporal accuracy +0.6%. 7 knobs plateau.
+24	Hancock courant scan (B=0.1 D=0.2 vs A=0.0)	0.02008	0%	keep	Ch=0.0 best. Ch=0.1 +14%, Ch=0.2 +39%. Hancock kills slot. 8-knob plateau FINAL.
+25	face GQ scan (B=1pt D=3pt vs A=2pt)	0.02008	0%	keep	2-pt sweet spot. 1-pt DIVERGES (1e+7) - cubic LSQ + face center extrapolation amplifies curvature past LMP. 3-pt +6.3% (no benefit, +45% wall). FINAL paper config.
+26	PAPER-READY 4-case (A=T-MLP-u FINAL B=van_leer C=central D=pure CICSAM)	0.02008	0%	keep	FINAL paper result. T-MLP-u 0.02008 vs van_leer 0.04881 (-59%) vs central 0.06797 (-71%) vs pure CICSAM 0.04544 (-56%). Pure CICSAM range [-0.84, 2.31] 231% overshoot - T-MLP-u LMP wrapper essential.
+27	verification: T-MLP-u + downwind vs T-MLP-u + CICSAM (same 3-tier) + pure downwind	0.02008	0%	keep	A=CICSAM 0.02008 < B=downwind 0.02821 (+40%). slot CICSAM -38%. cone downwind -26% only. D=pure downwind range [-0.034,1.070] stable but oscillating. Confirms: cicsam anti-diffusive (sharp+unstable alone), downwind TVD-boundary (less sharp+stable). T-MLP-u wrapper makes CICSAM optimal.
+28	verify TRUE pure downwind (ψ≡2 always) vs Roe ultrabee	0.02008	0%	keep	B=pure ψ≡2 (φ_L=φ_nei always) DIVERGED (overflow, drift 100%). D=Roe ultrabee 안정 (range [-0.034,1.070]). User intuition CORRECT - the most unstable scheme is pure downwind, not Roe ultrabee. Paper narrative: 4-quadrant (sharp×stable). T-MLP-u FINAL the only one in (sharp+stable) corner.

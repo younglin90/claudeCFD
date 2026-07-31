@@ -122,6 +122,7 @@ FIELD_SCHEMA = [
             {"id": "interface_charge_redistribution_liquid_floor", "label": "charge redist floor", "kind": "number", "default": 0.02},
             {"id": "interfacial_ohmic_charge_source_scale", "label": "ohmic source scale", "kind": "number", "default": 1.0},
             {"id": "electric_relaxation_timestep_safety", "label": "electric dt safety", "kind": "number", "default": 1.0},
+            {"id": "electric_force_timestep_safety", "label": "electric force dt safety", "kind": "number", "default": 0.05},
             {"id": "electric_drive_reference_scale", "label": "electric drive ref", "kind": "number", "default": 15.2 * 0.25},
             {"id": "electric_drive_ca_exponent", "label": "electric drive exponent", "kind": "number", "default": 1.25},
             {"id": "poisson_tangential_limit_factor", "label": "tangential limit", "kind": "number", "default": 1.0},
@@ -147,6 +148,7 @@ FIELD_SCHEMA = [
             {"id": "implicit_ohmic_charge_projection", "label": "implicit ohmic projection", "kind": "check", "default": False},
             {"id": "refresh_potential_after_charge_advance", "label": "refresh phi after charge", "kind": "check", "default": False},
             {"id": "use_electric_relaxation_timestep_limit", "label": "electric dt limit", "kind": "check", "default": True},
+            {"id": "use_electric_force_timestep_limit", "label": "electric force dt limit", "kind": "check", "default": True},
             {"id": "use_poisson_face_maxwell_force", "label": "Poisson face force", "kind": "check", "default": True},
             {"id": "use_poisson_hybrid_maxwell_force", "label": "hybrid force", "kind": "check", "default": False},
             {"id": "use_poisson_bounded_vector_maxwell_force", "label": "bounded vector force", "kind": "check", "default": False},
@@ -166,6 +168,7 @@ FIELD_SCHEMA = [
     {
         "container": "fields-boundary-flags",
         "fields": [
+            {"id": "use_named_patch_boundary_conditions", "label": "honor named-patch BCs", "kind": "check", "default": False},
             {"id": "use_boundary_charge_advection", "label": "boundary charge advection", "kind": "check", "default": False},
             {"id": "use_fully_developed_inlet_velocity_boundary", "label": "fully developed inlet", "kind": "check", "default": False},
             {"id": "use_moving_collector_wall", "label": "moving collector wall", "kind": "check", "default": False},

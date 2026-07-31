@@ -1,0 +1,13 @@
+### case=config3 scheme=s1 rep=1
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 C3_FLUX=llf C3_BC=dirichlet C3_SKIP_MLP=1 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./config3_bench 280 0.8
+### loadavg_before: 67.55 45.44 27.00 85/1459 2607141
+### date_start: 2026-07-28T19:05:36+09:00
+  [C3_BC=dirichlet active]
+Config3 four-shock: N=280 cells=156800 t_end=0.800 flux=0
+[WALL] T-MLP-u wall=186.705s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=72.829s  THINC=86.411s (geom=50.778s face=35.631s)  BVD_sel=10.877s  (THINC/MUSCL=1.19x)
+  T-MLP-u  : enstrophy=28.97663 sym_rms=4.74e-04 rho_min=0.1378 p_min=0.0290 steps=500
+[WALL] TOTAL wall=186.893s
+### rc=0
+### loadavg_after: 42.64 51.72 33.41 17/1357 2640109
+### date_end: 2026-07-28T19:08:44+09:00

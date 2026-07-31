@@ -1,0 +1,6 @@
+Mach-3 forward step: cells=129024  grid=480x160  mesh=unstructured_2d  t_end=4.00
+  BVD       : steps=32283 rho[0.0342,7.5953] p_min=0.0206 max|drho|=4.7917 | rollups=18 Qint=2.143
+  BVD vs mlp_u1: shock 1.6183, rollups 18 vs 130
+  mlp_u1    : steps=25372 rho[0.1192,7.4593] p_min=0.0729 max|drho|=2.9610 | upper-rollups=130 enstrophy=0.454
+  T-MLP-u-L : steps=0 rho[0.0000,0.0000] p_min=0.0000 max|drho|=0.0000 | upper-rollups=0 enstrophy=0.000
+  Mach3 gate: shock 0.0000 (softer), rollups 0 vs 130, enstrophy ratio 0.0000; positivity VIOLATION

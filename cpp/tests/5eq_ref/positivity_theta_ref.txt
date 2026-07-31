@@ -1,0 +1,6 @@
+# Python positivity_blend_theta; 3 cells, dt=.2 dx=1.
+# columns: face theta
+0 0.25
+1 0.25
+2 0.25
+3 0.25

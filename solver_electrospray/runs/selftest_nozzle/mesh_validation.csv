@@ -1,0 +1,2 @@
+status,mesh_mode,points,cells,faces,internal_faces,boundary_faces,patches,finite,non_positive_volume_count,zero_area_face_count,min_volume,max_volume,min_face_area,max_face_area,max_non_orthogonality_deg,mean_non_orthogonality_deg,max_skewness,max_aspect_ratio
+pass,openfoam_polyMesh,2877,2240,7312,6128,1184,4,1,0,0,1.2675e-12,1.2675e-12,9.75e-09,1.69e-08,0,0,3.72976886005e-15,2.64743062022

@@ -326,6 +326,12 @@ inline std::vector<IsoSurfaceReconstruction3D> reconstructIsoInterface3D(
     normalSource.swap(next);
   }
   std::vector<IsoSurfaceReconstruction3D> iso(mesh.cells.size());
+  // Per-cell disjoint write: iteration c writes only iso[c] via reconstructIsoSurface3D,
+  // which allocates only local scratch (samples/sort or the PLIC bisection) and reads
+  // mesh/alpha/normalSource read-only. No cross-iteration accumulation. Bit-exact at any
+  // thread count. Hot: reconstructIsoSurface3D runs a 48-iteration PLIC bisection per
+  // interface cell, and this is invoked twice per solver step via isoAdvectorFaceFlux3D.
+  FVM_PARALLEL_FOR
   for (int c = 0; c < static_cast<int>(mesh.cells.size()); ++c) {
     iso[c] = reconstructIsoSurface3D(mesh, alpha, c, normalSource);
   }

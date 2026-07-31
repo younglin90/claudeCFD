@@ -27,6 +27,13 @@ using cfd::five_eq::StepConfig;
 using cfd::five_eq::StepResult;
 using cfd::five_eq::PressureClosure;
 
+#ifndef STEP_FORCE_CLOSURE
+#  define STEP_FORCE_CLOSURE -1
+#endif
+#ifndef STEP_TOL
+#  define STEP_TOL 1e-12
+#endif
+
 static const double P0 = 1.0e5;
 
 static EOS eos_air()   { return EOS::ideal(1.4, 717.5); }
@@ -60,6 +67,8 @@ static IC make_02A() {
     int n = 100; c.dx = 1.0 / n; c.dt = 0.01;   // dt_fixed=0.01
     c.cfg.alpha_pure_tol = 1.0e-3;
     c.cfg.bc_l = BC5::Periodic; c.cfg.bc_r = BC5::Periodic;
+    if (STEP_FORCE_CLOSURE >= 0)
+        c.cfg.pressure_closure = static_cast<PressureClosure>(STEP_FORCE_CLOSURE);
     double af = 1.0e-3;
     for (int i = 0; i < n; ++i) {
         double x = (i + 0.5) * c.dx;
@@ -76,6 +85,8 @@ static IC make_07B(const EOS& eos1, const EOS& eos2) {
     c.dt = 9.5712228747485977e-07;                 // dt_used from ref header
     c.cfg.alpha_pure_tol = 1.0e-8;
     c.cfg.bc_l = BC5::Reflective; c.cfg.bc_r = BC5::Transmissive;
+    if (STEP_FORCE_CLOSURE >= 0)
+        c.cfg.pressure_closure = static_cast<PressureClosure>(STEP_FORCE_CLOSURE);
     double af = 1.0e-8, x_intf = 0.5, x_src = 0.1, sigma = 0.014, UP = 0.02;
     double ZL = 1.157 * 347.8;
     double T1v = eos1.temperature(1.157, eos1.energy(1.157, P0));
@@ -111,7 +122,7 @@ static FieldStat compare(const std::vector<double>& got, const std::vector<doubl
                          (std::fabs(ref[i]) > 1e-300 ? std::fabs(ref[i]) : 1.0);
             st.strict_big = std::fmax(st.strict_big, rel);
         }
-        if (verbose && err > 1e-12) {
+        if (verbose && err > STEP_TOL) {
             std::printf("    [FAIL] %-6s cell %zu got=%.17g ref=%.17g scaled=%.3e\n",
                         fld, i, got[i], ref[i], err);
         }
@@ -146,7 +157,7 @@ static int run_case(const char* name, const IC& c, const char* refpath,
 
     double maxfs = std::fmax(std::fmax(std::fmax(sa.scaled_max, s1.scaled_max),
                              std::fmax(s2.scaled_max, su.scaled_max)), sp.scaled_max);
-    bool pass = maxfs <= 1e-12;
+    bool pass = maxfs <= STEP_TOL;
     std::printf("[%s] %s  max field-scaled=%.3e  (p strict-rel=%.3e, alpha strict-rel=%.3e)\n",
                 name, pass ? "PASS" : "FAIL", maxfs, sp.strict_big, sa.strict_big);
     return pass ? 0 : 1;
@@ -156,6 +167,11 @@ int main() {
     EOS eos1 = eos_air();
     EOS eos2 = eos_water();
     int rc = 0;
+    if (StepConfig{}.material_config().primitive_tvd_limiter !=
+        cfd::TvdLimiter::Superbee) {
+        std::printf("[config] FAIL: production T-MLP-u limiter is not Superbee\n");
+        rc = 1;
+    }
     rc |= run_case("02A", make_02A(), STEP_02A_REF, eos1, eos2);
     std::printf("\n");
     rc |= run_case("07B", make_07B(eos1, eos2), STEP_07B_REF, eos1, eos2);

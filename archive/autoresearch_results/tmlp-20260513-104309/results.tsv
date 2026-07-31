@@ -1,0 +1,22 @@
+# environment: Python 3.12.3; 64 CPU; 217GB available RAM; network/web search enabled by user
+# metric_direction: lower
+# mode: loop
+# parallel: serial
+# web_search: enabled
+# workspace_root: /home/younglin90/work/claude_code/claudeCFD
+# artifact_root: /home/younglin90/work/claude_code/claudeCFD/autoresearch-results
+# primary_repo: /home/younglin90/work/claude_code/claudeCFD
+# goal: LeVeque N=50에서 smooth=TMLP-u+bounded_cd/lsq, sharp=TMLP-u+famous sharp-interface limiter/tmlpu, BVD cell TBV 선택으로 MLP-u1 대비 ratio 개선
+# scope: solver/solve_T-MLP-u,results/T-MLP-u
+# repos_json: [{"path":"/home/younglin90/work/claude_code/claudeCFD","role":"primary","scope":"solver/solve_T-MLP-u,results/T-MLP-u"}]
+# metric: ratio
+# verify: MPLCONFIGDIR=/tmp/mpl python3 solver/solve_T-MLP-u/tests/tmlpu_autoresearch_verify.py --n 50 --workers 2 --smooth-tvd bounded_cd --smooth-face-increment lsq --sharp-face-increment tmlpu --vertex-mlp-augment --max-wiggle 0.01
+# verify_cwd: workspace_root
+# verify_format: metrics_json
+# primary_metric_key: ratio
+# guard: python3 -m py_compile solver/solve_T-MLP-u/limiters.py solver/solve_T-MLP-u/reconstruction.py solver/solve_T-MLP-u/tests/tmlpu_autoresearch_verify.py
+# rollback_policy: leave changes inspectable; no destructive rollback
+# acceptance_criteria_json: [{"metric_key":"ratio","operator":"<=","target":0.8},{"metric_key":"tmlp_wiggle","operator":"<=","target":0.01}]
+# required_keep_criteria_json: [{"metric_key":"tmlp_wiggle","operator":"<=","target":0.01}]
+iteration	commit	metric	delta	guard	status	description
+0	676226682f493f7dcb22f93374e99fd5e79e8a4c	1.1468296376571854	0	-	baseline	N=50 requested-structure baseline: smooth=TMLP-u+bounded_cd/lsq, sharp=TMLP-u+CICSAM/Hyper-C co0.34/tmlpu; ratio=1.1468296376571854, wiggle=2.68e-6

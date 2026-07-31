@@ -1,0 +1,70 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      meshDict;
+}
+
+surfaceFile "constant/triSurface/electrospray_nozzle_full_cad.stl";
+
+maxCellSize 6.500000000000e-05;
+boundaryCellSize 2.080000000000e-05;
+minCellSize 6.400000000000e-06;
+boundaryCellSizeRefinementThickness 2.600000000000e-04;
+
+keepCellsIntersectingBoundary 1;
+
+localRefinement
+{
+    liquid_inlet { additionalRefinementLevels 3; }
+    inner_nozzle_wall { additionalRefinementLevels 4; }
+    nozzle_electrode { additionalRefinementLevels 4; }
+    collector_ground { additionalRefinementLevels 2; }
+    open_atmosphere { additionalRefinementLevels 1; }
+}
+
+objectRefinements
+{
+    jet_core
+    {
+        type cone;
+        p0 (0 -3.000000000000e-04 0);
+        p1 (0 1.500000000000e-03 0);
+        radius0 2.600000000000e-04;
+        radius1 5.200000000000e-04;
+        cellSize 2.080000000000e-05;
+        refinementThickness 2.600000000000e-04;
+    }
+}
+
+boundaryLayers
+{
+    nLayers 1;
+    thicknessRatio 1.2;
+    maxFirstLayerThickness 6.400000000000e-06;
+    allowDiscontinuity 1;
+    patchBoundaryLayers
+    {
+        inner_nozzle_wall { nLayers 4; thicknessRatio 1.2; allowDiscontinuity 1; }
+        nozzle_electrode { nLayers 4; thicknessRatio 1.2; allowDiscontinuity 1; }
+        collector_ground { nLayers 2; thicknessRatio 1.2; allowDiscontinuity 1; }
+        liquid_inlet { nLayers 0; }
+        open_atmosphere { nLayers 0; }
+    }
+}
+
+renameBoundary
+{
+    defaultName open_atmosphere;
+    defaultType patch;
+    newPatchNames
+    (
+        liquid_inlet { type patch; }
+        inner_nozzle_wall { type wall; }
+        nozzle_electrode { type wall; }
+        collector_ground { type wall; }
+        open_atmosphere { type patch; }
+    );
+}

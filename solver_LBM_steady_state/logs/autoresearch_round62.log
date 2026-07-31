@@ -1,0 +1,59 @@
+[case] channel_n32: Plane Poiseuille (periodic x, wall y, force-free)
+  picard_lbm             lbe=    7475 res=9.965e-08 relL2=0.000e+00 conv=1
+  anderson_lbm           lbe=   18851 res=9.996e-08 relL2=3.108e-03 conv=1
+  preconditioned_lbm     lbe=    7438 res=9.965e-08 relL2=0.000e+00 conv=1
+  inexact_newton_lbe     lbe=    5089 res=9.957e-08 relL2=7.060e-03 conv=1
+  dual_time_mg_lbm       lbe=   14221 res=9.872e-08 relL2=1.757e-01 conv=1
+  proposed               lbe=    4125 res=8.924e-08 relL2=1.065e-01 conv=1
+[case] couette_n32: Couette flow N=32
+  picard_lbm             lbe=    5859 res=9.655e-08 relL2=0.000e+00 conv=1
+  anderson_lbm           lbe=   22406 res=9.997e-08 relL2=1.411e-03 conv=1
+  preconditioned_lbm     lbe=    3619 res=9.558e-08 relL2=2.030e-02 conv=1
+  inexact_newton_lbe     lbe=    4033 res=9.853e-08 relL2=5.392e-04 conv=1
+  dual_time_mg_lbm       lbe=   11101 res=9.864e-08 relL2=5.877e-03 conv=1
+  proposed               lbe=    5987 res=1.278e-07 relL2=1.288e-02 conv=1
+[case] cavity_re100_n33: Lid-driven cavity Re=100 N=33
+  picard_lbm             lbe=    2930 res=4.743e-07 relL2=0.000e+00 conv=1
+  anderson_lbm           lbe=    6350 res=4.995e-07 relL2=2.939e-02 conv=1
+  preconditioned_lbm     lbe=  100501 res=6.124e-07 relL2=1.405e-01 conv=1
+  inexact_newton_lbe     lbe=    1377 res=4.875e-07 relL2=4.761e-02 conv=1
+  dual_time_mg_lbm       lbe=    3601 res=4.908e-07 relL2=3.327e-02 conv=1
+  proposed               lbe=    4337 res=2.315e-07 relL2=3.505e-03 conv=1
+[case] cavity_re400_n49: Lid-driven cavity Re=400 N=49
+  picard_lbm             lbe=    8081 res=4.904e-07 relL2=0.000e+00 conv=1
+  anderson_lbm           lbe=   29032 res=4.990e-07 relL2=7.690e-05 conv=1
+  preconditioned_lbm     lbe=  100501 res=5.073e-07 relL2=1.739e-01 conv=1
+  inexact_newton_lbe     lbe=    5665 res=4.938e-07 relL2=1.241e-01 conv=1
+  dual_time_mg_lbm       lbe=   10441 res=4.993e-07 relL2=6.563e-02 conv=1
+  proposed               lbe=    6066 res=1.147e-06 relL2=7.593e-02 conv=1
+[case] cavity_re1000_n129: Lid-driven cavity Re=1000 N=129
+  picard_lbm             lbe=   18292 res=4.347e-07 relL2=0.000e+00 conv=1
+  anderson_lbm           lbe=   76124 res=4.983e-07 relL2=3.209e-02 conv=1
+  preconditioned_lbm     lbe=   13528 res=4.120e-07 relL2=1.382e-01 conv=1
+  inexact_newton_lbe     lbe=    5729 res=4.042e-06 relL2=7.523e-01 conv=0
+  dual_time_mg_lbm       lbe=   35281 res=4.956e-07 relL2=1.208e-01 conv=1
+  proposed               lbe=    4671 res=2.930e-06 relL2=7.287e-01 conv=0
+[case] backward_step_n64: Backward-facing step
+  picard_lbm             lbe=  100501 res=1.175e-06 relL2=0.000e+00 conv=0
+  anderson_lbm           lbe=  223835 res=9.359e-07 relL2=2.370e-14 conv=0
+  preconditioned_lbm     lbe=  100201 res=1.175e-06 relL2=0.000e+00 conv=0
+  inexact_newton_lbe     lbe=    5729 res=6.194e-07 relL2=1.841e-03 conv=0
+  dual_time_mg_lbm       lbe=   78463 res=1.362e-03 relL2=8.872e-01 conv=0
+  proposed               lbe=    8040 res=7.678e-07 relL2=1.862e-06 conv=0
+[case] cylinder_wake_n64: Cylinder wake analogue
+  picard_lbm             lbe=    3016 res=8.077e-08 relL2=0.000e+00 conv=1
+  anderson_lbm           lbe=    5168 res=9.908e-08 relL2=9.073e-04 conv=1
+  preconditioned_lbm     lbe=    3007 res=8.077e-08 relL2=0.000e+00 conv=1
+  inexact_newton_lbe     lbe=    1441 res=9.880e-08 relL2=1.330e-03 conv=1
+  dual_time_mg_lbm       lbe=   78451 res=3.570e-04 relL2=3.150e-01 conv=0
+  proposed               lbe=    5277 res=5.086e-09 relL2=7.680e-05 conv=1
+[case] multi_cylinder_n32: Multi-cylinder masked flow
+  picard_lbm             lbe=   62520 res=9.951e-08 relL2=0.000e+00 conv=1
+  anderson_lbm           lbe=    1769 res=9.967e-08 relL2=6.853e-04 conv=1
+  preconditioned_lbm     lbe=   62311 res=9.570e-08 relL2=7.681e-05 conv=1
+  inexact_newton_lbe     lbe=     609 res=8.092e-08 relL2=5.946e-04 conv=1
+  dual_time_mg_lbm       lbe=   40073 res=6.363e-04 relL2=6.569e-01 conv=0
+  proposed               lbe=    3728 res=6.617e-08 relL2=5.787e-05 conv=1
+[saved] paper_revision_data/bench60_no_force/summary.csv
+[saved] paper_revision_data/bench60_no_force/metrics.json
+{"accuracy_win_count": 0, "all_pass": 0, "case_count": 8, "case_results": [{"acc_win": 0, "best_fixed_lbe": 5089, "best_fixed_rel_l2": 0.0, "best_fixed_wall": 1.719658144051209, "case_id": "channel_n32", "case_pass": 0, "converged": 1, "lbe_win": 1, "proposed_lbe": 4125, "proposed_rel_l2": 0.10651494392732651, "proposed_wall": 1.069009554805234, "wall_win": 1}, {"acc_win": 0, "best_fixed_lbe": 3619, "best_fixed_rel_l2": 0.0, "best_fixed_wall": 1.4103730220813304, "case_id": "couette_n32", "case_pass": 0, "converged": 1, "lbe_win": 0, "proposed_lbe": 5987, "proposed_rel_l2": 0.012882057866033376, "proposed_wall": 1.561073309974745, "wall_win": 0}, {"acc_win": 0, "best_fixed_lbe": 1377, "best_fixed_rel_l2": 0.0, "best_fixed_wall": 0.5221457660663873, "case_id": "cavity_re100_n33", "case_pass": 0, "converged": 1, "lbe_win": 0, "proposed_lbe": 4337, "proposed_rel_l2": 0.003505216263881701, "proposed_wall": 1.9284583928529173, "wall_win": 0}, {"acc_win": 0, "best_fixed_lbe": 5665, "best_fixed_rel_l2": 0.0, "best_fixed_wall": 2.4876002920791507, "case_id": "cavity_re400_n49", "case_pass": 0, "converged": 1, "lbe_win": 0, "proposed_lbe": 6066, "proposed_rel_l2": 0.07593191262394955, "proposed_wall": 2.787906549870968, "wall_win": 0}, {"acc_win": 0, "best_fixed_lbe": 13528, "best_fixed_rel_l2": 0.0, "best_fixed_wall": 18.60764915915206, "case_id": "cavity_re1000_n129", "case_pass": 0, "converged": 0, "lbe_win": 1, "proposed_lbe": 4671, "proposed_rel_l2": 0.7286795125435674, "proposed_wall": 4.444808098953217, "wall_win": 1}, {"acc_win": 0, "best_fixed_lbe": 5729, "best_fixed_rel_l2": 0.0, "best_fixed_wall": 5.836800509132445, "case_id": "backward_step_n64", "case_pass": 0, "converged": 0, "lbe_win": 0, "proposed_lbe": 8040, "proposed_rel_l2": 1.8622912990671642e-06, "proposed_wall": 6.115915168076754, "wall_win": 0}, {"acc_win": 0, "best_fixed_lbe": 1441, "best_fixed_rel_l2": 0.0, "best_fixed_wall": 1.5948804370127618, "case_id": "cylinder_wake_n64", "case_pass": 0, "converged": 1, "lbe_win": 0, "proposed_lbe": 5277, "proposed_rel_l2": 7.68000256780008e-05, "proposed_wall": 4.0308008410502225, "wall_win": 0}, {"acc_win": 0, "best_fixed_lbe": 609, "best_fixed_rel_l2": 0.0, "best_fixed_wall": 0.36115380306728184, "case_id": "multi_cylinder_n32", "case_pass": 0, "converged": 1, "lbe_win": 0, "proposed_lbe": 3728, "proposed_rel_l2": 5.787449097582593e-05, "proposed_wall": 1.7665310739539564, "wall_win": 0}], "converged_count": 6, "elapsed_wall_seconds": 339.195660145022, "lbe_win_count": 2, "mean_lbe_speedup_vs_best_fixed": 0.8918409961858418, "method_count": 6, "methods": ["picard_lbm", "anderson_lbm", "preconditioned_lbm", "inexact_newton_lbe", "dual_time_mg_lbm", "proposed"], "pass_count": 0, "wall_win_count": 2}

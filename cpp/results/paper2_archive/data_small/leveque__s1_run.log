@@ -1,0 +1,11 @@
+LeVeque-Zalesak rotation: N=200 cells=160000, 1 revolution
+  mlp_u1 (BJ-vertex):
+    (n_steps=11819)
+  T-MLP-u-L (IDW p=2):
+    (n_steps=11819)
+  BVD (smooth BJ / sharp O2):
+    (n_steps=11819)
+  mlp_u1     L1=1.0966e-02 cone=1.8982e-04 hump=7.1376e-05 slot=7.3939e-03 | cone_pk=0.925 slot_fill=0.745 range[-0.000,1.000]
+  T-MLP-u-L  L1=1.0704e-02 cone=1.8530e-04 hump=7.5796e-05 slot=7.2088e-03 | cone_pk=0.927 slot_fill=0.750 range[-0.000,1.000]
+  BVD        L1=3.1816e-03 cone=4.2562e-04 hump=1.1742e-04 slot=1.7346e-03 | cone_pk=0.928 slot_fill=0.977 range[-0.000,1.000]
+  BVD vs mlp_u1: L1 ratio 0.2901, cone_pk 0.928 vs 0.925, slot_fill 0.977 vs 0.745

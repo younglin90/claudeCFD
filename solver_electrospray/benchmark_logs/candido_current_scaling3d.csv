@@ -1,0 +1,4 @@
+case,target_ca_e,voltage,computed_ca_e,max_conductive_current,max_convective_current,max_electric_force,max_velocity,final_midplane_jet_radius,alpha_mass_drift,max_div
+low_ca012,0.12,1496.41,0.12,8.2145e-07,1.42397e-12,5.74763,0.0246511,0.000477746,1.38121e-15,4.29507e-14
+validation_ca025,0.25,2159.88,0.25,1.18816e-06,5.05742e-12,12.0525,0.115803,0.000476684,1.24634e-15,1.87766e-13
+whipping_ca042,0.42,2799.53,0.42,1.54633e-06,2.53262e-11,20.5013,0.58656,0.000476637,1.53394e-15,8.39042e-13

@@ -1,0 +1,108 @@
+--- a/cpp/include/cfd/reconstruct_bvd.hpp
++++ b/cpp/include/cfd/reconstruct_bvd.hpp
+@@ -797,6 +797,40 @@
+     double P1[7],P2[7]; P1[0]=t1;P2[0]=t2; for(int k=1;k<7;++k){P1[k]=P1[k-1]*t1;P2[k]=P2[k-1]*t2;}
+     return Q0*(P2[0]-P1[0]) + Q1*(P2[1]-P1[1])*0.5 + Q2*(P2[2]-P1[2])/3.0 + Q3*(P2[3]-P1[3])*0.25
+          + Q4*(P2[4]-P1[4])*0.2 + Q5*(P2[5]-P1[5])/6.0 + Q6*(P2[6]-P1[6])/7.0; }
++// deg3t-PRIVATE tail-integral helpers (std::log, NOT fast_log). p32_Jr/p32_I2r/p32_I3r are SHARED
++// with pade32 (mode 5/6) which rely on fast_log for speed; deg3t's tail face integral is the ONLY caller
++// that exposes fast_log's C0 seam jump (~8e-5 at x=1/sqrt(2)) and that breaks the deg3t edge symmetry
++// (per-recon asym 8.9e-9 -> 1.8e-15, full-run sym 2.79e-2 -> 1.82e-2). Math identical to the shared
++// p32_* forms; only the log is swapped to libm std::log. Keeps the fast_log fast-path untouched for
++// every other sigmoid. (atan path here already uses std::atan, so no fast_atan change is needed.)
++inline double deg3t_p32_Jr(double A,double B,double C,double t1,double t2){   // int dt/(A t^2+B t+C)
++    if(std::fabs(A)<1e-14){ if(std::fabs(B)<1e-300) return (t2-t1)/C;
++        return (std::log(std::fabs(B*t2+C))-std::log(std::fabs(B*t1+C)))/B; }
++    double disc=4.0*A*C-B*B;
++    if(disc>1e-300){ double sq=std::sqrt(disc); double u1=2*A*t1+B,u2=2*A*t2+B,den=sq*sq+u1*u2,v;
++        if(std::fabs(den)<1e-300) v=std::atan(u2/sq)-std::atan(u1/sq);
++        else { v=std::atan((u2-u1)*sq/den); if(den<0) v+=(u2>=0?3.14159265358979324:-3.14159265358979324); }
++        return 2.0/sq*v; }
++    if(disc<-1e-300){ double sq=std::sqrt(-disc);
++        auto L=[&](double t){ double u=2*A*t+B; return std::log(std::fabs((u-sq)/(u+sq))); };
++        return (L(t2)-L(t1))/sq; }
++    return -2.0/(2*A*t2+B)+2.0/(2*A*t1+B); }
++inline double deg3t_p32_I2r(double A,double B,double C,double t1,double t2){  // int dt/(A t^2+B t+C)^2
++    if(std::fabs(A)<1e-14){ if(std::fabs(B)<1e-300) return (t2-t1)/(C*C);
++        return -1.0/(B*(B*t2+C)) + 1.0/(B*(B*t1+C)); }
++    double disc=4.0*A*C-B*B;
++    if(std::fabs(disc)<1e-300){ double r=-B/(2*A);
++        return -1.0/(3*A*A)*(1.0/std::pow(t2-r,3)-1.0/std::pow(t1-r,3)); }
++    auto P=[&](double t){ return A*t*t+B*t+C; };
++    return (2*A*t2+B)/(disc*P(t2)) - (2*A*t1+B)/(disc*P(t1)) + (2*A/disc)*deg3t_p32_Jr(A,B,C,t1,t2); }
++inline double deg3t_p32_I3r(double A,double B,double C,double t1,double t2){  // int dt/(A t^2+B t+C)^3
++    if(std::fabs(A)<1e-14){ if(std::fabs(B)<1e-300) return (t2-t1)/(C*C*C);
++        double d2=B*t2+C,d1=B*t1+C; return -1.0/(2*B*d2*d2)+1.0/(2*B*d1*d1); }
++    double disc=4.0*A*C-B*B;
++    if(std::fabs(disc)<1e-300){ double r=-B/(2*A);
++        return -1.0/(5*A*A*A)*(1.0/std::pow(t2-r,5)-1.0/std::pow(t1-r,5)); }
++    auto P=[&](double t){ return A*t*t+B*t+C; };
++    return (2*A*t2+B)/(2*disc*P(t2)*P(t2)) - (2*A*t1+B)/(2*disc*P(t1)*P(t1)) + (3*A/disc)*deg3t_p32_I2r(A,B,C,t1,t2); }
+ inline double deg3t_tailI(double a,double b,double g,double sg,double t1,double t2){   // int sigma_tail dt, |xi|>asp
+     constexpr double A=DEG3T_A,B=DEG3T_B,kk=DEG3T_K,asp=DEG3T_ASP, bc=B/kk, ac=A-B/kk;
+     double PA=sg*kk*a, PB=sg*kk*b, PC=sg*kk*g+(1.0-kk*asp);    // P=1+kk w (quadratic in t)
+@@ -804,9 +838,9 @@
+     if(std::fabs(PA)<1e-14){                                   // P linear: PB t + PC
+         if(std::fabs(PB)<1e-300){ double iv=1.0/PC; J=(t2-t1)*iv; I2=J*iv; I3=I2*iv; }
+         else { double d2=PB*t2+PC,d1=PB*t1+PC, ib=1.0/PB;
+-            J=(fast_log(std::fabs(d2))-fast_log(std::fabs(d1)))*ib; I2=(1.0/d1-1.0/d2)*ib; I3=(0.5/(d1*d1)-0.5/(d2*d2))*ib; } }
+-    else { double disc=4.0*PA*PC-PB*PB, Pq2=PA*t2*t2+PB*t2+PC, Pq1=PA*t1*t1+PB*t1+PC; J=p32_Jr(PA,PB,PC,t1,t2);
+-        if(std::fabs(disc)<1e-300){ I2=p32_I2r(PA,PB,PC,t1,t2); I3=p32_I3r(PA,PB,PC,t1,t2); }   // double-root -> robust forms
++            J=(std::log(std::fabs(d2))-std::log(std::fabs(d1)))*ib; I2=(1.0/d1-1.0/d2)*ib; I3=(0.5/(d1*d1)-0.5/(d2*d2))*ib; } }   // std::log (deg3t-private, no fast_log seam)
++    else { double disc=4.0*PA*PC-PB*PB, Pq2=PA*t2*t2+PB*t2+PC, Pq1=PA*t1*t1+PB*t1+PC; J=deg3t_p32_Jr(PA,PB,PC,t1,t2);
++        if(std::fabs(disc)<1e-300){ I2=deg3t_p32_I2r(PA,PB,PC,t1,t2); I3=deg3t_p32_I3r(PA,PB,PC,t1,t2); }   // double-root -> robust forms
+         else { I2=(2*PA*t2+PB)/(disc*Pq2)-(2*PA*t1+PB)/(disc*Pq1)+(2*PA/disc)*J;
+             I3=(2*PA*t2+PB)/(2*disc*Pq2*Pq2)-(2*PA*t1+PB)/(2*disc*Pq1*Pq1)+(3*PA/disc)*I2; } }
+     return sg*((t2-t1)-(ac*I3+bc*I2)); }
+@@ -840,6 +874,33 @@
+         double w=-1.0; for(int i=0;i<nr;++i) if(roots[i]>=-1e-7){ if(w<0.0||roots[i]<w) w=roots[i]; }
+         if(w<0.0) w=0.0; u=asp+w; }
+     if(u<0.0) u=0.0; return Q<0?-u:u; }
++// deg3t sigmoid VALUE only (case 9 of spl_sig, inlined): cubic inner s+a3 s^3 (|s|<asp) / rational m=3 tail.
++inline double deg3t_sig(double s){
++    constexpr double a3=DEG3T_A3,asp=DEG3T_ASP,A=DEG3T_A,B=DEG3T_B,kk=DEG3T_K;
++    double u=s<0.0?-s:s, gg;
++    if(u<asp){ double u2=u*u; gg=u+a3*u2*u; }
++    else { double w=u-asp, KW=1.0+kk*w; gg=1.0-(A+B*w)/(KW*KW*KW); }
++    return s<0.0?-gg:gg; }
++// HYBRID deg3t cell-D (env THINCQQ_DEG3T_HYB), FULLY no-Newton. Decompose sigma_deg3t(s)=cubic(s)+g(s),
++// cubic(s)=s+a3 s^3 (the deg3t INNER, slope-1), g(s)=sigma_deg3t(s)-cubic(s) (=0 for |s|<asp; the tail-
++// minus-cubic correction for |s|>=asp). Cell-avg constraint (1/V)int sigma(kP+D) dV = Q becomes
++//   cubic_moment(D) + (1/V)int g(kP+D) dV = Q,   cubic_moment(D)=M1+M0 D + a3(M3+3M2 D+3M1 D^2+M0 D^3).
++// EXACT for the cubic part via quadrature moments Mj=sum_q w_q (kP_q)^j (a1=1,a3=DEG3T_A3 -> direct Cardano,
++// same machinery as deg3_cellD / deg3t_inv). The g-integral is APPROXIMATED by its centroid value (no Newton,
++// like deg3t_inv): kP(centroid)=0 so s_centroid=D; 1-pass: estimate D0=deg3t_inv(Q), evaluate g0=g(D0), then
++// Cardano-solve cubic_moment(D)=Q-g0. Pick the real root nearest D0 (cubic monotone in the inner region).
++inline double deg3t_hyb_cellD(const double* kP,const double* w,int nq,double Q){
++    constexpr double a1=1.0, a3=DEG3T_A3;
++    double M0=0,M1=0,M2=0,M3=0;
++    for(int q=0;q<nq;++q){ double k=kP[q],wq=w[q]; M0+=wq; M1+=wq*k; M2+=wq*k*k; M3+=wq*k*k*k; }
++    double D0=deg3t_inv(Q);                                  // centroid-D estimate (closed-form, no Newton)
++    double g0=deg3t_sig(D0)-(a1*D0+a3*D0*D0*D0);             // tail-minus-cubic correction at the centroid (0 if |D0|<asp)
++    double Qc=Q-g0;                                          // corrected cubic target
++    double roots[3]; int nr=cubic_real_roots(a3*M0, 3.0*a3*M1, a1*M0+3.0*a3*M2, (a1*M1+a3*M3)-Qc, roots);
++    if(nr<=0) return D0;                                     // degenerate -> centroid-D fallback
++    double D=roots[0], best=std::fabs(roots[0]-D0);          // pick real root nearest the centroid estimate
++    for(int i=1;i<nr;++i){ double dc=std::fabs(roots[i]-D0); if(dc<best){best=dc; D=roots[i];} }
++    return D; }
+ 
+ // EXACT AST cell-average D (reviewer-proof): closed-form ridge-reduced cell integral + 1D scalar Newton,
+ // NO volume quadrature. For sigma=xi/(1+|xi|): Sigma=int sigma dxi=|xi|-ln(1+|xi|). Per cell edge (linear
+@@ -953,6 +1014,7 @@
+     static const bool SPL_POLY9 = (spl_mode()==7);    // compact deg-9 poly smoothstep: face CF uses poly9_edge_avg (pure-poly moment), centroid-D uses poly9_inv
+     static const bool SPL_DEG3  = (spl_mode()==8);    // deg-3 cubic: face CF uses deg3_edge_avg (pure-poly), centroid-D uses deg3_inv (Cardano, no Newton)
+     static const bool SPL_DEG3T = (spl_mode()==9);    // deg3t: cubic inner + rational m=3 tail (gentle): face CF deg3t_edge_avg (poly+atan/log), centroid-D deg3t_inv (Cardano)
++    static const bool DEG3T_HYB = std::getenv("THINCQQ_DEG3T_HYB") != nullptr;  // deg3t HYBRID cell-D (no Newton): inner cubic EXACT via Cardano moments + tail correction via centroid-D (deg3t_hyb_cellD)
+     static const bool SPL_CENTROID = std::getenv("THINCQQ_SPL_CENTROID") != nullptr;  // CENTROID-D closed-form (D=atanh(Q), spl~tanh): NO Newton, NO cell-quad, beta-independent. WARNING: diffuses (KH 0.66 vs exact-cell 0.90)
+     const double (*TQp)[4] = LOWQ?TQ3:TQ; const int NQC = LOWQ?3:6;
+     const double (*EQp)[2] = EDGE1?EQ1:(LOWQ?EQ2:EQ); const int NQE = EDGE1?1:(LOWQ?2:4);
+@@ -1019,6 +1081,9 @@
+                     double dx=x-cc[ci*2],dy=y-cc[ci*2+1]; Pg[q]=A[0]*dx+A[1]*dy+A[2]*dx*dx+A[3]*dy*dy+A[4]*dx*dy; }
+                 static const bool DEG3_NEWTON = std::getenv("THINCQQ_DEG3_NEWTON")!=nullptr;  // diagnostic: deg3 via generic per-iter Newton (isolate sigmoid shape from Cardano fast-path)
+                 auto solveSpl=[&](double kk)->double{ double kP[6]; for(int q=0;q<NQC;++q)kP[q]=kk*Pg[q];   // hoist kk*Pg (invariant across Newton iters)
++                    if(SPL_DEG3T && DEG3T_HYB){   // deg3t HYBRID: inner cubic EXACT via Cardano moments + tail correction via centroid-D. NO Newton.
++                        double wq[6]; for(int q=0;q<NQC;++q) wq[q]=TQp[q][0];
++                        return deg3t_hyb_cellD(kP,wq,NQC,Q); }
+                     if(SPL_DEG3 && !DEG3_NEWTON){   // deg-3: EXACT-cell-D v2 (geometry-based, consistent w/ exact CF face). NO Newton, NO wild D.
+                         double dxx[3],dyy[3]; for(int j=0;j<3;++j){ int vid=vs[j]; dxx[j]=m.nodes[vid*2]-cc[ci*2]; dyy[j]=m.nodes[vid*2+1]-cc[ci*2+1]; }
+                         return deg3_cellD2(kk*A[0],kk*A[1],kk*A[2],kk*A[3],kk*A[4], dxx,dyy, Q); }

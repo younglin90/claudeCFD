@@ -1,0 +1,2 @@
+leg,change,ca,laplace_error_percent,mms_slope,mass_drift,potential_l2,deformation_D,deformation_D_T,max_div,taylor_green_energy_error,taylor_green_enstrophy_error,cavity3d_smoke_div,gate_status,next_action
+Leg 1,"Added 3D cavity projection smoke path on top of 3D Taylor-Green/operators/Rhie-Chow",nan,nan,2.47101,nan,nan,nan,nan,1.22428e-14,0.0441932,0.0441932,4.04868e-12,partial,"Calibrate 3D cavity against trusted reference profiles within 2% L2"

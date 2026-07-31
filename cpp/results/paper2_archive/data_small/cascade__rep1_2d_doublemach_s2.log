@@ -1,0 +1,19 @@
+### case=doublemach scheme=s2 rep=1
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 DM_MESH2D=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/dmr_wc_paper.mesh2d DM_SINGLE=1 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 ./double_mach_bench 240 60 0.2
+### loadavg_before: 39.93 35.82 32.39 30/1373 2733473
+### date_start: 2026-07-28T19:22:03+09:00
+[C3GMOM] moment table (re)built: N=370421 cells, analytic
+DM_MESH2D=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/dmr_wc_paper.mesh2d cells=370421 nodes=186212
+(idw_p=2.0 bj_idw=2.0)
+Double-Mach reflection: cells=370421 grid=240x60 t_end=0.200
+[WALL] BVD wall=398.188s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=231.253s  THINC=122.619s (geom=47.291s face=75.327s)  BVD_sel=30.915s  (THINC/MUSCL=0.53x)
+  BVD          : posOK=1 rho[1.400,17.975] p_min=0.9998 | Q-crit vort=118 (S114/M4/L0) Qint=0.00
+  mlp_u1_tmlpu : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  T-MLP-u-L    : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  DM gate BVD vs mlp_u1: vortices 118 vs 0 (BVD MORE); size-bins S/M/L 114/4/0 vs 0/0/0; Qint ratio 2.000
+  DM gate (Q-criterion, robust): vortices 0 vs 0 (tie); size-bins S/M/L 0/0/0 vs 0/0/0; Qint ratio 0.000
+[WALL] TOTAL wall=399.062s
+### rc=0
+### loadavg_after: 40.25 38.77 34.90 32/1428 2742695
+### date_end: 2026-07-28T19:28:49+09:00

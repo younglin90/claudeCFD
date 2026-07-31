@@ -1,0 +1,11 @@
+{
+  "levels": [
+    1
+  ],
+  "base_cases": [
+    "couette_n32"
+  ],
+  "elapsed_wall_seconds": 9.822201854010927,
+  "row_count": 1,
+  "method_variant": "ap_schur_jfnk_candidate"
+}

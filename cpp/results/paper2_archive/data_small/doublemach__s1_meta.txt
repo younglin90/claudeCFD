@@ -1,0 +1,2 @@
+91896eca56aca0bd6be926bb03396e89  ./build/double_mach_bench
+env=BC_FACE_RECON=1 DM_FLUX=rhllc DM_SINGLE=1 BVD_CHENG3=1 BVD_BETA_L=1.4 BVD_BETA_S=0.8 BVD_CANDFLAG=1 DM_MESH2D=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/dmr_wc_paper.mesh2d THINCQQ_TANH=1 DM_DUMP=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_dmr_papermesh/s1/dm.txt

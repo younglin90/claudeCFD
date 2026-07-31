@@ -1,0 +1,6 @@
+[20:25:05] START sphere s2 rep2 loadavg=31.22 30.04 29.14
+CMD: taskset -c 24-46:2 env BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 BVD_BETA_L=1.4 BVD_BETA_S=0.8 E3D_PROF=1 N3_MESH=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx75.umsh CFD_MAXSTEP=100 ./langseth3d_unstr_bench
+E3D_PROF: 300 RHS calls, summed 395581ms  ||  prim 675ms(0.2%)  RECON 251928ms(63.7%)  ppfloor 0ms(0.0%)  FLUX 10757ms(2.7%)  MOOD 127415ms(32.2%)  visc 0ms(0.0%)  asm 4805ms(1.2%)
+E3D_PROF (euler3d) RECON breakdown (summed 209333ms): o2-LSQ 78778ms(37.6%)  cell-D-Newton 31408ms(15.0%, avg 0.00 Newton iters/solve over 0 solves)  face-quad+BVD 99147ms(47.4%)
+LangsethUnstr recon=bvd flux=2+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx75.umsh cells=1687500 rho=[0.4436,1.6626] p_min=0.9998 finite=1 enstrophy=0.0965 steps=100 t=0.0569 wall=408.4s
+[20:32:12] END   sphere s2 rep2 loadavg=27.93 29.21 29.09

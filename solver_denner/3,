@@ -1,0 +1,19 @@
+{
+  "iteration": 43,
+  "results_path": "autoresearch-results/results.tsv",
+  "retained_acceptance": false,
+  "retained_labels": [],
+  "retained_metric": 5,
+  "state_path": "/home/younglin90/work/claude_code/claudeCFD/solver_denner/autoresearch-results/state.json",
+  "status": "no-op",
+  "trial_acceptance": false,
+  "trial_labels": [
+    "case13",
+    "n160",
+    "mixed-pu-baseline-refreshed"
+  ],
+  "trial_metric": 5,
+  "trial_repo_commits": {
+    "/home/younglin90/work/claude_code/claudeCFD/solver_denner": "1a8808e"
+  }
+}

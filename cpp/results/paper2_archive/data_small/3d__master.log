@@ -1,0 +1,74 @@
+[08:51:47] === master3d start ===
+[08:51:47] waiting for current langseth §3.3 nx100 to finish...
+[08:51:47] clear. building + sizing.
+[08:51:47] build deform + langseth benches
+[08:52:03] build: |                                                               ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~ | [100%] Linking CXX executable langseth3d_unstr_bench | [100%] Built target langseth3d_unstr_bench
+[08:52:03] mesh exists def_calib48.umsh
+[08:52:32] deform calib: per_step=0.225s ctx=2.5s dt=1.23e-03 full_steps~2439 full_wall_nx48~551s -> nx=77
+[08:52:32] SIZES: deform nx=77, sphere nx=100, two-cyl nx=112
+[08:52:32] gen mesh def_nx77.umsh nx=77 dom=1x1x1
+[08:52:35]   -> CELLS 2739198
+[08:52:35] mesh exists lang_nx100.umsh
+[08:52:35] gen mesh lang_vortex_nx112.umsh nx=112 dom=1.5x1.0x0.5
+[08:52:38]   -> CELLS 1864800
+[08:52:38] [s2_deform_T2] START (timeout 10800s) mesh=def_nx77.umsh
+[09:13:33] [s2_deform_T2] DeformUnstr recon=bvd+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx77.umsh cells=2739198 E1=2.087180e-02 volRatio=1.000000 g_range=[-0.0017,1.0107] steps=1251 t=1.5000 wall=1173.8s
+[09:13:33] [s2_deform_T2] DONE in 1255s
+[09:13:33] [s2_deform_ret] START (timeout 14400s) mesh=def_nx77.umsh
+[09:53:27] [s2_deform_ret] DeformUnstr recon=bvd+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx77.umsh cells=2739198 E1=7.145143e-02 volRatio=1.000000 g_range=[-14.2630,7.0395] steps=2240 t=3.0000 wall=2263.4s
+[09:53:27] [s2_deform_ret] DONE in 2393s
+[09:53:27] [s2_sphere] START (timeout 21600s) mesh=lang_nx100.umsh
+[11:49:55] [s2_sphere] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.2016,1.4908] p_min=0.6906 finite=1 enstrophy=0.3075 steps=1173 t=0.5000 wall=3947.2s
+[11:49:55] [s2_sphere] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.2200,1.3445] p_min=0.7908 finite=1 enstrophy=0.2436 steps=1560 t=0.7000 wall=5750.2s
+[11:49:55] [s2_sphere] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.2212,1.2889] p_min=0.8215 finite=1 enstrophy=0.1758 steps=1742 t=0.8000 wall=6652.9s
+[11:49:55] [s2_sphere] DONE in 6988s
+[11:49:56] [s2_2cyl] START (timeout 32400s) mesh=lang_vortex_nx112.umsh
+[12:25:14] [s2_2cyl] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1000,3.3366] p_min=0.5300 finite=1 enstrophy=30.5293 steps=585 t=0.1000 wall=852.6s
+[12:25:14] [s2_2cyl] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.0000,8434120798246052864.0000] p_min=-418095168598077066380754826580013244343565923042101069994688477395797210194706007304267603978788619971992058891075584.0000 finite=1 enstrophy=13267054976565866360612666533625494645607079631217574273837147226022575116367446672367820562911447078329785236727035880815458924310673614910259200.0000 steps=1271 t=0.1583 wall=1961.0s  [DIVERGED/neg-p]
+[12:25:14] [s2_2cyl] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.0000,8434120798246052864.0000] p_min=-418095168598077066380754826580013244343565923042101069994688477395797210194706007304267603978788619971992058891075584.0000 finite=1 enstrophy=13267054976565866360612666533625494645607079631217574273837147226022575116367446672367820562911447078329785236727035880815458924310673614910259200.0000 steps=1271 t=0.1583 wall=1978.8s  [DIVERGED/neg-p]
+[12:25:14] [s2_2cyl] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.0000,8434120798246052864.0000] p_min=-418095168598077066380754826580013244343565923042101069994688477395797210194706007304267603978788619971992058891075584.0000 finite=1 enstrophy=13267054976565866360612666533625494645607079631217574273837147226022575116367446672367820562911447078329785236727035880815458924310673614910259200.0000 steps=1271 t=0.1583 wall=1995.1s  [DIVERGED/neg-p]
+[12:25:14] [s2_2cyl] DONE in 2118s
+[12:25:14] [s1_deform_T2] START (timeout 14400s) mesh=def_nx77.umsh
+[12:58:32] === master3d start ===
+[12:58:32] waiting for current langseth §3.3 nx100 to finish...
+[12:58:32] clear. building + sizing.
+[12:58:32] build deform + langseth benches
+[12:58:49] build: |                                                               ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~ | [100%] Linking CXX executable langseth3d_unstr_bench | [100%] Built target langseth3d_unstr_bench
+[12:58:49] mesh exists def_calib48.umsh
+[12:59:19] deform calib: per_step=0.230s ctx=2.6s dt=1.23e-03 full_steps~2439 full_wall_nx48~564s -> nx=76
+[12:59:19] SIZES: deform nx=76, sphere nx=100, two-cyl nx=112
+[12:59:19] gen mesh def_nx76.umsh nx=76 dom=1x1x1
+[12:59:22]   -> CELLS 2633856
+[12:59:22] mesh exists lang_nx100.umsh
+[12:59:22] mesh exists lang_vortex_nx112.umsh
+[12:59:22] [s2_deform_T2] SKIP (output exists)
+[12:59:22] [s2_deform_ret] SKIP (output exists)
+[12:59:23] [s2_sphere] START (timeout 21600s) mesh=lang_nx100.umsh
+[15:23:01] [s2_sphere] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.2842,1.4021] p_min=0.7024 finite=1 enstrophy=0.1164 steps=995 t=0.5000 wall=4956.4s
+[15:23:01] [s2_sphere] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.3069,1.2860] p_min=0.8004 finite=1 enstrophy=0.0890 steps=1326 t=0.7000 wall=7035.6s
+[15:23:01] [s2_sphere] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.3023,1.2540] p_min=0.8287 finite=1 enstrophy=0.0606 steps=1487 t=0.8000 wall=8108.9s
+[15:23:01] [s2_sphere] DONE in 8619s
+[15:23:02] [s2_2cyl] START (timeout 32400s) mesh=lang_vortex_nx112.umsh
+[18:14:58] [s2_2cyl] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1000,2.9641] p_min=0.6276 finite=1 enstrophy=17.6242 steps=571 t=0.1000 wall=1346.0s
+[18:14:58] [s2_2cyl] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1253,2.8120] p_min=0.9993 finite=1 enstrophy=55.0344 steps=1609 t=0.3000 wall=4009.1s
+[18:14:58] [s2_2cyl] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1349,2.6793] p_min=0.9251 finite=1 enstrophy=76.5047 steps=2581 t=0.5000 wall=6856.3s
+[18:14:58] [s2_2cyl] LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1574,2.6583] p_min=0.7732 finite=1 enstrophy=118.3466 steps=3513 t=0.7000 wall=9679.4s
+[18:14:58] [s2_2cyl] DONE in 10316s
+[18:14:59] [s1_deform_T2] START (timeout 14400s) mesh=def_nx76.umsh
+[18:42:31] [s1_deform_T2] DeformUnstr recon=bvd mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh cells=2633856 E1=2.088622e-02 volRatio=1.000000 g_range=[-0.0000,1.0081] steps=1233 t=1.5000 wall=1512.0s
+[18:42:31] [s1_deform_T2] DONE in 1652s
+[18:42:31] [s1_deform_ret] START (timeout 18000s) mesh=def_nx76.umsh
+[19:46:48] [s1_deform_ret] DeformUnstr recon=bvd mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh cells=2633856 E1=4.704229e-03 volRatio=1.000000 g_range=[-0.0253,1.0127] steps=2440 t=3.0000 wall=3566.3s
+[19:46:48] [s1_deform_ret] DONE in 3857s
+[19:46:48] [s1_sphere] START (timeout 28800s) mesh=lang_nx100.umsh
+[00:27:18] [s1_sphere] LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.2842,1.4016] p_min=0.7024 finite=1 enstrophy=0.1112 steps=995 t=0.5000 wall=7894.4s
+[00:27:18] [s1_sphere] LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.3069,1.2856] p_min=0.8004 finite=1 enstrophy=0.0858 steps=1326 t=0.7000 wall=13071.5s
+[00:27:18] [s1_sphere] LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.3024,1.2533] p_min=0.8288 finite=1 enstrophy=0.0584 steps=1487 t=0.8000 wall=15842.3s
+[00:27:18] [s1_sphere] DONE in 16830s
+[00:27:19] [s1_2cyl] START (timeout 39600s) mesh=lang_vortex_nx112.umsh
+[06:17:36] [s1_2cyl] LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1000,2.9592] p_min=0.6273 finite=1 enstrophy=18.4470 steps=571 t=0.1000 wall=1666.3s
+[06:17:36] [s1_2cyl] LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1251,2.8257] p_min=0.9995 finite=1 enstrophy=61.9395 steps=1618 t=0.3000 wall=6697.7s
+[06:17:36] [s1_2cyl] LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1384,2.7015] p_min=0.9384 finite=1 enstrophy=87.9470 steps=2605 t=0.5000 wall=13373.1s
+[06:17:36] [s1_2cyl] LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1610,2.6707] p_min=0.8511 finite=1 enstrophy=142.7720 steps=3596 t=0.7000 wall=20875.3s
+[06:17:36] [s1_2cyl] DONE in 21017s
+[06:17:36] === master3d ALL DONE ===

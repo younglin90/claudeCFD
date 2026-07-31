@@ -1,0 +1,29 @@
+{
+  "name": "electrospray-gui",
+  "version": "1.0.0",
+  "description": "Desktop shell (Electron) for the electrospray 3D leaky-dielectric VOF EHD cone-jet solver GUI. Wraps the existing Python backend and web frontend in a native window.",
+  "main": "main.js",
+  "author": "younglinyoo",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  },
+  "build": {
+    "appId": "com.claudecfd.electrospray-gui",
+    "productName": "Electrospray GUI",
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

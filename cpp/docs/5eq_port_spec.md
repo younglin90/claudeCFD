@@ -8,6 +8,112 @@ bit-comparably (rel ≤ 1e-12) against the oracle files in `cpp/tests/5eq_ref/`
 Python source root: `solver_5eq/solver/five_eq_IMEX/` (FROZEN oracle — never edit).
 C++ target subdir: `cpp/include/cfd/five_eq/` (NEW — create in Phase B).
 
+## Port status (2026-07-15)
+
+**The Python `solver_5eq/solver/five_eq_IMEX` solver surface is ported to
+C++.** The checked C++ surface includes the validated 1-D production path and
+the public Python-compatible driver/options:
+
+- `sound_speed` (Kapila/Wood and frozen-alpha mixture choices), reconstruction,
+  SLAU2, adaptive-BVD material update, implicit acoustic stage, `regime_auto`,
+  source terms, and 1-D run loop.  The frozen acoustic/material composition
+  has a separate 40-cell Python oracle.
+- `imex_ad_ssp2`; all Python 1-D legacy `strang`, `split`, `be1`, and `be_full`
+  selectors; both Shu-Osher SSP3 scopes and Pareschi-Russo stage-residual SSP3
+  (material or explicit-residual operator, stage/final PE relax); pressure-based
+  first-order `explicit_rusanov_step`; primitive inlet/outlet and acoustic-inlet
+  boundary data; pressure/pT relaxation APIs.
+- Scalar `PrimND`/`ConsND` transforms, periodic prescribed-velocity 2-D alpha
+  transport, and a Cartesian 2-D/3-D HLLC + SSPRK3 field solver.  The latter
+  exposes `solve_nd` / `solve_2d` / `solve_3d` as well as periodic
+  convenience wrappers, uses
+  row-major-consistent neighbour indexing, Superbee/minmod/van-Leer/first-order
+  primitive reconstruction, periodic/transmissive/reflective boundaries, and
+  optional gravity and Python's `mixture_c` selection (Kapila/frozen).  Python
+  one-step oracles cover first-order 2-D (`5.5e-12`),
+  2-D TMLPU/mstacs (`4.0e-12`), mixed 2-D boundaries (`2.7e-12`), 2-D gravity
+  (`5.3e-12`), and 3-D TMLPU/mstacs (`3.7e-12`).
+- ARS222 stage accumulation, implicit residual faces, ACID/APEC explicit
+  residual, and a dense-FD Newton reference solver.  Its small mixed-state
+  Python oracle currently agrees to `7.1e-6` relative; it is not yet a
+  production large-grid Newton replacement.  The periodic Helmholtz assembly
+  and cyclic-tridiagonal solve are ported independently (`8.7e-19` oracle
+  error).  Periodic Schur block elimination, one Helmholtz correction, damped
+  residual-decreasing iterations, and the `ARSLinearSolver::schur_helmholtz`
+  ARS222 selection are now ported.  The one-correction Python oracle is
+  `4.2e-8`; a mixed ARS222 case converges in both stages and differs from the
+  dense path by `1.1e-12`.  Dense Newton remains the default.
+- Periodic Rhie-Chow implicit faces are ported and selectable for dense ARS
+  stages (`StepConfig::ars_rhie_chow`).  The face/divergence oracle agrees to
+  `1.9e-16`; the full mixed ARS222 Rhie-Chow oracle agrees to `7.1e-6`.
+- The remaining Python implicit-face selections are ported for dense ARS:
+  all-face `acoustic_riemann` (face oracle `3.5e-18`, full ARS oracle
+  `7.1e-6`) and `upwind` bias (face oracle `3.5e-18`).  Schur deliberately
+  falls back to dense Newton for these non-central face forms.
+- The ARS explicit residual now has Python-matched dt-gated layered
+  positivity blending, PE-preserving and diagnostic Rusanov low fluxes, and
+  `force_lo` semantics.  Its blended, no-dt, and dt-enabled force-low oracle
+  paths agree within `2e-12`.
+- `FaceStateOptions` exposes the Python 1-D face-state choices used by ARS:
+  upwind/MUSCL/central/CICSAM/MSTACS/STACS/vanLeer/THINC/THINC-BVD/
+  adaptive-BVD alpha, central/upwind `u,p`, upwind/central/TVD/WENO3
+  thermodynamic primitives, and ACID/cell thermodynamics.  A nine-case
+  high-order oracle agrees to `1.4e-15`.  ARS injects its stage `dt/dx` into
+  these options.
+- PE energy-only correction and full tangent projection are ported.  In the
+  NASG oracle, corrected energy and tangent residual agree to `2.9e-12` and
+  `2.6e-17`; raw `dpdU` differs by `2.3e-7` because the mixed-scale 5x5
+  inverse is ill-conditioned.  Face/update PE diagnostics are also ported;
+  the non-equilibrium cancellation oracle agrees to `2.4e-8` relative.
+- PE tangent projection now includes Python's `always`, `contact`, `interface`,
+  `interface_band`, `impedance`, and smooth `sensor` modes.  The six-mode
+  periodic material-interface oracle agrees to `4.9e-12`.  BE1 exposes these
+  modes, their `*_explicit` composition, and the legacy energy-only correction.
+- The periodic uniform-u/uniform-p finite-volume remap, `dt_min`, time-varying
+  inlet/outlet callables, and step callback termination are represented by
+  `RunConfig`.  Acoustic `interface_be` and pure-tolerance-consistent
+  coefficients are `StepConfig` opt-ins.  The acoustic selector also covers
+  ACID, TR-BDF2, WAF (`nu`, `one_minus_nu`, sensor), dissipation consistency,
+  first-order/stencil-clean/one-sided-interface reconstruction, and
+  component/characteristic/WENO3/MUSCL3/BVD/WENO5 reconstruction.
+- `imex_ad` now covers all normalized pressure-closure branches, including
+  `implicit_energy`, `implicit_energy_momentum`, and `apec_pe`; `apec_pe`
+  selects the Python secant APEC material-energy flux.  The material update
+  also exposes the no-Kapila, path, cell, hybrid, trapezoid,
+  immiscible-trapezoid, mixed-trapezoid, and mixed-path alpha sources.
+- The 1-D source driver uses the public Python source-term composition order
+  for gravity, Lee phase change, and heat conduction, including the
+  primitive-temperature/isothermal precedence rules.  Its mixed-source oracle
+  is bounded by `1e-6`, reflecting the independently stopped scalar versus
+  vectorized 3x3 primitive-recovery Newton iterations.
+- `cons_to_prim_W` now ports Python's fixed-density near-pure fallback; its
+  four-cell Python oracle agrees within `9.0e-13`.  BE1 also exposes
+  `kapila_acoustic_source`, `implicit_include_explicit_residual`, and
+  `newton_kwargs` equivalents (`newton_max_iter`, `newton_rtol`,
+  `newton_atol`, `newton_line_search_max`, `newton_eta`), plus conservative final-update backtracking with the same
+  finite-state fallback policy.  BE1 maps Python `energy_form='apec'` to the
+  C++ secant APEC energy flux; ARS keeps its differential default.
+- `FaceStateOptions::energy_alpha_pure_tol` now separately controls the
+  APEC pure-face collapse tolerance, matching Python's
+  `energy_alpha_pure_tol`; it is propagated through explicit residual,
+  material SSP3, and BE1 paths.  `eos_facade.py::make_eos`/`EOSPair` and
+  `primitive.py::pack_W`/`unpack_W`/`uniform_W` have typed C++ facade
+  counterparts.  ND exposes matching density and conservative-alpha clip
+  helpers.
+- `RunConfig::python_solve_defaults()` and `solve(...)` expose the direct C++
+  counterpart to `main.py::solve` without numerical kwargs. Its one-step
+  Python oracle agrees within `4.8e-10`.
+- Fresh gate: `ctest` has 82 tests, including Python-oracle 02-A/07-B,
+  explicit inlet/Dirichlet, dense and Schur ARS, PE correction, and 2-D/3-D
+  field checks.  C++ acceptance apps pass 02-A and all Air-Water,
+  Helium-Air, and Argon-Air 07-B cases.
+
+There are no remaining public Python solver paths absent from the C++ port.
+Future work is performance-oriented: a dedicated non-periodic sparse
+Schur/Helmholtz preconditioner and a production large-grid implicit ND pressure
+block. Python's ND CICSAM/STACS/MSTACS/THINC names currently select the same
+bounded Superbee alpha limiter, represented by `NDReconstruction::alpha_superbee`.
+
 > **Production path resolved from the code (not assumptions):**
 > The acceptance harness `.codex-loop/verify_02_07_acceptance.py` calls
 > `main.solve(...)` with `time_integrator = os.environ.get("FIVE_EQ_IMEX_TIME_INTEGRATOR", "imex_ad")`.
@@ -46,8 +152,8 @@ C++ target subdir: `cpp/include/cfd/five_eq/` (NEW — create in Phase B).
 | # | Module | Python source (file::func lines) | C++ target header | Deps | Validation ref |
 |---|--------|----------------------------------|-------------------|------|----------------|
 | 0 | EOS (Ideal/SG/NASG + p,T derivs) | `He2024/eos_general.py` | `cfd/eos.hpp` ✅ done | — | `test_eos` (done) |
-| 0 | Prim↔cons + Newton recovery | `He2024/primitive_W.py` | `cfd/primitive.hpp` ✅ done | eos | `test_primitive` (done) |
-| 1 | Mixture c² (Wood/Kapila) + phase Z, pure-branch | `sound_speed.py::phase_sound_speed_sq` 21-33, `mixture_sound_speed_sq` 36-48; `explicit.py::_phase_acoustic` 22-40 | `cfd/five_eq/sound_speed.hpp` | eos | `sound_speed_ref.txt` |
+| 0 | Prim↔cons + Newton recovery | `He2024/primitive_W.py`, `primitive.py` near-pure fallback | `cfd/primitive.hpp` ✅ done | eos | `test_primitive`, `test_5eq_primitive_near_pure` |
+| 1 | Mixture c² (Wood/Kapila or frozen) + phase Z, pure-branch | `sound_speed.py::phase_sound_speed_sq` 21-33, `mixture_sound_speed_sq` 36-48; `explicit.py::_phase_acoustic` 22-40 | `cfd/five_eq/sound_speed.hpp` | eos | `sound_speed_ref.txt`, `acoustic_frozen_ref.txt` |
 | 2 | EOS-consistent face energy coeffs (APEC χ_k/χ_α) | `energy_flux.py::_secant_chi` 42-125, `apec_energy_flux` 128-167, `total_energy_flux` 170-204 | `cfd/five_eq/energy_flux.hpp` | eos, m1 | `step_02A/07B_ref.txt` (indirect) |
 | 3 | SLAU2 material face velocity | `imex_ad.py::_slau2_faces_np` 599-653 | `cfd/five_eq/slau2.hpp` | m1, recon(m5) | `slau2_faces_ref.txt` |
 | 4 | adaptive_bvd α transport (CICSAM/MUSCL-Hancock) | `explicit.py::_adaptive_bvd_alpha_face` 410-456, `_cicsam_alpha_face` 63-114, `_muscl_hancock_alpha_face` 273-319, `_tvd_slope_1d` 246-270 | `cfd/five_eq/alpha_bvd.hpp` | — | `alpha_bvd_ref.txt` |
@@ -335,8 +441,28 @@ closure (M8) → near-vacuum velocity regularisation (`_regularize_near_vacuum_v
 default off unless env) → recover W (M9). `main.solve` (`main.py:330-509`) is the
 time loop: dt from acoustic CFL (`_max_acoustic_dt` 35-...) or `dt_fixed`,
 optional source-term half-steps (`394-401`, inactive for 02A/07B), inlet
-resolution, then dispatch to `imex_ad_step`. C++: `step()` + a thin driver loop;
-config struct holds BASE_ENV.
+resolution, then dispatch to `imex_ad_step`. C++: `step.hpp::imex_ad_step()` +
+`solver.hpp::solve_imex_ad()` provide the production stage and thin driver loop.
+The latter covers fixed/adaptive acoustic CFL time steps, final-time truncation,
+max-step termination, non-finite guards, and optional per-step metadata.
+`imex_ssp3` supports the Python default transport-acoustic CN scope, full-step
+Shu-Osher composition, and the Pareschi-Russo stage-residual form.
+
+`apps/five_eq_02a_validate.cpp` drives the completed C++ production loop over
+the full 100-step periodic NASG pressure-equilibrium case and applies the core
+acceptance metrics: pressure/velocity preservation, admissibility, contact
+range, correlation, and normalized L1 error.  The Python-only oscillation plot
+and high-frequency guard remain validation-harness work, not solver work.
+
+`apps/five_eq_07b_validate.cpp` ports the three 07-B initial states and the
+linear acoustic d'Alembert reference used for their core profile metrics.  It
+reports the common L2/Linf, pointwise-fraction, L1, correlation, absolute
+peak-position, packet-amplitude, and wave-symmetry gates for Air-Water,
+Helium-Air, and Argon-Air.  It also applies the signed-extrema,
+checkerboard/interface-residual, high-frequency, local-TV, sharp-overshoot,
+and Air-Water wiggle guards through
+`cfd/validation/oscillation_guards.hpp`.  Plot rendering remains Python-only;
+the C++ executable is a numerical gate.
 
 ---
 
@@ -346,16 +472,10 @@ config struct holds BASE_ENV.
   hand-derived analytic banded Jacobian (M7). This is the whole point of the port.
 - **`autograd.jacobian`** scalar n<32 branch (`3629-3681`) → same analytic
   tridiagonal assembly; keep only as a cross-check.
-- **be1 / ARS222 / imex_ssp3(stage_residual) / split / strang / be_full**
-  integrators (`time_integrator.py`, `main.py:442-520`) — analysis/legacy only.
-  ARS222 is BANNED (ρ(A)≈9.02). Only `imex_ad` (+ optional SSP3 shu_osher wrapper)
-  ships.
-- **All default-off research env options** (ACID `FIVE_EQ_IMEX_ACOUSTIC_ACID`,
-  `PURE_TOL_CONSISTENT`, `trbdf2`, `interface_be`, `characteristic` recon,
-  HLLC material flux, THINC/MSTACS/STACS/vanleer α schemes, dual_entropy,
-  apec_pe closure) — **EXCEPT `weno5`**, which becomes the production acoustic
-  recon default in C++. Port these as later opt-in flags, not in the first step.
-- **2D/3D** (`main_2d/3d.py`, `nd_solver.py`) — out of Phase A/B scope.
+- Python environment-variable plumbing itself.  C++ exposes the covered choices
+  as typed configuration fields rather than process-global environment state.
+- A production large-grid implicit ND pressure block; existing ND coverage is
+  explicit HLLC/SSPRK3 field evolution, not the 1-D IMEX acoustic block.
 
 ## EOS / primitive reuse — confirmed
 - `cfd/eos.hpp` (`EOS::Ideal/SG/NASG`) provides ALL four (p,T) derivatives M1
@@ -376,3 +496,5 @@ config struct holds BASE_ENV.
 | `acoustic_solve_ref.txt` | M7 | 40 | `_solve_acoustic_ad` (u_new,p_new), weno5 active |
 | `step_02A_ref.txt` | M6/8/10 | 100 | full W after 1 production step, 02_A IC |
 | `step_07B_ref.txt` | M6/8/10 | 400 | full W after 1 production step, 07_B Air-Water IC |
+| `run_02A_ref.txt` | M10 | 100 | full W after three fixed-dt production steps, 02_A IC |
+| `run_07B_ref.txt` | M10 | 400 | full W after three CFL production steps, 07_B Air-Water IC |

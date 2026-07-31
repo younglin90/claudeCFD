@@ -1,0 +1,6 @@
+e636a115d8ff1a44c56b735d233895a9  /home/younglin90/work/claude_code/claudeCFD/cpp/results/../build/deform3d_unstr_bench
+env=DEF_RECON=bvd MLP_U2=0.001 BVD_BETA_L=1.4 BVD_BETA_S=0.8 THINCQQ_GAUSS=1 ADV_NOMOOD=1 DEF_CFL=0.25 DEF_T=3.0 N3_MESH=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh
+mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh
+threads=OMP_NUM_THREADS=24 OMP_PROC_BIND=close OMP_PLACES=cores taskset -c 0-46:2
+result=CSV saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_deform_cfl/s2_ret_cfl025_nomood/out.csv (z~0.35 slab)
+note=continuous run to t=T; the T/2 frame lives in paper2_3d_deform_final (MOOD ON)

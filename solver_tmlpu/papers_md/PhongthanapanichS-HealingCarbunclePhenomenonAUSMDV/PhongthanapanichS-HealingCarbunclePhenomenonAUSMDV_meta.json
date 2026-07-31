@@ -1,0 +1,1017 @@
+{
+  "table_of_contents": [
+    {
+      "title": "Healing of the Carbuncle Phenomenon for\nAUSMDV Scheme on Triangular Grids",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          50.0546875,
+          85.358642578125
+        ],
+        [
+          457.4765625,
+          85.358642578125
+        ],
+        [
+          457.4765625,
+          133.18536376953125
+        ],
+        [
+          50.0546875,
+          133.18536376953125
+        ]
+      ]
+    },
+    {
+      "title": "1 Introduction",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          50.63671875,
+          584.2568359375
+        ],
+        [
+          144.80316162109375,
+          584.2568359375
+        ],
+        [
+          144.80316162109375,
+          599.2144165039062
+        ],
+        [
+          50.63671875,
+          599.2144165039062
+        ]
+      ]
+    },
+    {
+      "title": "2 Review of the AUSMDV scheme",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          309.2594458438287,
+          253.16503906249997
+        ],
+        [
+          533.6977329974811,
+          253.16503906249997
+        ],
+        [
+          533.6977329974811,
+          265.4164305949008
+        ],
+        [
+          309.2594458438287,
+          265.4164305949008
+        ]
+      ]
+    },
+    {
+      "title": "2.1 Mach 15 flow over a cylinder",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          297.24937027707807,
+          305.50390625
+        ],
+        [
+          470.64483627204027,
+          305.50390625
+        ],
+        [
+          470.64483627204027,
+          317.91015625
+        ],
+        [
+          297.24937027707807,
+          317.91015625
+        ]
+      ]
+    },
+    {
+      "title": "2.2 A Mach 6 slowly moving normal shock",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          296.8359375,
+          628.841796875
+        ],
+        [
+          527.3203125,
+          628.841796875
+        ],
+        [
+          527.3203125,
+          642.798828125
+        ],
+        [
+          296.8359375,
+          642.798828125
+        ]
+      ]
+    },
+    {
+      "title": "2.3 Mach 5 shock reflection over a\n46\u00b0 wedge",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          308.976318359375,
+          349.7704162597656
+        ],
+        [
+          495.890625,
+          349.7704162597656
+        ],
+        [
+          495.890625,
+          376.6359558105469
+        ],
+        [
+          308.976318359375,
+          376.6359558105469
+        ]
+      ]
+    },
+    {
+      "title": "3 Numerical analysis",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          308.976318359375,
+          661.2025909423828
+        ],
+        [
+          449.0823059082031,
+          661.2025909423828
+        ],
+        [
+          449.0823059082031,
+          677.69140625
+        ],
+        [
+          308.976318359375,
+          677.69140625
+        ]
+      ]
+    },
+    {
+      "title": "4 Numerical results",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          61.6953125,
+          329.541015625
+        ],
+        [
+          193.5764923095703,
+          329.541015625
+        ],
+        [
+          193.5764923095703,
+          344.6632995605469
+        ],
+        [
+          61.6953125,
+          344.6632995605469
+        ]
+      ]
+    },
+    {
+      "title": "4.1 Mach 3 flow over a forward-facing step",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          60.53125,
+          520.4160766601562
+        ],
+        [
+          291.1983947753906,
+          520.4160766601562
+        ],
+        [
+          291.1983947753906,
+          532.693359375
+        ],
+        [
+          60.53125,
+          532.693359375
+        ]
+      ]
+    },
+    {
+      "title": "4.2 Mach 6 slowly moving normal shock",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          307.89453125,
+          532.3782958984375
+        ],
+        [
+          526.205322265625,
+          532.3782958984375
+        ],
+        [
+          526.205322265625,
+          544.7119140625
+        ],
+        [
+          307.89453125,
+          544.7119140625
+        ]
+      ]
+    },
+    {
+      "title": "4.3 A Mach 5.09 shock diffraction around a\ncorner",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          297.6376953125,
+          381.8798828125
+        ],
+        [
+          530.8125,
+          381.8798828125
+        ],
+        [
+          530.8125,
+          410.59454345703125
+        ],
+        [
+          297.6376953125,
+          410.59454345703125
+        ]
+      ]
+    },
+    {
+      "title": "4.4 A Mach 2 shock reflection over\na 46\u00b0 wedge",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          296.8359375,
+          622.8035430908203
+        ],
+        [
+          485.4140625,
+          622.8035430908203
+        ],
+        [
+          485.4140625,
+          649.6690216064453
+        ],
+        [
+          296.8359375,
+          649.6690216064453
+        ]
+      ]
+    },
+    {
+      "title": "5 Conclusion",
+      "heading_level": null,
+      "page_id": 11,
+      "polygon": [
+        [
+          61.404296875,
+          654.4296875
+        ],
+        [
+          149.17935180664062,
+          654.4296875
+        ],
+        [
+          149.17935180664062,
+          671.4411010742188
+        ],
+        [
+          61.404296875,
+          671.4411010742188
+        ]
+      ]
+    },
+    {
+      "title": "References",
+      "heading_level": null,
+      "page_id": 12,
+      "polygon": [
+        [
+          50.927734375,
+          618.1727142333984
+        ],
+        [
+          122.82801818847656,
+          618.1727142333984
+        ],
+        [
+          122.82801818847656,
+          633.1167144775391
+        ],
+        [
+          50.927734375,
+          633.1167144775391
+        ]
+      ]
+    }
+  ],
+  "page_stats": [
+    {
+      "page_id": 0,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          185
+        ],
+        [
+          "Line",
+          90
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Footnote",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 1,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          106
+        ],
+        [
+          "Line",
+          94
+        ],
+        [
+          "Text",
+          12
+        ],
+        [
+          "Equation",
+          6
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 2,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          82
+        ],
+        [
+          "Span",
+          66
+        ],
+        [
+          "Text",
+          15
+        ],
+        [
+          "Equation",
+          11
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 3,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          124
+        ],
+        [
+          "Line",
+          48
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Caption",
+          3
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PictureGroup",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 4,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          72
+        ],
+        [
+          "Line",
+          57
+        ],
+        [
+          "Equation",
+          9
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Picture",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "PictureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 5,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          119
+        ],
+        [
+          "Line",
+          20
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "Text",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 6,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          79
+        ],
+        [
+          "Span",
+          39
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "Equation",
+          5
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Picture",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "PictureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 7,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          121
+        ],
+        [
+          "Line",
+          21
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 8,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          62
+        ],
+        [
+          "Span",
+          28
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Caption",
+          3
+        ],
+        [
+          "Equation",
+          3
+        ],
+        [
+          "Text",
+          2
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "PictureGroup",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 9,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          127
+        ],
+        [
+          "Line",
+          52
+        ],
+        [
+          "Text",
+          5
+        ],
+        [
+          "Picture",
+          4
+        ],
+        [
+          "Caption",
+          4
+        ],
+        [
+          "PictureGroup",
+          4
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 10,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          143
+        ],
+        [
+          "Line",
+          59
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 11,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          95
+        ],
+        [
+          "Line",
+          41
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "PictureGroup",
+          2
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 12,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          157
+        ],
+        [
+          "Line",
+          43
+        ],
+        [
+          "ListItem",
+          10
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "Text",
+          2
+        ],
+        [
+          "PictureGroup",
+          2
+        ],
+        [
+          "ListGroup",
+          2
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 13,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          288
+        ],
+        [
+          "Line",
+          82
+        ],
+        [
+          "ListItem",
+          24
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "ListGroup",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    }
+  ],
+  "debug_data_path": "debug_data/PhongthanapanichS-HealingCarbunclePhenomenonAUSMDV"
+}

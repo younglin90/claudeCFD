@@ -473,7 +473,11 @@ inline void candidoMixtureFields3D(const fvm::Mesh3D& mesh,
   rho.assign(mesh.cells.size(), 0.0);
   eps.assign(mesh.cells.size(), 0.0);
   sigmaE.assign(mesh.cells.size(), 0.0);
-  for (size_t ci = 0; ci < mesh.cells.size(); ++ci) {
+  // Per-cell disjoint write: iteration ci writes only rho[ci]/eps[ci]/sigmaE[ci] from
+  // alpha[ci] and loop-invariant scalars. No cross-iteration accumulation. Bit-exact at
+  // any thread count. Called once every solver step.
+  FVM_PARALLEL_FOR
+  for (int ci = 0; ci < static_cast<int>(mesh.cells.size()); ++ci) {
     const double a = std::clamp(alpha[ci], 0.0, 1.0);
     const double liquidSigma =
         opt.useDimensionalElectricalScaling

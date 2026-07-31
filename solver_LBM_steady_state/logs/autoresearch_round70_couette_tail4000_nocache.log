@@ -1,0 +1,9 @@
+[case] couette_n32__1x: Couette flow N=32 (N=32, 1x)
+  anderson_lbm           lbe=   22406 wall=   7.527 res=9.997e-08 rel=3.995e-02 conv=1
+  preconditioned_lbm     lbe=    3619 wall=   1.279 res=9.558e-08 rel=1.887e-02 conv=1
+  inexact_newton_lbe     lbe=    4033 wall=   1.521 res=9.853e-08 rel=3.910e-02 conv=1
+  dual_time_mg_lbm       lbe=   11101 wall=   5.193 res=9.864e-08 rel=3.288e-02 conv=1
+  proposed               lbe=    5955 wall=   1.522 res=1.300e-07 rel=5.194e-02 conv=1
+[saved] paper_revision_data/no_force_scaling_benchmark/summary.csv
+[saved] paper_revision_data/no_force_scaling_benchmark/metrics.json
+{"accuracy_win_count": 0, "all_pass": 0, "base_cases": ["couette_n32"], "case_count": 1, "case_results": [{"acc_win": 0, "base_case_id": "couette_n32", "best_fixed_lbe": 3619, "best_fixed_rel_l2": 0.01887362986856884, "best_fixed_wall": 1.278760327026248, "case_id": "couette_n32__1x", "case_pass": 0, "converged": 1, "lbe_win": 0, "proposed_lbe": 5955, "proposed_rel_l2": 0.05193523974723578, "proposed_wall": 1.5218676291406155, "scaling_level": 1, "wall_win": 0}], "converged_count": 1, "elapsed_wall_seconds": 18.411949672969058, "lbe_win_count": 0, "levels": [1], "mean_lbe_speedup_vs_best_fixed": 0.6077246011754828, "method_count": 6, "methods": ["picard_lbm", "anderson_lbm", "preconditioned_lbm", "inexact_newton_lbe", "dual_time_mg_lbm", "proposed"], "output_dir": "paper_revision_data/no_force_scaling_benchmark", "pass_count": 0, "physics_scaling": {"cavity_refinement": "N_level = 1 + level * (N_1x - 1)", "max_steps": "scaled by level^2 with safety caps", "tolerance": "tol_scale(level) = tol_scale(1) / level", "wall_driven_velocity": "U_scale(level) = U_scale(1) / level"}, "wall_win_count": 0}

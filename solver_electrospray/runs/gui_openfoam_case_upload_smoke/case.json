@@ -1,0 +1,7 @@
+{
+  "case_name": "gui_openfoam_case_upload_smoke",
+  "mesh_mode": "openfoam_polyMesh",
+  "openfoam_case_dir": "/home/younglin90/work/claude_code/claudeCFD/solver_electrospray/runs/uploads/gui_openfoam_case_upload_smoke/openfoam_case",
+  "openfoam_polyMesh": "/home/younglin90/work/claude_code/claudeCFD/solver_electrospray/runs/uploads/gui_openfoam_case_upload_smoke/openfoam_case/constant/polyMesh",
+  "run_mode": "validate_openfoam_case"
+}

@@ -1,0 +1,4 @@
+n,cells,radius,sigma,mean_curvature,computed_jump,analytic_jump,laplace_relative_error,ca_static_proxy
+16,4096,0.25,0.072,7.87959,0.56733,0.576,0.0150516,0
+20,8000,0.25,0.072,7.85545,0.565592,0.576,0.0180689,0
+24,13824,0.25,0.072,7.84602,0.564914,0.576,0.0192472,0

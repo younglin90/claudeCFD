@@ -1,0 +1,93 @@
+{
+  "status": "pass",
+  "run_mode": "openfoam_case_validate",
+  "mesh_mode": "openfoam_polyMesh",
+  "points": 12,
+  "cells": 2,
+  "faces": 11,
+  "patch_count": 6,
+  "openfoam_neighbour_faces": 1,
+  "max_non_orthogonality_deg": 0,
+  "max_aspect_ratio": 1.73205080757,
+  "fields_read": 5,
+  "missing_patch_boundary_entries": 0,
+  "unknown_patch_boundary_entries": 0,
+  "patches": [
+    {"name": "xmin", "faces": 1},
+    {"name": "xmax", "faces": 1},
+    {"name": "ymin", "faces": 2},
+    {"name": "ymax", "faces": 2},
+    {"name": "zmin", "faces": 2},
+    {"name": "zmax", "faces": 2}
+  ],
+  "missing_files": [],
+  "missing_patch_entries": [],
+  "unknown_patch_entries": [],
+  "fields": {
+    "U": {
+      "present": true,
+      "internal_form": "uniform",
+      "uniform_internal_value": [0, 0, 0],
+      "boundary": [
+        {"patch": "xmax", "type": "zeroGradient", "has_value": false, "value": [0, 0, 0]},
+        {"patch": "xmin", "type": "fixedValue", "has_value": true, "value": [0, 1, 0]},
+        {"patch": "ymax", "type": "noSlip", "has_value": false, "value": [0, 0, 0]},
+        {"patch": "ymin", "type": "noSlip", "has_value": false, "value": [0, 0, 0]},
+        {"patch": "zmax", "type": "symmetryPlane", "has_value": false, "value": [0, 0, 0]},
+        {"patch": "zmin", "type": "symmetryPlane", "has_value": false, "value": [0, 0, 0]}
+      ]
+    },
+    "p": {
+      "present": true,
+      "internal_form": "uniform",
+      "uniform_internal_value": 0,
+      "boundary": [
+        {"patch": "xmax", "type": "fixedValue", "has_value": true, "value": 0},
+        {"patch": "xmin", "type": "fixedValue", "has_value": true, "value": 0},
+        {"patch": "ymax", "type": "zeroGradient", "has_value": false, "value": 0},
+        {"patch": "ymin", "type": "zeroGradient", "has_value": false, "value": 0},
+        {"patch": "zmax", "type": "symmetryPlane", "has_value": false, "value": 0},
+        {"patch": "zmin", "type": "symmetryPlane", "has_value": false, "value": 0}
+      ]
+    },
+    "alpha": {
+      "present": true,
+      "internal_form": "uniform",
+      "uniform_internal_value": 0,
+      "boundary": [
+        {"patch": "xmax", "type": "fixedValue", "has_value": true, "value": 0},
+        {"patch": "xmin", "type": "fixedValue", "has_value": true, "value": 1},
+        {"patch": "ymax", "type": "zeroGradient", "has_value": false, "value": 0},
+        {"patch": "ymin", "type": "zeroGradient", "has_value": false, "value": 0},
+        {"patch": "zmax", "type": "symmetryPlane", "has_value": false, "value": 0},
+        {"patch": "zmin", "type": "symmetryPlane", "has_value": false, "value": 0}
+      ]
+    },
+    "phi": {
+      "present": true,
+      "internal_form": "uniform",
+      "uniform_internal_value": 0,
+      "boundary": [
+        {"patch": "xmax", "type": "fixedValue", "has_value": true, "value": 0},
+        {"patch": "xmin", "type": "fixedValue", "has_value": true, "value": 2180},
+        {"patch": "ymax", "type": "zeroGradient", "has_value": false, "value": 0},
+        {"patch": "ymin", "type": "zeroGradient", "has_value": false, "value": 0},
+        {"patch": "zmax", "type": "symmetryPlane", "has_value": false, "value": 0},
+        {"patch": "zmin", "type": "symmetryPlane", "has_value": false, "value": 0}
+      ]
+    },
+    "rhoE": {
+      "present": true,
+      "internal_form": "nonuniform",
+      "uniform_internal_value": 0,
+      "boundary": [
+        {"patch": "xmax", "type": "fixedValue", "has_value": true, "value": 0},
+        {"patch": "xmin", "type": "fixedValue", "has_value": true, "value": 0},
+        {"patch": "ymax", "type": "zeroGradient", "has_value": false, "value": 0},
+        {"patch": "ymin", "type": "zeroGradient", "has_value": false, "value": 0},
+        {"patch": "zmax", "type": "symmetryPlane", "has_value": false, "value": 0},
+        {"patch": "zmin", "type": "symmetryPlane", "has_value": false, "value": 0}
+      ]
+    }
+  }
+}

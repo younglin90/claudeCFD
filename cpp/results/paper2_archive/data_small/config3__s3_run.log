@@ -1,0 +1,3 @@
+  [C3_BC=dirichlet active]
+Config3 four-shock: N=280 cells=156800 t_end=0.800 flux=0
+  T-MLP-u  : enstrophy=100.90194 sym_rms=7.05e-02 rho_min=0.1379 p_min=0.0289 steps=3627

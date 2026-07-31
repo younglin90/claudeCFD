@@ -1,0 +1,12 @@
+[09:08:59] machine load before: 5.46 5.94 10.39
+e636a115d8ff1a44c56b735d233895a9  /home/younglin90/work/claude_code/claudeCFD/cpp/build/deform3d_unstr_bench
+[09:08:59] START s1 rep1  load=5.46
+[09:19:14] END   s1 rep1  
+[09:19:14] START s2 rep1  load=22.39
+[09:28:10] END   s2 rep1  
+[09:28:10] START s1 rep2  load=24.04
+[09:37:44] END   s1 rep2  
+[09:37:44] START s2 rep2  load=23.28
+[09:46:11] END   s2 rep2  
+[09:46:11] ALL DONE  load=21.44 21.49 20.88
+=== summary ===

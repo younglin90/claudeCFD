@@ -45,9 +45,9 @@ int main() {
         std::size_t s = line.find_first_not_of(" \t\r\n");
         if (s == std::string::npos || line[s] == '#') continue;
         std::istringstream iss(line);
-        double alpha1, T1, T2, p, rho1, rho2, c1_sq, c2_sq, rho, c_mix_sq, Z, c_mix_raw;
+        double alpha1, T1, T2, p, rho1, rho2, c1_sq, c2_sq, rho, c_mix_sq, Z, c_mix_raw, c_mix_frozen;
         if (!(iss >> alpha1 >> T1 >> T2 >> p >> rho1 >> rho2 >> c1_sq >> c2_sq
-                  >> rho >> c_mix_sq >> Z >> c_mix_raw))
+                  >> rho >> c_mix_sq >> Z >> c_mix_raw >> c_mix_frozen))
             continue;
 
         double rho1_c  = EOS::max2(eos1.density(p, T1), EPS);
@@ -56,6 +56,9 @@ int main() {
         double c2_sq_c = cfd::phase_sound_speed_sq(eos2, rho2_c, T2);
         double c_raw_c = cfd::mixture_sound_speed_sq(alpha1, rho1_c, c1_sq_c,
                                                      rho2_c, c2_sq_c);
+        double c_frozen_c = cfd::mixture_sound_speed_sq(
+            alpha1, rho1_c, c1_sq_c, rho2_c, c2_sq_c,
+            cfd::MixtureSoundSpeedKind::Frozen);
         cfd::PhaseAcoustic pa = cfd::phase_acoustic(
             eos1, eos2, alpha1, T1, T2, p, alpha_pure_tol);
 
@@ -64,6 +67,7 @@ int main() {
         check("c1_sq",     row, c1_sq_c,     c1_sq);
         check("c2_sq",     row, c2_sq_c,     c2_sq);
         check("c_mix_raw", row, c_raw_c,     c_mix_raw);
+        check("c_frozen",  row, c_frozen_c,  c_mix_frozen);
         check("rho",       row, pa.rho,      rho);
         check("c_mix_sq",  row, pa.c_mix_sq, c_mix_sq);
         check("Z",         row, pa.Z,        Z);

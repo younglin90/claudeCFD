@@ -20,6 +20,45 @@ using cfd::EOS;
 #ifndef ACOUSTIC_REF
 #  define ACOUSTIC_REF "acoustic_solve_ref.txt"
 #endif
+#ifndef ACOUSTIC_INTERFACE_BE
+#  define ACOUSTIC_INTERFACE_BE 0
+#endif
+#ifndef ACOUSTIC_PURE_TOL_CONSISTENT
+#  define ACOUSTIC_PURE_TOL_CONSISTENT 0
+#endif
+#ifndef ACOUSTIC_ACID
+#  define ACOUSTIC_ACID 0
+#endif
+#ifndef ACOUSTIC_TRBDF2
+#  define ACOUSTIC_TRBDF2 0
+#endif
+#ifndef ACOUSTIC_RECON_COMPONENT
+#  define ACOUSTIC_RECON_COMPONENT 0
+#endif
+#ifndef ACOUSTIC_RECON_MODE
+#  define ACOUSTIC_RECON_MODE (ACOUSTIC_RECON_COMPONENT ? 0 : 1)
+#endif
+#ifndef ACOUSTIC_WAF
+#  define ACOUSTIC_WAF 0
+#endif
+#ifndef ACOUSTIC_DISS_CONSISTENT
+#  define ACOUSTIC_DISS_CONSISTENT 0
+#endif
+#ifndef ACOUSTIC_INTERFACE_CENTERED
+#  define ACOUSTIC_INTERFACE_CENTERED 1
+#endif
+#ifndef ACOUSTIC_MUSCL
+#  define ACOUSTIC_MUSCL 1
+#endif
+#ifndef ACOUSTIC_STENCIL_CLEAN
+#  define ACOUSTIC_STENCIL_CLEAN 0
+#endif
+#ifndef ACOUSTIC_WAF_SIGMA
+#  define ACOUSTIC_WAF_SIGMA 0
+#endif
+#ifndef ACOUSTIC_FROZEN_MIXTURE
+#  define ACOUSTIC_FROZEN_MIXTURE 0
+#endif
 
 int main() {
     EOS eos1 = EOS::ideal(1.4, 717.5);
@@ -66,7 +105,13 @@ int main() {
         alpha.data(), T1.data(), T2.data(), un.data(), pn.data(),
         q1.data(), q2.data(), madv.data(),
         cfd::AcousticBC::reflective, cfd::AcousticBC::transmissive,
-        alpha_pure_tol);
+        alpha_pure_tol, .5, 1.e-8, {}, {}, {},
+        ACOUSTIC_INTERFACE_BE != 0, ACOUSTIC_PURE_TOL_CONSISTENT != 0,
+        ACOUSTIC_ACID != 0, nullptr, false, ACOUSTIC_TRBDF2 != 0, ACOUSTIC_MUSCL != 0,
+        ACOUSTIC_STENCIL_CLEAN != 0, ACOUSTIC_WAF != 0, ACOUSTIC_WAF_SIGMA, ACOUSTIC_RECON_MODE,
+        ACOUSTIC_DISS_CONSISTENT != 0, ACOUSTIC_INTERFACE_CENTERED != 0,
+        ACOUSTIC_FROZEN_MIXTURE ? cfd::MixtureSoundSpeedKind::Frozen
+                                : cfd::MixtureSoundSpeedKind::Kapila);
 
     // ── correctness proof: does the reference solution satisfy the assembled
     //    operator A dy = b to machine precision?  If yes, the port (assembly +

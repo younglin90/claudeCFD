@@ -1,0 +1,22 @@
+{
+  "active": true,
+  "artifact_root": "/home/younglin90/work/claude_code/claudeCFD/autoresearch-results",
+  "launch_path": null,
+  "log_path": null,
+  "primary_repo": "/home/younglin90/work/claude_code/claudeCFD",
+  "repo_targets": [
+    {
+      "path": "/home/younglin90/work/claude_code/claudeCFD",
+      "role": "primary",
+      "scope": "solver/solve_T-MLP-u,results/T-MLP-u"
+    }
+  ],
+  "results_path": "/home/younglin90/work/claude_code/claudeCFD/autoresearch-results/results.tsv",
+  "runtime_path": null,
+  "session_mode": "foreground",
+  "state_path": "/home/younglin90/work/claude_code/claudeCFD/autoresearch-results/state.json",
+  "updated_at": "2026-05-13T01:36:36Z",
+  "verify_cwd": "workspace_root",
+  "version": 2,
+  "workspace_root": "/home/younglin90/work/claude_code/claudeCFD"
+}

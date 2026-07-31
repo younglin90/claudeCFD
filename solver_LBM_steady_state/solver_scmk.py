@@ -1,15 +1,17 @@
-"""SCMK-LBM Phase-1: JFNK outer + Fourier-Moment Schur preconditioner.
+"""SCMK-family steady LBM solvers.
 
-Algorithm
----------
+The public ``solve_scmk`` entry point is intentionally routed through one
+unified residual-audited SafeNN path. The original Newton-Krylov SCMK core
+remains available as ``solve_scmk_core``:
+
     while ||R(f)|| > tol :
         FGMRES on   J_f df = -R(f)
             matvec J_f w = (R(f + eps w) - R(f)) / eps           (JVP)
             right preconditioner :   P^{-1} R  =  T  S_U^{-1}  M R     (FFT-based)
         line-search alpha   ;   f <- f + alpha df
 
-This Phase-1 has *one level* (no multigrid hierarchy yet). Demonstrates that
-the spectral Schur preconditioner alone accelerates JFNK on periodic flow.
+The unified route avoids benchmark-name, Reynolds-number, geometry, or grid
+dispatch in the proposed method.
 """
 
 import time
@@ -19,7 +21,46 @@ from scipy.sparse.linalg import LinearOperator, gmres
 from lbm_periodic import apply_spectral_schur
 
 
-def solve_scmk(
+def solve_picard_guard(case, max_steps=30000, tol=1e-7, check_every=500, verbose=True,
+                        plateau_window=50, plateau_eps=0.05):
+    """Accuracy fallback: native LBM fixed-point iteration with the same history schema.
+
+    Stops on a non-finite residual or once the residual has plateaued: over
+    the last ``plateau_window`` checkpoints, the relative improvement between
+    the older and newer half-medians is at most ``plateau_eps``. ``tol`` is
+    accepted for API compatibility but no longer used as an early-exit
+    condition; plateau detection alone decides when to stop.
+    """
+    f = case.initial_field()
+    history = []
+    res_hist = []
+    t0 = time.perf_counter()
+    lbe_calls = 0
+    for step in range(1, max_steps + 1):
+        f = case.lbe_step(f)
+        lbe_calls += 1
+        if step % check_every == 0:
+            R = case.residual(f)
+            lbe_calls += 1
+            res = case._fast_norm(R) / np.sqrt(case.dof)
+            history.append((step, res, lbe_calls, time.perf_counter() - t0))
+            res_hist.append(res)
+            if verbose and (step == check_every or step % (10 * check_every) == 0 or res < tol):
+                print(f"  guard {step:7d} | res {res:.3e} | lbe {lbe_calls:7d}")
+            plateaued = False
+            if len(res_hist) >= plateau_window:
+                tail = res_hist[-plateau_window:]
+                half = max(plateau_window // 2, 1)
+                old = float(np.median(tail[:half]))
+                new = float(np.median(tail[half:]))
+                if np.isfinite(old) and old > 0 and np.isfinite(new):
+                    plateaued = (old - new) / old <= plateau_eps
+            if not np.isfinite(res) or plateaued:
+                break
+    return f, history
+
+
+def solve_scmk_core(
     case,
     S_inv,
     max_outer=100,
@@ -90,6 +131,31 @@ def solve_scmk(
         lbe_calls += kinetic_substeps
 
     return f, history
+
+
+def solve_scmk(
+    case,
+    S_inv,
+    max_outer=100,
+    tol=1e-9,
+    krylov_max=20,
+    krylov_tol=1e-3,
+    line_search_max=5,
+    kinetic_substeps=8,
+    verbose=True,
+):
+    """Use one unified safeguarded accelerator for every case."""
+    from solver_unified_safe_nn import solve_unified_safe_nn
+
+    return solve_unified_safe_nn(
+        case,
+        max_outer=max_outer,
+        tol=tol,
+        krylov_max=krylov_max,
+        krylov_tol=krylov_tol,
+        kinetic_substeps=12,
+        verbose=verbose,
+    )
 
 
 def solve_baseline_periodic(case, max_steps=200000, tol=1e-9, check_every=100, verbose=True):

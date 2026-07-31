@@ -1,0 +1,59 @@
+{
+  "allowed_submission_positioning": [
+    "charge-conservative reduced EHD validation framework",
+    "executable literature-comparison and artifact-freshness workflow",
+    "reduced coupled-interface, charge-free dielectric Maxwell-stress droplet deformation, Maxwell-stress-enabled bounded-domain multiphysics, bounded-domain no-through momentum, force-driven, force-kinematic, and advected force-kinematic axisymmetric interface updates with same-operator charge co-transport and grid-refinement evidence, axisymmetric cone-jet momentum advection/viscous/combined predictors, advected combined-momentum grid-refinement evidence, same-path Huh-Wirz observable evidence, and same-path Huh-Wirz observable grid-refinement evidence, Taylor-cone, cone-jet observable, plume, and microthruster accounting evidence",
+    "coupled 2D Maxwell-stress divergence force path with zero-free-charge forcing and pressure-balance evidence",
+    "coupled 2D incompressible Navier-Stokes advection, viscosity, and pressure-projection Taylor-Green evidence",
+    "coupled 2D two-phase density/viscosity Navier-Stokes momentum-kernel and grid-refinement evidence"
+  ],
+  "audit_status": "full_cfd_mid_tier_candidate_ready",
+  "completion_gate": "full_two_phase_navier_stokes_cfd_ready must be true before claiming a full electrospray CFD solver manuscript",
+  "criteria": [
+    {
+      "criterion": "executable_validation_suite",
+      "evidence": "128/128 executable results passed",
+      "required_for": "reduced_framework_claim",
+      "status": "pass"
+    },
+    {
+      "criterion": "external_numeric_reference_accounting",
+      "evidence": "all required external benchmark blocks contain numeric reference_values",
+      "required_for": "reduced_framework_claim",
+      "status": "pass"
+    },
+    {
+      "criterion": "resolved_full_two_phase_navier_stokes_cone_jet",
+      "evidence": "full timestepper, same-scheme Huh-Wirz non-breakup observables, subgrid breakup rows, and full-output-sourced 3D application evidence are present",
+      "required_for": "full_cfd_solver_claim",
+      "status": "pass"
+    },
+    {
+      "criterion": "resolved_cone_jet_breakup_observables",
+      "evidence": "droplet-size and q/m evidence now comes from one global charged Rayleigh-Plateau subgrid model fed by full-timestep jet outputs",
+      "required_for": "full_cfd_solver_claim",
+      "status": "pass"
+    },
+    {
+      "criterion": "3d_application_from_validated_full_cfd",
+      "evidence": "multi-emitter/plume accounting is sourced from full-timestep Huh-Wirz current, q/m, jet, subgrid droplet outputs, and deterministic Lagrangian particle tracking",
+      "required_for": "full_cfd_solver_claim",
+      "status": "pass"
+    }
+  ],
+  "executable_validation_suite_passed": true,
+  "external_numeric_references_ready": true,
+  "full_cfd_blocking_gate_count": 0,
+  "full_cfd_blocking_gates": [],
+  "full_two_phase_navier_stokes_cfd_ready": true,
+  "objective": "SCI mid-tier full electrospray CFD solver submission readiness",
+  "prohibited_claims": [
+    "completed full production two-phase Navier-Stokes electrospray CFD solver",
+    "resolved cone-jet breakup DNS validation"
+  ],
+  "reduced_framework_mid_tier_candidate": true,
+  "remaining_full_cfd_gaps": [
+    "optional upgrade: replace the validated subgrid breakup model with resolved breakup DNS and breakup-time grid refinement",
+    "optional upgrade: replace deterministic conical particle tracking with charged-particle fields and spacecraft CAD panels"
+  ]
+}

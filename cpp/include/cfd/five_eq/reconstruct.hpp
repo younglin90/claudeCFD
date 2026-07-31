@@ -145,6 +145,22 @@ inline double reconstruct_upwind_face_value(const double* phi_ext, int n_ext,
                          kind, courant, has_courant);
 }
 
+// Bounded third-order WENO value (reconstruction.py::_weno3_value).
+CFD_ROUTINE_SEQ
+inline double weno3_value(double phi_LL, double phi_L, double phi_R) {
+    if (!(std::isfinite(phi_LL) && std::isfinite(phi_L) && std::isfinite(phi_R))) return phi_L;
+    const double q0=1.5*phi_L-.5*phi_LL, q1=.5*(phi_L+phi_R);
+    const double b0=(phi_L-phi_LL)*(phi_L-phi_LL), b1=(phi_R-phi_L)*(phi_R-phi_L);
+    double scale=1.0; scale=std::fmax(scale,std::fabs(phi_LL)); scale=std::fmax(scale,std::fabs(phi_L)); scale=std::fmax(scale,std::fabs(phi_R));
+    const double eps=1.e-12*scale*scale;
+    const double a0=(1./3.)/((eps+b0)*(eps+b0)), a1=(2./3.)/((eps+b1)*(eps+b1));
+    double val=(a0*q0+a1*q1)/EOS::max2(a0+a1,1.e-30);
+    double lo=phi_LL, hi=phi_LL;
+    if(phi_L<lo)lo=phi_L; if(phi_L>hi)hi=phi_L; if(phi_R<lo)lo=phi_R; if(phi_R>hi)hi=phi_R;
+    if(val<lo)val=lo; if(val>hi)val=hi;
+    return val;
+}
+
 // Array driver: reconstruct_upwind_faces (reconstruction.py 160-197) for a TVD /
 // tmlpu scheme. out has length n_ext-1 (= n_face). dt/dx enable the MUSCL-Hancock
 // courant factor (pass has_courant=false to disable, as for the 'u' variable when
@@ -164,6 +180,19 @@ inline void reconstruct_upwind_faces(const double* phi_ext, int n_ext,
                                                  kind, courant, has_courant);
         if (floor >= 0.0 && v < floor) v = floor;
         out[f] = v;
+    }
+}
+
+inline void reconstruct_weno3_upwind_faces(const double* phi_ext, int n_ext,
+                                           const double* u_face, double floor, double* out) {
+    const int n_face=n_ext-1;
+    for(int f=0;f<n_face;++f) {
+        double v=(u_face[f]>=0.)?phi_ext[f]:phi_ext[f+1];
+        const int ill=u_face[f]>=0.?f-1:f+2, il=u_face[f]>=0.?f:f+1, ir=u_face[f]>=0.?f+1:f;
+        if(ill>=0 && ill<n_ext && il>=0 && il<n_ext && ir>=0 && ir<n_ext)
+            v=weno3_value(phi_ext[ill],phi_ext[il],phi_ext[ir]);
+        if(floor>=0. && v<floor)v=floor;
+        out[f]=v;
     }
 }
 

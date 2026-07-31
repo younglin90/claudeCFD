@@ -1,0 +1,15 @@
+[skip] 1/9 channel_poiseuille_Ny32_Nx192__1x
+[skip] 2/9 couette_n32__1x
+[skip] 3/9 cavity_re100_n33__1x
+[skip] 4/9 cavity_re400_n49__1x
+[case] 5/9 cavity_re1000_n129__1x | elapsed=0.0s ETA=0.0s
+  proposed lbe=300000 wall=185.780s res=7.568e-06 ref=4.124e-02 conv=0 ap=0/0
+[case] 6/9 multi_cylinder_n32__1x | elapsed=185.8s ETA=148.7s
+  proposed lbe=120522 wall=6.933s res=3.741e-11 ref=nan conv=1 ap=7/7
+[case] 7/9 backward_step_n64__1x | elapsed=192.8s ETA=96.4s
+  proposed lbe=300000 wall=82.963s res=3.075e-04 ref=nan conv=0 ap=8/8
+[case] 8/9 cylinder_wake_n64__1x | elapsed=275.7s ETA=78.8s
+  proposed lbe=53486 wall=20.790s res=1.070e-14 ref=nan conv=1 ap=8/8
+[case] 9/9 t_junction_Nx96_Ny64_W16__1x | elapsed=296.6s ETA=37.1s
+  proposed lbe=61155 wall=37.078s res=2.451e-08 ref=nan conv=1 ap=0/8
+[saved] paper_revision_data/_coord_round106_ap_schur_proposed_1x_quick/summary.csv

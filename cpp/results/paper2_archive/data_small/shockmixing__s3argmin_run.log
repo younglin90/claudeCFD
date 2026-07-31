@@ -1,0 +1,6 @@
+Oblique shock (upper stream M1=u1/c1=3.6001, deflection theta=12 deg):
+  weak shock angle beta_s = 25.7503 deg
+  post-shock (rho2,u2,v2,p2) = (1.97116, 2.72102, -0.57837, 1.33293)
+Shock-mixing layer: cells=64000 grid=400x80  h=(0.500,0.500)  t_end=120.000  flux=RHLLC recon=BVD cfl=0.40
+  status=OK  wall=1521.8s steps=6733 t=120.0000/120.0000  rho[0.9241,3.7795] p[0.4554,3.3410]
+  dumped pressure -> /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3_data/shockmixing/s3argmin/field.txt

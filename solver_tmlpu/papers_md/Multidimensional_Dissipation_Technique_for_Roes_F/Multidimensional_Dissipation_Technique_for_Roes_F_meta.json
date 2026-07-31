@@ -1,0 +1,739 @@
+{
+  "table_of_contents": [
+    {
+      "title": "MULTIDIMENSIONAL\nDISSIPATION TECHNIQUE FOR\nROE'S FLUX-DIFFERENCE\nSPLITTING",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          140.8515625,
+          51.03448486328125
+        ],
+        [
+          557.5859375,
+          51.03448486328125
+        ],
+        [
+          557.5859375,
+          197.2144775390625
+        ],
+        [
+          140.8515625,
+          197.2144775390625
+        ]
+      ]
+    },
+    {
+      "title": "Sutthisak Phongthanapanich",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          142.59765625,
+          250.3798828125
+        ],
+        [
+          363.5397033691406,
+          250.3798828125
+        ],
+        [
+          363.5397033691406,
+          266.65594482421875
+        ],
+        [
+          142.59765625,
+          266.65594482421875
+        ]
+      ]
+    },
+    {
+      "title": "ABSTRACT",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          141.724609375,
+          437.075927734375
+        ],
+        [
+          230.9759521484375,
+          437.075927734375
+        ],
+        [
+          230.9759521484375,
+          453.0359191894531
+        ],
+        [
+          141.724609375,
+          453.0359191894531
+        ]
+      ]
+    },
+    {
+      "title": "KEYWORDS",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          142.59765625,
+          653.3459167480469
+        ],
+        [
+          237.18441772460938,
+          653.3459167480469
+        ],
+        [
+          237.18441772460938,
+          669.3059234619141
+        ],
+        [
+          142.59765625,
+          669.3059234619141
+        ]
+      ]
+    },
+    {
+      "title": "Introduction",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          37.83203125,
+          39.8798828125
+        ],
+        [
+          157.632241813602,
+          39.8798828125
+        ],
+        [
+          157.632241813602,
+          53.23419412288513
+        ],
+        [
+          37.83203125,
+          53.23419412288513
+        ]
+      ]
+    },
+    {
+      "title": "Numerical Shock Instability\nII.",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          36.7808564231738,
+          334.40071237756007
+        ],
+        [
+          273.97984886649874,
+          334.40071237756007
+        ],
+        [
+          273.97984886649874,
+          349.462890625
+        ],
+        [
+          36.7808564231738,
+          349.462890625
+        ]
+      ]
+    },
+    {
+      "title": "2.1 Roe's FDS with dissipation",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          36.7808564231738,
+          421.3748886910062
+        ],
+        [
+          216.93198992443325,
+          421.3748886910062
+        ],
+        [
+          216.93198992443325,
+          433.333984375
+        ],
+        [
+          36.7808564231738,
+          433.333984375
+        ]
+      ]
+    },
+    {
+      "title": "2.2 The expansion shock",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          144.12090680100755,
+          449.1166518254675
+        ],
+        [
+          294.99748110831234,
+          449.1166518254675
+        ],
+        [
+          294.99748110831234,
+          461.1130899376669
+        ],
+        [
+          144.12090680100755,
+          461.1130899376669
+        ]
+      ]
+    },
+    {
+      "title": "2.3 The kinked mach stem",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          36.66796875,
+          39.0576171875
+        ],
+        [
+          192.911838790932,
+          39.0576171875
+        ],
+        [
+          192.911838790932,
+          48.73552983081033
+        ],
+        [
+          36.66796875,
+          48.73552983081033
+        ]
+      ]
+    },
+    {
+      "title": "III. Multidimensional Dissipation Technique for Roe's FDS Scheme",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          36.03022670025189,
+          421.3748886910062
+        ],
+        [
+          450.3778337531486,
+          421.3748886910062
+        ],
+        [
+          450.3778337531486,
+          453.068359375
+        ],
+        [
+          36.03022670025189,
+          453.068359375
+        ]
+      ]
+    },
+    {
+      "title": "IV. Second-Order Extension",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          144.92578125,
+          396.63592529296875
+        ],
+        [
+          359.1413269042969,
+          396.63592529296875
+        ],
+        [
+          359.1413269042969,
+          412.5959167480469
+        ],
+        [
+          144.92578125,
+          412.5959167480469
+        ]
+      ]
+    },
+    {
+      "title": "4.1 Symmetric rarefaction wave problem",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          144.92578125,
+          531.18359375
+        ],
+        [
+          381.60797119140625,
+          531.18359375
+        ],
+        [
+          381.60797119140625,
+          543.85009765625
+        ],
+        [
+          144.92578125,
+          543.85009765625
+        ]
+      ]
+    },
+    {
+      "title": "4.2 Mach 2 shock reflection over a wedge",
+      "heading_level": null,
+      "page_id": 5,
+      "polygon": [
+        [
+          36.0859375,
+          326.439453125
+        ],
+        [
+          279.3919982910156,
+          326.439453125
+        ],
+        [
+          279.3919982910156,
+          339.110107421875
+        ],
+        [
+          36.0859375,
+          339.110107421875
+        ]
+      ]
+    },
+    {
+      "title": "V. Conclusions",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          145.216796875,
+          412.7159423828125
+        ],
+        [
+          267.4598083496094,
+          412.7159423828125
+        ],
+        [
+          267.4598083496094,
+          428.6759338378906
+        ],
+        [
+          145.216796875,
+          428.6759338378906
+        ]
+      ]
+    },
+    {
+      "title": "ACKNOWLEDGMENT",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          145.5078125,
+          546.1559448242188
+        ],
+        [
+          309.4106140136719,
+          546.1559448242188
+        ],
+        [
+          309.4106140136719,
+          562.1159362792969
+        ],
+        [
+          145.5078125,
+          562.1159362792969
+        ]
+      ]
+    },
+    {
+      "title": "REFERENCES",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          63.8640022277832,
+          39.8798828125
+        ],
+        [
+          172.98251342773438,
+          39.8798828125
+        ],
+        [
+          172.98251342773438,
+          56.12591552734375
+        ],
+        [
+          63.8640022277832,
+          56.12591552734375
+        ]
+      ]
+    }
+  ],
+  "page_stats": [
+    {
+      "page_id": 0,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          65
+        ],
+        [
+          "Line",
+          22
+        ],
+        [
+          "SectionHeader",
+          4
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 1,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          67
+        ],
+        [
+          "Line",
+          51
+        ],
+        [
+          "Text",
+          8
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "Equation",
+          3
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 2,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          33
+        ],
+        [
+          "Span",
+          24
+        ],
+        [
+          "Equation",
+          4
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "PictureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 3,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          38
+        ],
+        [
+          "Span",
+          36
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Picture",
+          1
+        ],
+        [
+          "Equation",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 4,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          89
+        ],
+        [
+          "Line",
+          27
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 5,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          70
+        ],
+        [
+          "Line",
+          22
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "Text",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 6,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          53
+        ],
+        [
+          "Line",
+          18
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Text",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 7,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          145
+        ],
+        [
+          "Line",
+          35
+        ],
+        [
+          "ListItem",
+          16
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    }
+  ],
+  "debug_data_path": "debug_data/Multidimensional_Dissipation_Technique_for_Roes_F"
+}

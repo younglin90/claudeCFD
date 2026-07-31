@@ -1,0 +1,16 @@
+case,reference_time_ms,nearest_sim_time_ms,paper_reported_error_percent,sim_tip_y,sim_centroid_y,sim_radial_asymmetry,sim_volume_di3,digitized_experimental_volume_di3,computed_relative_error_percent,external_source,status
+validation_ca025,0,0,1.97,1.03042,0.298858,7.08503e-05,1.72579,1.16632,47.9688,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,DIGITIZED_EXTERNAL_COMPARISON
+validation_ca025,0.4,0.0439937,0.747,1.0304,0.295959,0.00505492,1.72007,1.28265,34.1031,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,OUT_OF_WINDOW_NOT_VALIDATED
+validation_ca025,0.7,0.0439937,-1.44,1.0304,0.295959,0.00505492,1.72007,1.25503,37.0549,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,OUT_OF_WINDOW_NOT_VALIDATED
+validation_ca025,0.8,0.0439937,-0.395,1.0304,0.295959,0.00505492,1.72007,nan,nan,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,OUT_OF_WINDOW_NOT_VALIDATED
+validation_ca025,0.9,0.0439937,-0.948,1.0304,0.295959,0.00505492,1.72007,nan,nan,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,OUT_OF_WINDOW_NOT_VALIDATED
+whipping_ca042,0,0,1.97,1.03042,0.298858,0.000205878,1.72579,1.16632,47.9685,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,DIGITIZED_EXTERNAL_COMPARISON
+whipping_ca042,0.4,0.0439937,0.747,1.0304,0.296362,0.0102222,1.70814,1.28265,33.1726,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,OUT_OF_WINDOW_NOT_VALIDATED
+whipping_ca042,0.7,0.0439937,-1.44,1.0304,0.296362,0.0102222,1.70814,1.25503,36.104,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,OUT_OF_WINDOW_NOT_VALIDATED
+whipping_ca042,0.8,0.0439937,-0.395,1.0304,0.296362,0.0102222,1.70814,nan,nan,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,OUT_OF_WINDOW_NOT_VALIDATED
+whipping_ca042,0.9,0.0439937,-0.948,1.0304,0.296362,0.0102222,1.70814,nan,nan,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,OUT_OF_WINDOW_NOT_VALIDATED
+long_window_ca025,0,0,1.97,0.848558,0.329497,3.31545e-05,1.82259,1.16632,56.2681,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,DIGITIZED_EXTERNAL_COMPARISON
+long_window_ca025,0.4,0.409711,0.747,0.848558,0.355425,0.0240877,1.41457,1.28265,10.285,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,DIGITIZED_EXTERNAL_COMPARISON
+long_window_ca025,0.7,0.705613,-1.44,0.848558,0.448525,0.0384715,1.25591,1.25503,0.0706997,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,DIGITIZED_EXTERNAL_COMPARISON
+long_window_ca025,0.8,0.79666,-0.395,1.18797,0.507883,0.0574377,1.25099,nan,nan,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,BLOCKED_DIGITIZED_GEOMETRY_REQUIRED
+long_window_ca025,0.9,0.910469,-0.948,1.18797,0.679792,0.0821064,1.24547,nan,nan,Candido_Fig3b_blue_experimental_points_digitized_from_local_pdf,BLOCKED_DIGITIZED_GEOMETRY_REQUIRED

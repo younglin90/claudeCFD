@@ -1,0 +1,7 @@
+[20:49:43] build rc=0  md5 33ba179ec523a75d774291179de1ed39 -> d8c91cc5a8dab954e55e130aed98f246
+[20:49:43] START s2 cfl=0.25 MOOD off
+[22:26:00] END rc=0
+E1=4.583665e-03 volRatio=1.000000 g_range=[-0.0005,1.0105] steps=4920 t=3.0000
+[06:28:05] START s1 cfl=0.25 MOOD off continuous
+[08:44:14] END rc=0
+E1=4.390634e-03 volRatio=1.000000 g_range=[-0.0000,1.0098] steps=4920 t=3.0000

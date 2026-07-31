@@ -1,0 +1,9 @@
+[case] 1/9 channel_poiseuille_Ny32_Nx192__1x | elapsed=0.0s ETA=0.0s
+  proposed lbe=60657 wall=34.818s res=1.498e-14 ref=9.371e-03 conv=1 ap=0/8
+[case] 2/9 couette_n32__1x | elapsed=34.8s ETA=278.7s
+  proposed lbe=54957 wall=9.714s res=8.581e-15 ref=7.747e-13 conv=1 ap=2/7
+[case] 3/9 cavity_re100_n33__1x | elapsed=44.6s ETA=156.0s
+  proposed lbe=250000 wall=12.921s res=1.989e-05 ref=1.901e-02 conv=0 ap=7/7
+[case] 4/9 cavity_re400_n49__1x | elapsed=57.5s ETA=115.0s
+  proposed lbe=1106566 wall=122.340s res=3.869e-06 ref=6.763e-02 conv=0 ap=0/0
+[case] 5/9 cavity_re1000_n129__1x | elapsed=179.8s ETA=224.8s

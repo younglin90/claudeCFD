@@ -1,0 +1,104 @@
+{
+  "config": {
+    "acceptance_criteria": [
+      {
+        "metric_key": "ratio",
+        "operator": "<=",
+        "target": 0.8
+      },
+      {
+        "metric_key": "tmlp_wiggle",
+        "operator": "<=",
+        "target": 0.01
+      }
+    ],
+    "artifact_root": "/home/younglin90/work/claude_code/claudeCFD/autoresearch-results",
+    "direction": "lower",
+    "goal": "LeVeque N=50에서 smooth=TMLP-u+bounded_cd/lsq, sharp=TMLP-u+famous sharp-interface limiter/tmlpu, BVD cell TBV 선택으로 MLP-u1 대비 ratio 개선",
+    "guard": "python3 -m py_compile solver/solve_T-MLP-u/limiters.py solver/solve_T-MLP-u/reconstruction.py solver/solve_T-MLP-u/tests/tmlpu_autoresearch_verify.py",
+    "iterations": null,
+    "metric": "ratio",
+    "parallel_mode": "serial",
+    "primary_metric_key": "ratio",
+    "primary_repo": "/home/younglin90/work/claude_code/claudeCFD",
+    "repos": [
+      {
+        "path": "/home/younglin90/work/claude_code/claudeCFD",
+        "role": "primary",
+        "scope": "solver/solve_T-MLP-u,results/T-MLP-u"
+      }
+    ],
+    "required_keep_criteria": [
+      {
+        "metric_key": "tmlp_wiggle",
+        "operator": "<=",
+        "target": 0.01
+      }
+    ],
+    "rollback_policy": "leave changes inspectable; no destructive rollback",
+    "scope": "solver/solve_T-MLP-u,results/T-MLP-u",
+    "session_mode": "foreground",
+    "stop_condition": null,
+    "verify": "MPLCONFIGDIR=/tmp/mpl python3 solver/solve_T-MLP-u/tests/tmlpu_autoresearch_verify.py --n 50 --workers 2 --smooth-tvd bounded_cd --smooth-face-increment lsq --sharp-face-increment tmlpu --vertex-mlp-augment --max-wiggle 0.01",
+    "verify_cwd": "workspace_root",
+    "verify_format": "metrics_json",
+    "web_search": "enabled",
+    "workspace_root": "/home/younglin90/work/claude_code/claudeCFD"
+  },
+  "mode": "loop",
+  "run_tag": "",
+  "state": {
+    "baseline_metric": 1.1468296376571854,
+    "best_iteration": 0,
+    "best_metric": 1.1468296376571854,
+    "blocked": 0,
+    "consecutive_discards": 0,
+    "crashes": 0,
+    "current_acceptance": false,
+    "current_labels": [],
+    "current_metric": 1.1468296376571854,
+    "current_metrics": {
+      "N": 50,
+      "baseline_config_id": 1,
+      "mlp_u1_weighted": 0.13604678601149406,
+      "ratio": 1.1468296376571854,
+      "tmlp_cone_E1": 0.10042981902615802,
+      "tmlp_slot_E1": 0.4788320203680894,
+      "tmlp_smooth_E1": 0.13987970157201396,
+      "tmlp_weighted": 0.15602248630598636,
+      "tmlp_wiggle": 2.6774306326122546e-06
+    },
+    "current_required_keep_satisfied": true,
+    "discards": 0,
+    "iteration": 0,
+    "keeps": 0,
+    "last_commit": "676226682f493f7dcb22f93374e99fd5e79e8a4c",
+    "last_repo_commits": {
+      "/home/younglin90/work/claude_code/claudeCFD": "676226682f493f7dcb22f93374e99fd5e79e8a4c"
+    },
+    "last_status": "baseline",
+    "last_trial_acceptance": false,
+    "last_trial_commit": "676226682f493f7dcb22f93374e99fd5e79e8a4c",
+    "last_trial_labels": [],
+    "last_trial_metric": 1.1468296376571854,
+    "last_trial_metrics": {
+      "N": 50,
+      "baseline_config_id": 1,
+      "mlp_u1_weighted": 0.13604678601149406,
+      "ratio": 1.1468296376571854,
+      "tmlp_cone_E1": 0.10042981902615802,
+      "tmlp_slot_E1": 0.4788320203680894,
+      "tmlp_smooth_E1": 0.13987970157201396,
+      "tmlp_weighted": 0.15602248630598636,
+      "tmlp_wiggle": 2.6774306326122546e-06
+    },
+    "last_trial_repo_commits": {
+      "/home/younglin90/work/claude_code/claudeCFD": "676226682f493f7dcb22f93374e99fd5e79e8a4c"
+    },
+    "last_trial_required_keep_satisfied": true,
+    "no_ops": 0,
+    "pivot_count": 0
+  },
+  "updated_at": "2026-05-13T01:36:36Z",
+  "version": 1
+}

@@ -1,0 +1,593 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1780196484728,
+  "projectRoot": "/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [
+    {
+      "timestamp": 1780196484728,
+      "topic": "SafeNN proposed all-pass priority order",
+      "details": [
+        "1) Remove case-specific logic; keep one unified algorithmic pipeline.",
+        "2) Tune parameters only from physical/numerical properties (grid size, Re, stiffness, boundary type), not by case ID.",
+        "3) Improve stiff cases first (cavity Re=400/1000, T-junction, backward step, cylinder wake, multi-cylinder) with generic stabilization and safer final-state selection.",
+        "4) Keep 1x/2x/3x physics-consistent scaling and regenerate initial/boundary conditions consistently across levels.",
+        "5) Preserve paper-grade verification: strict reference sources, raw histories, and no cheating via analytic injection or target-deflated solutions."
+      ]
+    }
+  ],
+  "directoryMap": {
+    "__pycache__": {
+      "path": "__pycache__",
+      "purpose": null,
+      "fileCount": 202,
+      "lastAccessed": 1779801373652,
+      "keyFiles": [
+        "apply_cavity_fix_to_docx.cpython-312.pyc",
+        "bench2_focus_verify.cpython-312.pyc",
+        "bench2_grid_scaling.cpython-312.pyc",
+        "cavity_dmd_safenn_probe.cpython-312.pyc",
+        "export_fixed30_artifacts.cpython-312.pyc"
+      ]
+    },
+    "autoresearch-results": {
+      "path": "autoresearch-results",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779801373654,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-20260523-103914": {
+      "path": "autoresearch-results.prev-20260523-103914",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779801373654,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-20260525-001734": {
+      "path": "autoresearch-results.prev-20260525-001734",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779801373655,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-focus-20260523-113716": {
+      "path": "autoresearch-results.prev-focus-20260523-113716",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779801373655,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-unified-20260525-135610": {
+      "path": "autoresearch-results.prev-unified-20260525-135610",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1779801373655,
+      "keyFiles": [
+        "context.json",
+        "lessons.md",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "figs": {
+      "path": "figs",
+      "purpose": null,
+      "fileCount": 14,
+      "lastAccessed": 1779801373656,
+      "keyFiles": [
+        "fig1_convergence.png",
+        "fig2_speedup_per_case.png",
+        "fig3_composite.png",
+        "fig4_ablation.png",
+        "v2_fig1_convergence.png"
+      ]
+    },
+    "math_cache": {
+      "path": "math_cache",
+      "purpose": null,
+      "fileCount": 106,
+      "lastAccessed": 1779801373656,
+      "keyFiles": [
+        "0221327cf4f4.png",
+        "02a89106b1c3.png",
+        "048e4ea20dc5.png",
+        "04d9210c425f.png",
+        "0555a8751cac.png"
+      ]
+    },
+    "paper_revision_data": {
+      "path": "paper_revision_data",
+      "purpose": null,
+      "fileCount": 23,
+      "lastAccessed": 1779801373657,
+      "keyFiles": [
+        "PhysRevE.70.066706.txt",
+        "SafeNN_LBM_revision_data_2026-05-22.md",
+        "[2026] LBM + dual time step.txt",
+        "additional_calculations.json",
+        "additional_calculations.md"
+      ]
+    },
+    "papers": {
+      "path": "papers",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1779801373657,
+      "keyFiles": [
+        "PhysRevE.70.066706.pdf",
+        "PhysRevE.70.066706.pdf:Zone.Identifier",
+        "[2026] LBM + dual time step.pdf",
+        "steadystate-paper-revised.pdf",
+        "steadystate-paper-revised.pdf:Zone.Identifier"
+      ]
+    },
+    "results": {
+      "path": "results",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1779801373657,
+      "keyFiles": [
+        "REPORT.md",
+        "centerline.png",
+        "convergence.png",
+        "summary.txt"
+      ]
+    },
+    "results_channel": {
+      "path": "results_channel",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1779801373658,
+      "keyFiles": [
+        "REPORT_PHASE2.md",
+        "REPORT_PHASE3.md",
+        "convergence.png",
+        "profile.png",
+        "summary.txt"
+      ]
+    },
+    "results_channel_phase4": {
+      "path": "results_channel_phase4",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1779801373658,
+      "keyFiles": [
+        "REPORT_PHASE4.md",
+        "convergence.png",
+        "profile.png",
+        "summary.txt"
+      ]
+    },
+    "results_contours": {
+      "path": "results_contours",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1779801373658,
+      "keyFiles": [
+        "3d_channel.png",
+        "3d_kolmogorov.png",
+        "cavity_Re100.png",
+        "cavity_Re400.png",
+        "channel_N32.png"
+      ]
+    },
+    "results_ghia": {
+      "path": "results_ghia",
+      "purpose": null,
+      "fileCount": 24,
+      "lastAccessed": 1779801373659,
+      "keyFiles": [
+        "best_SCMK_N97_U10.png",
+        "best_baseline_N97_U10.png",
+        "ghia_Re1000_SCMK.png",
+        "ghia_Re1000_baseline.png",
+        "ghia_Re100_SCMK.png"
+      ]
+    },
+    "results_kolmo": {
+      "path": "results_kolmo",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1779801373659,
+      "keyFiles": [
+        "REPORT_PHASE1.md",
+        "convergence.png",
+        "profile.png",
+        "summary.txt"
+      ]
+    },
+    "results_scaling": {
+      "path": "results_scaling",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1779801373659,
+      "keyFiles": [
+        "scaling.png",
+        "summary.json"
+      ]
+    },
+    "results_suite": {
+      "path": "results_suite",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1779801373660,
+      "keyFiles": [
+        "REPORT_SUITE.md",
+        "cavity_re100_n33_conv.png",
+        "cavity_re400_n49_conv.png",
+        "couette_n64_conv.png",
+        "summary.json"
+      ]
+    },
+    "results_theorem2": {
+      "path": "results_theorem2",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1779801373660,
+      "keyFiles": [
+        "convergence_rates.png",
+        "summary.json"
+      ]
+    },
+    "results_voxel": {
+      "path": "results_voxel",
+      "purpose": null,
+      "fileCount": 14,
+      "lastAccessed": 1779801373660,
+      "keyFiles": [
+        "REPORT_PHASE5.md",
+        "clean_periodic.png",
+        "clean_periodic_mask.png",
+        "cylinder.png",
+        "cylinder_mask.png"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "solver_safe_nn.py",
+      "accessCount": 40,
+      "lastAccessed": 1779543887753,
+      "type": "file"
+    },
+    {
+      "path": "v2_run_all.py",
+      "accessCount": 19,
+      "lastAccessed": 1779543896463,
+      "type": "file"
+    },
+    {
+      "path": "solver_ash.py",
+      "accessCount": 4,
+      "lastAccessed": 1779237882138,
+      "type": "file"
+    },
+    {
+      "path": "make_safenn_docx.py",
+      "accessCount": 4,
+      "lastAccessed": 1779247784606,
+      "type": "file"
+    },
+    {
+      "path": "remove_tjunction_from_v7.py",
+      "accessCount": 4,
+      "lastAccessed": 1779526689942,
+      "type": "file"
+    },
+    {
+      "path": "paper_faithful_baselines.py",
+      "accessCount": 3,
+      "lastAccessed": 1779543919575,
+      "type": "file"
+    },
+    {
+      "path": "lbm_periodic.py",
+      "accessCount": 2,
+      "lastAccessed": 1779237408511,
+      "type": "file"
+    },
+    {
+      "path": "solver_tr_scmk.py",
+      "accessCount": 2,
+      "lastAccessed": 1779237496887,
+      "type": "file"
+    },
+    {
+      "path": "make_safenn_figs_v3.py",
+      "accessCount": 2,
+      "lastAccessed": 1779264827495,
+      "type": "file"
+    },
+    {
+      "path": "PAPER_SAFENN_V2_KR.md",
+      "accessCount": 2,
+      "lastAccessed": 1779264903146,
+      "type": "file"
+    },
+    {
+      "path": "run_all_methods_plbe_re1000.py",
+      "accessCount": 2,
+      "lastAccessed": 1779519353675,
+      "type": "file"
+    },
+    {
+      "path": "solver_cemkn.py",
+      "accessCount": 2,
+      "lastAccessed": 1779541414280,
+      "type": "file"
+    },
+    {
+      "path": "spectral_signature.py",
+      "accessCount": 1,
+      "lastAccessed": 1779237624826,
+      "type": "file"
+    },
+    {
+      "path": "solver_bcs_scmk.py",
+      "accessCount": 1,
+      "lastAccessed": 1779237968798,
+      "type": "file"
+    },
+    {
+      "path": "solver_hkr.py",
+      "accessCount": 1,
+      "lastAccessed": 1779238082746,
+      "type": "file"
+    },
+    {
+      "path": "solver_kdf.py",
+      "accessCount": 1,
+      "lastAccessed": 1779238292558,
+      "type": "file"
+    },
+    {
+      "path": "COMPARISON_REPORT.md",
+      "accessCount": 1,
+      "lastAccessed": 1779238525196,
+      "type": "file"
+    },
+    {
+      "path": "macro_low_order.py",
+      "accessCount": 1,
+      "lastAccessed": 1779238618070,
+      "type": "file"
+    },
+    {
+      "path": "solver_gsis.py",
+      "accessCount": 1,
+      "lastAccessed": 1779238637881,
+      "type": "file"
+    },
+    {
+      "path": "solver_nda.py",
+      "accessCount": 1,
+      "lastAccessed": 1779238707249,
+      "type": "file"
+    },
+    {
+      "path": "solver_dsa.py",
+      "accessCount": 1,
+      "lastAccessed": 1779238761707,
+      "type": "file"
+    },
+    {
+      "path": "solver_vef.py",
+      "accessCount": 1,
+      "lastAccessed": 1779238780056,
+      "type": "file"
+    },
+    {
+      "path": "solver_imm.py",
+      "accessCount": 1,
+      "lastAccessed": 1779238791081,
+      "type": "file"
+    },
+    {
+      "path": "solver_bloch_ms.py",
+      "accessCount": 1,
+      "lastAccessed": 1779238812919,
+      "type": "file"
+    },
+    {
+      "path": "SYNTHETIC_REPORT.md",
+      "accessCount": 1,
+      "lastAccessed": 1779239195023,
+      "type": "file"
+    },
+    {
+      "path": "solver_safe_nn_v5.py",
+      "accessCount": 1,
+      "lastAccessed": 1779244265580,
+      "type": "file"
+    },
+    {
+      "path": "PAPER_DRAFT_FINAL.md",
+      "accessCount": 1,
+      "lastAccessed": 1779246987194,
+      "type": "file"
+    },
+    {
+      "path": "PAPER_SAFENN_KR.md",
+      "accessCount": 1,
+      "lastAccessed": 1779247154073,
+      "type": "file"
+    },
+    {
+      "path": "make_safenn_figs.py",
+      "accessCount": 1,
+      "lastAccessed": 1779247501382,
+      "type": "file"
+    },
+    {
+      "path": "PAPER_SAFENN_FULL_KR.md",
+      "accessCount": 1,
+      "lastAccessed": 1779247760942,
+      "type": "file"
+    },
+    {
+      "path": "make_safenn_docx_v2.py",
+      "accessCount": 1,
+      "lastAccessed": 1779248204458,
+      "type": "file"
+    },
+    {
+      "path": "make_safenn_figs_v2.py",
+      "accessCount": 1,
+      "lastAccessed": 1779248881593,
+      "type": "file"
+    },
+    {
+      "path": "compare_methods_re1000_ghia.py",
+      "accessCount": 1,
+      "lastAccessed": 1779519045262,
+      "type": "file"
+    },
+    {
+      "path": "paper_60case_benchmark.py",
+      "accessCount": 1,
+      "lastAccessed": 1779519150815,
+      "type": "file"
+    },
+    {
+      "path": "verify_plbe_re1000.py",
+      "accessCount": 1,
+      "lastAccessed": 1779519294914,
+      "type": "file"
+    },
+    {
+      "path": "v2_make_figures.py",
+      "accessCount": 1,
+      "lastAccessed": 1779527739033,
+      "type": "file"
+    },
+    {
+      "path": "single_case_compare.py",
+      "accessCount": 1,
+      "lastAccessed": 1779539408887,
+      "type": "file"
+    },
+    {
+      "path": "numba_kernels.py",
+      "accessCount": 1,
+      "lastAccessed": 1779539974104,
+      "type": "file"
+    },
+    {
+      "path": "verify_numba_kernels.py",
+      "accessCount": 1,
+      "lastAccessed": 1779539999751,
+      "type": "file"
+    },
+    {
+      "path": "smoke_kolmo.py",
+      "accessCount": 1,
+      "lastAccessed": 1779540604812,
+      "type": "file"
+    },
+    {
+      "path": "solver_novel5.py",
+      "accessCount": 1,
+      "lastAccessed": 1779542633958,
+      "type": "file"
+    },
+    {
+      "path": "compare_5case_11method.py",
+      "accessCount": 1,
+      "lastAccessed": 1779542679041,
+      "type": "file"
+    },
+    {
+      "path": "rerun_safenn_5case.py",
+      "accessCount": 1,
+      "lastAccessed": 1779543947887,
+      "type": "file"
+    },
+    {
+      "path": "smoke_mankp.py",
+      "accessCount": 1,
+      "lastAccessed": 1779547044942,
+      "type": "file"
+    },
+    {
+      "path": "smoke_mankp_iter2.py",
+      "accessCount": 1,
+      "lastAccessed": 1779547303184,
+      "type": "file"
+    },
+    {
+      "path": "smoke_pa_lgf.py",
+      "accessCount": 1,
+      "lastAccessed": 1779547778582,
+      "type": "file"
+    },
+    {
+      "path": "smoke_pa_lgf_v2.py",
+      "accessCount": 1,
+      "lastAccessed": 1779548107847,
+      "type": "file"
+    },
+    {
+      "path": "smoke_ms_min.py",
+      "accessCount": 1,
+      "lastAccessed": 1779548349542,
+      "type": "file"
+    },
+    {
+      "path": "smoke_pma.py",
+      "accessCount": 1,
+      "lastAccessed": 1779548672235,
+      "type": "file"
+    },
+    {
+      "path": "smoke_pa_sc.py",
+      "accessCount": 1,
+      "lastAccessed": 1779548905876,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

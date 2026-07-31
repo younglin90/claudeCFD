@@ -1,0 +1,8 @@
+LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.2842,1.4016] p_min=0.7024 finite=1 enstrophy=0.1112 steps=995 t=0.5000 wall=7894.4s
+VTK saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_sphere/out_t0.5000.vtk
+LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.3069,1.2856] p_min=0.8004 finite=1 enstrophy=0.0858 steps=1326 t=0.7000 wall=13071.5s
+VTK saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_sphere/out_t0.7000.vtk
+LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.3024,1.2533] p_min=0.8288 finite=1 enstrophy=0.0584 steps=1487 t=0.8000 wall=15842.3s
+VTK saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_sphere/out_t0.8000.vtk
+CSV saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_sphere/out.csv (y~0 slab)
+your 131072x1 screen size is bogus. expect trouble

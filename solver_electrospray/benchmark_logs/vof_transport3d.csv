@@ -1,0 +1,4 @@
+case,cells,steps,dt,initial_mass,final_mass,relative_mass_drift,min_alpha,max_alpha,constant_linf
+constant,1960,1,0.02,0.37,0.37,0,0.37,0.37,0
+sphere_swirl,1960,120,0.01,0.0489796,0.0489796,9.06682e-15,0,0.997101,nan
+compression_sphere,3072,80,0.01,0.0390625,0.0390625,2.23821e-14,4.23777e-07,1,0.000193691

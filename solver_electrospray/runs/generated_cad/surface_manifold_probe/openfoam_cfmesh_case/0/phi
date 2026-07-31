@@ -1,0 +1,42 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      phi;
+}
+
+dimensions [0 0 0 0 0 0 0];
+internalField uniform 0;
+boundaryField
+{
+    liquid_inlet
+    {
+        type fixedValue;
+        value uniform 2180;
+    }
+    inner_nozzle_wall
+    {
+        type fixedValue;
+        value uniform 2180;
+    }
+    nozzle_electrode
+    {
+        type fixedValue;
+        value uniform 2180;
+    }
+    collector_ground
+    {
+        type fixedValue;
+        value uniform 0;
+    }
+    open_atmosphere
+    {
+        type zeroGradient;
+    }
+    background
+    {
+        type zeroGradient;
+    }
+}

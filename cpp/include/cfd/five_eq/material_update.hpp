@@ -36,17 +36,42 @@
 #include "cfd/five_eq/slau2.hpp"
 #include "cfd/five_eq/reconstruct.hpp"
 #include "cfd/five_eq/alpha_bvd.hpp"
+#include "cfd/five_eq/energy_flux.hpp"
+#include "cfd/five_eq/regime_auto.hpp"
 #include <cmath>
+#include <optional>
 #include <vector>
 
 namespace cfd {
 
-enum class BC5 { Periodic, Reflective, Transmissive };
+enum class BC5 { Periodic, Reflective, Transmissive, Inlet, Outlet, InletAcoustic, Dirichlet };
+enum class MaterialFlux { Slau2, HllcContact };
+enum class KapilaSourceMode { Path, Cell, Hybrid, Trapezoid, ImmiscibleTrapezoid, MixedTrapezoid, MixedPath };
 
 struct MaterialConfig {
     double alpha_pure_tol;
     BC5    bc_l;
     BC5    bc_r;
+    // Boundary values mirror boundary.extend_W.  Values not supplied retain
+    // the zero-gradient ghost for that primitive component.
+    std::optional<double> u_inlet_l;
+    std::optional<double> p_inlet_l;
+    std::optional<double> p_outlet_r;
+    std::optional<double> alpha_inlet_l;
+    std::optional<double> T1_inlet_l;
+    std::optional<double> T2_inlet_l;
+    // Optional Python material branches.  Defaults preserve the production
+    // SLAU2/T-MLP-u path used by the acceptance cases.
+    MaterialFlux material_flux = MaterialFlux::Slau2;
+    bool characteristic_reconstruction = false;
+    bool kapila_closure = true;
+    KapilaSourceMode kapila_source_mode = KapilaSourceMode::MixedPath;
+    // Python material_energy_form: Allaire is the production baseline;
+    // Secant is the APEC path selected by pressure_closure=apec_pe.
+    EnergyForm energy_form = EnergyForm::Allaire;
+    MixtureSoundSpeedKind mixture_sound_speed_kind = MixtureSoundSpeedKind::Kapila;
+    double energy_alpha_pure_tol = 1.e-12;
+    TvdLimiter primitive_tvd_limiter = TvdLimiter::VanLeer;
 };
 
 struct MaterialResult {
@@ -74,9 +99,59 @@ inline double vanleer_pair(double a, double b) {
     return 2.0 * a * b / den_safe;
 }
 
+// imex_ad.py::_tvd_pair. This slope form is used by the mixture Hancock and
+// characteristic reconstructions, while reconstruct_lr_faces uses the
+// equivalent ratio-form limiter from reconstruct.hpp.
+inline double tvd_pair(double a, double b, TvdLimiter kind) {
+    if (!(std::isfinite(a) && std::isfinite(b)) || a * b <= 0.0) return 0.0;
+    const double sign = a > 0.0 ? 1.0 : -1.0;
+    const double aa = std::fabs(a), ab = std::fabs(b);
+    switch (kind) {
+        case TvdLimiter::Minmod:
+            return sign * dmin(aa, ab);
+        case TvdLimiter::Superbee:
+            return sign * dmax(dmin(2.0 * aa, ab), dmin(aa, 2.0 * ab));
+        case TvdLimiter::MC:
+            return sign * dmin(dmin(2.0 * aa, 2.0 * ab), 0.5 * std::fabs(a + b));
+        case TvdLimiter::VanAlbada: {
+            const double den = a * a + b * b;
+            return den > MU_EPS ? a * b * (a + b) / den : 0.0;
+        }
+        case TvdLimiter::Umist: {
+            const double r = b / a;
+            double psi = dmin(dmin(2.0 * r, 0.25 + 0.75 * r),
+                              dmin(0.75 + 0.25 * r, 2.0));
+            return dmax(psi, 0.0) * a;
+        }
+        case TvdLimiter::VanLeer:
+        default:
+            return vanleer_pair(a, b);
+    }
+}
+
+// imex_ad.py::_mixture_tvd_kind_for_state. Superbee is retained for shocks,
+// but a homogeneous mixed double-rarefaction uses VanLeer.
+inline TvdLimiter mixture_tvd_kind_for_state(
+        const std::vector<double>& a_ext, const std::vector<double>& u_ext,
+        TvdLimiter requested) {
+    if (requested != TvdLimiter::Superbee || a_ext.size() < 2 || u_ext.size() < 2)
+        return requested;
+    double amin = a_ext.front(), amax = a_ext.front();
+    for (double a : a_ext) {
+        amin = dmin(amin, a);
+        amax = dmax(amax, a);
+    }
+    if (amin <= EPS4 || amax >= 1.0 - EPS4) return requested;
+    for (std::size_t i = 0; i + 1 < u_ext.size(); ++i)
+        if (u_ext[i] < 0.0 && u_ext[i + 1] > 0.0) return TvdLimiter::VanLeer;
+    return requested;
+}
+
 // ng=1 ghost extension of a cell-centred array (boundary.py::extend).
 inline std::vector<double> extend1(const std::vector<double>& a,
-                                   BC5 bc_l, BC5 bc_r, bool odd) {
+                                   BC5 bc_l, BC5 bc_r, bool odd,
+                                   std::optional<double> left_value = {},
+                                   std::optional<double> right_value = {}) {
     int n = (int)a.size();
     std::vector<double> e(n + 2);
     for (int i = 0; i < n; ++i) e[i + 1] = a[i];
@@ -84,11 +159,19 @@ inline std::vector<double> extend1(const std::vector<double>& a,
         case BC5::Periodic:     e[0] = a[n - 1]; break;
         case BC5::Transmissive: e[0] = a[0];     break;
         case BC5::Reflective:   e[0] = odd ? -a[0] : a[0]; break;
+        case BC5::Inlet:
+        case BC5::InletAcoustic:
+        case BC5::Dirichlet:    e[0] = left_value ? *left_value : a[0]; break;
+        case BC5::Outlet:       e[0] = a[0]; break;
     }
     switch (bc_r) {
         case BC5::Periodic:     e[n + 1] = a[0];     break;
         case BC5::Transmissive: e[n + 1] = a[n - 1]; break;
         case BC5::Reflective:   e[n + 1] = odd ? -a[n - 1] : a[n - 1]; break;
+        case BC5::Inlet:
+        case BC5::InletAcoustic:
+        case BC5::Dirichlet:
+        case BC5::Outlet:       e[n + 1] = right_value ? *right_value : a[n - 1]; break;
     }
     return e;
 }
@@ -230,7 +313,8 @@ inline HancockLR mixture_hancock_lr(const std::vector<double>& a_ext,
                                     const std::vector<double>& p_ext,
                                     const std::vector<double>& c_mix_sq_ext,
                                     const EOS& eos1, const EOS& eos2,
-                                    double dt, double dx) {
+                                    double dt, double dx,
+                                    TvdLimiter tvd_kind) {
     int ne = (int)a_ext.size();
     std::vector<double> rho_ext(ne), y1_ext(ne);
     for (int k = 0; k < ne; ++k) {
@@ -245,7 +329,8 @@ inline HancockLR mixture_hancock_lr(const std::vector<double>& a_ext,
     auto slopes = [&](const std::vector<double>& phi) {
         std::vector<double> out(ne, 0.0);
         for (int k = 1; k + 1 < ne; ++k)
-            out[k] = vanleer_pair(phi[k] - phi[k - 1], phi[k + 1] - phi[k]);
+            out[k] = tvd_pair(phi[k] - phi[k - 1], phi[k + 1] - phi[k],
+                              tvd_kind);
         return out;
     };
     std::vector<double> drho = slopes(rho_ext), dy1 = slopes(y1_ext),
@@ -287,6 +372,140 @@ inline HancockLR mixture_hancock_lr(const std::vector<double>& a_ext,
         s.u_L[f] = u_L; s.u_R[f] = u_R;
     }
     return s;
+}
+
+// Spatial-only mixture L/R states (imex_ad.py::_mixture_primitive_lr_states).
+// HLLC deliberately uses this branch without the Hancock predictor.
+inline HancockLR mixture_lr(const std::vector<double>& a_ext,
+                            const std::vector<double>& T1_ext,
+                            const std::vector<double>& T2_ext,
+                            const std::vector<double>& u_ext,
+                            const std::vector<double>& p_ext,
+                            const EOS& eos1, const EOS& eos2,
+                            TvdLimiter tvd_kind) {
+    const int ne = (int)a_ext.size(), nf = ne - 1;
+    std::vector<double> rho(ne), y(ne);
+    for (int k = 0; k < ne; ++k) {
+        const double r1 = dmax(eos1.density(p_ext[k], T1_ext[k]), MU_EPS);
+        const double r2 = dmax(eos2.density(p_ext[k], T2_ext[k]), MU_EPS);
+        const double q1 = dmax(a_ext[k] * r1, 0.0), q2 = dmax((1.0 - a_ext[k]) * r2, 0.0);
+        rho[k] = dmax(q1 + q2, MU_EPS); y[k] = clip(q1 / rho[k], 0.0, 1.0);
+    }
+    HancockLR s;
+    s.rho_L.resize(nf); s.rho_R.resize(nf); s.u_L.resize(nf); s.u_R.resize(nf);
+    s.p_L.resize(nf); s.p_R.resize(nf); s.y_L.resize(nf); s.y_R.resize(nf);
+    s.a_L.resize(nf); s.a_R.resize(nf);
+    reconstruct_lr_faces(rho.data(), ne, tvd_kind, MU_EPS, s.rho_L.data(), s.rho_R.data());
+    reconstruct_lr_faces(y.data(), ne, tvd_kind, -1.0, s.y_L.data(), s.y_R.data());
+    reconstruct_lr_faces(u_ext.data(), ne, tvd_kind, -1.0, s.u_L.data(), s.u_R.data());
+    reconstruct_lr_faces(p_ext.data(), ne, tvd_kind, 1.0e-12, s.p_L.data(), s.p_R.data());
+    reconstruct_lr_faces(a_ext.data(), ne, tvd_kind, -1.0, s.a_L.data(), s.a_R.data());
+    for (int f = 0; f < nf; ++f) {
+        s.rho_L[f] = dmax(s.rho_L[f], MU_EPS); s.rho_R[f] = dmax(s.rho_R[f], MU_EPS);
+        s.y_L[f] = clip(s.y_L[f], 0.0, 1.0); s.y_R[f] = clip(s.y_R[f], 0.0, 1.0);
+        s.a_L[f] = clip(s.a_L[f], 1.0e-12, 1.0 - 1.0e-12);
+        s.a_R[f] = clip(s.a_R[f], 1.0e-12, 1.0 - 1.0e-12);
+    }
+    return s;
+}
+
+inline double clip_stencil(double value, const std::vector<double>& cell, int i) {
+    const int lo_i = i > 0 ? i - 1 : 0;
+    const int hi_i = i + 2 < (int)cell.size() ? i + 2 : (int)cell.size();
+    double lo = cell[lo_i], hi = cell[lo_i];
+    for (int k = lo_i + 1; k < hi_i; ++k) { lo = dmin(lo, cell[k]); hi = dmax(hi, cell[k]); }
+    return clip(value, lo, hi);
+}
+
+// Characteristic rho/u/p slopes and L/R states
+// (imex_ad.py::_characteristic_{primitive_slopes,mixture_lr_states}).
+inline HancockLR characteristic_lr(const std::vector<double>& a_ext,
+                                   const std::vector<double>& T1_ext,
+                                   const std::vector<double>& T2_ext,
+                                   const std::vector<double>& u_ext,
+                                   const std::vector<double>& p_ext,
+                                   const std::vector<double>& c2_ext,
+                                   const EOS& eos1, const EOS& eos2,
+                                   TvdLimiter tvd_kind) {
+    const int ne = (int)a_ext.size(), nf = ne - 1;
+    std::vector<double> rho(ne), y(ne), drho(ne, 0.0), du(ne, 0.0), dp(ne, 0.0);
+    for (int k = 0; k < ne; ++k) {
+        const double r1 = dmax(eos1.density(p_ext[k], T1_ext[k]), MU_EPS);
+        const double r2 = dmax(eos2.density(p_ext[k], T2_ext[k]), MU_EPS);
+        const double q1 = dmax(a_ext[k] * r1, 0.0), q2 = dmax((1.0 - a_ext[k]) * r2, 0.0);
+        rho[k] = dmax(q1 + q2, MU_EPS); y[k] = clip(q1 / rho[k], 0.0, 1.0);
+    }
+    for (int k = 1; k + 1 < ne; ++k) {
+        const double r = dmax(rho[k], MU_EPS), c = std::sqrt(dmax(c2_ext[k], MU_EPS));
+        const double ic2 = 1.0 / dmax(c * c, MU_EPS);
+        const double dlr = rho[k] - rho[k - 1], dlu = u_ext[k] - u_ext[k - 1], dlp = p_ext[k] - p_ext[k - 1];
+        const double drr = rho[k + 1] - rho[k], dru = u_ext[k + 1] - u_ext[k], drp = p_ext[k + 1] - p_ext[k];
+        const double lm = .5 * (dlp * ic2 - r * dlu / c), lp = .5 * (dlp * ic2 + r * dlu / c), l0 = dlr - dlp * ic2;
+        const double rm = .5 * (drp * ic2 - r * dru / c), rp = .5 * (drp * ic2 + r * dru / c), r0 = drr - drp * ic2;
+        const double am = tvd_pair(lm, rm, tvd_kind);
+        const double ap = tvd_pair(lp, rp, tvd_kind);
+        const double a0 = tvd_pair(l0, r0, tvd_kind);
+        drho[k] = a0 + am + ap; du[k] = c / r * (ap - am); dp[k] = c * c * (am + ap);
+    }
+    HancockLR s;
+    s.rho_L.resize(nf); s.rho_R.resize(nf); s.u_L.resize(nf); s.u_R.resize(nf);
+    s.p_L.resize(nf); s.p_R.resize(nf); s.y_L.resize(nf); s.y_R.resize(nf);
+    s.a_L.resize(nf); s.a_R.resize(nf);
+    reconstruct_lr_faces(y.data(), ne, tvd_kind, -1.0, s.y_L.data(), s.y_R.data());
+    reconstruct_lr_faces(a_ext.data(), ne, tvd_kind, -1.0, s.a_L.data(), s.a_R.data());
+    for (int f = 0; f < nf; ++f) {
+        s.rho_L[f] = dmax(clip_stencil(rho[f] + .5 * drho[f], rho, f), MU_EPS);
+        s.rho_R[f] = dmax(clip_stencil(rho[f + 1] - .5 * drho[f + 1], rho, f + 1), MU_EPS);
+        s.u_L[f] = clip_stencil(u_ext[f] + .5 * du[f], u_ext, f);
+        s.u_R[f] = clip_stencil(u_ext[f + 1] - .5 * du[f + 1], u_ext, f + 1);
+        s.p_L[f] = dmax(clip_stencil(p_ext[f] + .5 * dp[f], p_ext, f), 1.0e-12);
+        s.p_R[f] = dmax(clip_stencil(p_ext[f + 1] - .5 * dp[f + 1], p_ext, f + 1), 1.0e-12);
+        s.y_L[f] = clip(s.y_L[f], 0.0, 1.0); s.y_R[f] = clip(s.y_R[f], 0.0, 1.0);
+        s.a_L[f] = clip(s.a_L[f], 1.0e-12, 1.0 - 1.0e-12);
+        s.a_R[f] = clip(s.a_R[f], 1.0e-12, 1.0 - 1.0e-12);
+    }
+    return s;
+}
+
+struct CharacteristicFaces { std::vector<double> rho, y, u, p; };
+
+inline CharacteristicFaces characteristic_upwind_faces(
+        const std::vector<double>& a_ext, const std::vector<double>& T1_ext,
+        const std::vector<double>& T2_ext, const std::vector<double>& u_ext,
+        const std::vector<double>& p_ext, const std::vector<double>& c2_ext,
+        const std::vector<double>& u_face, const EOS& eos1, const EOS& eos2,
+        double dt, double dx, TvdLimiter tvd_kind) {
+    const int ne = (int)a_ext.size(), nf = ne - 1;
+    std::vector<double> rho(ne), y(ne), drho(ne, 0.0), du(ne, 0.0), dp(ne, 0.0);
+    for (int k = 0; k < ne; ++k) {
+        const double r1 = dmax(eos1.density(p_ext[k], T1_ext[k]), MU_EPS);
+        const double r2 = dmax(eos2.density(p_ext[k], T2_ext[k]), MU_EPS);
+        const double q1 = dmax(a_ext[k] * r1, 0.0), q2 = dmax((1.0 - a_ext[k]) * r2, 0.0);
+        rho[k] = dmax(q1 + q2, MU_EPS); y[k] = clip(q1 / rho[k], 0.0, 1.0);
+    }
+    for (int k = 1; k + 1 < ne; ++k) {
+        const double r = dmax(rho[k], MU_EPS), c = std::sqrt(dmax(c2_ext[k], MU_EPS));
+        const double ic2 = 1.0 / dmax(c * c, MU_EPS);
+        const double dlr = rho[k] - rho[k - 1], dlu = u_ext[k] - u_ext[k - 1], dlp = p_ext[k] - p_ext[k - 1];
+        const double drr = rho[k + 1] - rho[k], dru = u_ext[k + 1] - u_ext[k], drp = p_ext[k + 1] - p_ext[k];
+        const double lm = .5 * (dlp * ic2 - r * dlu / c), lp = .5 * (dlp * ic2 + r * dlu / c), l0 = dlr - dlp * ic2;
+        const double rm = .5 * (drp * ic2 - r * dru / c), rp = .5 * (drp * ic2 + r * dru / c), r0 = drr - drp * ic2;
+        const double am = tvd_pair(lm, rm, tvd_kind);
+        const double ap = tvd_pair(lp, rp, tvd_kind);
+        const double a0 = tvd_pair(l0, r0, tvd_kind);
+        drho[k] = a0 + am + ap; du[k] = c / r * (ap - am); dp[k] = c * c * (am + ap);
+    }
+    CharacteristicFaces out; out.rho.resize(nf); out.y.resize(nf); out.u.resize(nf); out.p.resize(nf);
+    reconstruct_upwind_faces(y.data(), ne, u_face.data(), tvd_kind, dt, dx, true, 0.0, out.y.data());
+    for (int f = 0; f < nf; ++f) {
+        const bool left = u_face[f] >= 0.0; const int k = left ? f : f + 1;
+        const double sign = (left ? .5 : -.5) * (1.0 - dmin(1.0, std::fabs(u_face[f]) * dt / dmax(dx, MU_EPS)));
+        out.rho[f] = dmax(clip_stencil(rho[k] + sign * drho[k], rho, k), MU_EPS);
+        out.u[f] = clip_stencil(u_ext[k] + sign * du[k], u_ext, k);
+        out.p[f] = dmax(clip_stencil(p_ext[k] + sign * dp[k], p_ext, k), 1.0e-12);
+        out.y[f] = clip(out.y[f], 0.0, 1.0);
+    }
+    return out;
 }
 
 // Zalesak cell-update FCT limiter shared by apply_update_lmp (2352-2423) and
@@ -383,11 +602,27 @@ inline MaterialResult material_update(const std::vector<double>& a1,
         Un0[i] = U.m1; Un1[i] = U.m2; Un2[i] = U.mom; Un3[i] = U.rhoE; Un4[i] = U.a1;
     }
     // Ghost-extended primitive state.
-    std::vector<double> a_ext = extend1(a1, cfg.bc_l, cfg.bc_r, false);
-    std::vector<double> T1_ext = extend1(T1, cfg.bc_l, cfg.bc_r, false);
-    std::vector<double> T2_ext = extend1(T2, cfg.bc_l, cfg.bc_r, false);
-    std::vector<double> u_ext = extend1(u, cfg.bc_l, cfg.bc_r, true);
-    std::vector<double> p_ext = extend1(p, cfg.bc_l, cfg.bc_r, false);
+    std::optional<double> u_left = cfg.u_inlet_l;
+    std::optional<double> p_left = cfg.p_inlet_l;
+    if (cfg.bc_l == BC5::InletAcoustic) {
+        // boundary.extend_W: prescribed incoming J+ and extrapolated outgoing
+        // J- form a coupled primitive ghost at the left acoustic inlet.
+        PhaseAcoustic pa0 = phase_acoustic(eos1, eos2, a1[0], T1[0], T2[0], p[0], apt,
+                                            cfg.mixture_sound_speed_kind);
+        double Z0 = dmax(pa0.Z, MU_EPS);
+        double u_in = cfg.u_inlet_l ? *cfg.u_inlet_l : u[0];
+        double p_in = cfg.p_inlet_l ? *cfg.p_inlet_l : p[0];
+        double Jp = (u_in - u[0]) + (p_in - p[0]) / Z0;
+        double Jm = 0.0;
+        if (n >= 2) Jm = (u[1] - u[0]) - (p[1] - p[0]) / Z0;
+        u_left = u[0] + 0.5 * (Jp + Jm);
+        p_left = p[0] + 0.5 * Z0 * (Jp - Jm);
+    }
+    std::vector<double> a_ext = extend1(a1, cfg.bc_l, cfg.bc_r, false, cfg.alpha_inlet_l);
+    std::vector<double> T1_ext = extend1(T1, cfg.bc_l, cfg.bc_r, false, cfg.T1_inlet_l);
+    std::vector<double> T2_ext = extend1(T2, cfg.bc_l, cfg.bc_r, false, cfg.T2_inlet_l);
+    std::vector<double> u_ext = extend1(u, cfg.bc_l, cfg.bc_r, true, u_left);
+    std::vector<double> p_ext = extend1(p, cfg.bc_l, cfg.bc_r, false, p_left, cfg.p_outlet_r);
     // U_ext conservative.
     std::vector<double> Ue0(ne), Ue1(ne), Ue2(ne), Ue3(ne);
     for (int k = 0; k < ne; ++k) {
@@ -397,7 +632,8 @@ inline MaterialResult material_update(const std::vector<double>& a1,
     // Phase acoustic (c_mix_sq, Z) on the extended state.
     std::vector<double> c_ext(ne), Z_ext(ne);
     for (int k = 0; k < ne; ++k) {
-        PhaseAcoustic pa = phase_acoustic(eos1, eos2, a_ext[k], T1_ext[k], T2_ext[k], p_ext[k], apt);
+        PhaseAcoustic pa = phase_acoustic(eos1, eos2, a_ext[k], T1_ext[k], T2_ext[k], p_ext[k], apt,
+                                           cfg.mixture_sound_speed_kind);
         c_ext[k] = pa.c_mix_sq; Z_ext[k] = pa.Z;
     }
 
@@ -413,16 +649,47 @@ inline MaterialResult material_update(const std::vector<double>& a1,
 
     // Branch gate: mixture-primitive reconstruction on this extended state.
     bool mixture_recon = mixture_recon_enabled(a_ext, u_ext, p_ext);
+    TvdLimiter primitive_tvd = mixture_tvd_kind_for_state(
+        a_ext, u_ext, cfg.primitive_tvd_limiter);
+    if (primitive_tvd == TvdLimiter::Superbee &&
+        five_eq::pressure_jump_stiff_to_soft(
+            a_ext, T1_ext, T2_ext, p_ext, eos1, eos2,
+            apt, cfg.mixture_sound_speed_kind)) {
+        primitive_tvd = TvdLimiter::VanLeer;
+    }
+    double a_min = a1[0], a_max = a1[0];
+    for (double av : a1) { a_min = dmin(a_min, av); a_max = dmax(a_max, av); }
+    const bool characteristic_recon = cfg.characteristic_reconstruction && (a_max - a_min <= EPS4);
     HancockLR hlr;   // computed once, shared by SLAU2 + material recon when active.
     bool have_hlr = false;
     auto ensure_hlr = [&]() {
-        if (!have_hlr) { hlr = mixture_hancock_lr(a_ext, T1_ext, T2_ext, u_ext, p_ext, c_ext, eos1, eos2, dt, dx); have_hlr = true; }
+        if (!have_hlr) {
+            hlr = mixture_hancock_lr(a_ext, T1_ext, T2_ext, u_ext, p_ext,
+                                     c_ext, eos1, eos2, dt, dx, primitive_tvd);
+            have_hlr = true;
+        }
     };
 
-    // SLAU2 material face velocity (reconstruction feeds the kernel).
+    // SLAU2/HLLC material face velocity.  The optional characteristic branch
+    // is allowed only on composition-uniform states, exactly as Python.
     {
         std::vector<double> rho_L(nf), rho_R(nf), uL(nf), uR(nf), pL(nf), pR(nf);
-        if (mixture_recon) {
+        if (cfg.material_flux == MaterialFlux::HllcContact && mixture_recon) {
+            HancockLR lr = mixture_lr(a_ext, T1_ext, T2_ext, u_ext, p_ext,
+                                      eos1, eos2, primitive_tvd);
+            for (int f = 0; f < nf; ++f) {
+                rho_L[f] = lr.rho_L[f]; rho_R[f] = lr.rho_R[f];
+                uL[f] = lr.u_L[f]; uR[f] = lr.u_R[f]; pL[f] = lr.p_L[f]; pR[f] = lr.p_R[f];
+            }
+        } else if (characteristic_recon) {
+            HancockLR lr = characteristic_lr(a_ext, T1_ext, T2_ext, u_ext,
+                                              p_ext, c_ext, eos1, eos2,
+                                              primitive_tvd);
+            for (int f = 0; f < nf; ++f) {
+                rho_L[f] = lr.rho_L[f]; rho_R[f] = lr.rho_R[f];
+                uL[f] = lr.u_L[f]; uR[f] = lr.u_R[f]; pL[f] = lr.p_L[f]; pR[f] = lr.p_R[f];
+            }
+        } else if (mixture_recon) {
             ensure_hlr();
             for (int f = 0; f < nf; ++f) {
                 rho_L[f] = hlr.rho_L[f]; rho_R[f] = hlr.rho_R[f];
@@ -432,10 +699,10 @@ inline MaterialResult material_update(const std::vector<double>& a1,
         } else {
             // reconstruct_lr_faces on T1,T2,u,p then EOS mixture rho.
             std::vector<double> T1L(nf), T1R(nf), T2L(nf), T2R(nf);
-            reconstruct_lr_faces(T1_ext.data(), ne, TvdLimiter::VanLeer, 1.0, T1L.data(), T1R.data());
-            reconstruct_lr_faces(T2_ext.data(), ne, TvdLimiter::VanLeer, 1.0, T2L.data(), T2R.data());
-            reconstruct_lr_faces(u_ext.data(), ne, TvdLimiter::VanLeer, -1.0, uL.data(), uR.data());
-            reconstruct_lr_faces(p_ext.data(), ne, TvdLimiter::VanLeer, 1.0e-12, pL.data(), pR.data());
+            reconstruct_lr_faces(T1_ext.data(), ne, primitive_tvd, 1.0, T1L.data(), T1R.data());
+            reconstruct_lr_faces(T2_ext.data(), ne, primitive_tvd, 1.0, T2L.data(), T2R.data());
+            reconstruct_lr_faces(u_ext.data(), ne, primitive_tvd, -1.0, uL.data(), uR.data());
+            reconstruct_lr_faces(p_ext.data(), ne, primitive_tvd, 1.0e-12, pL.data(), pR.data());
             for (int f = 0; f < nf; ++f) {
                 double aL = clip(a_ext[f], 0.0, 1.0), aR = clip(a_ext[f + 1], 0.0, 1.0);
                 double r1L = dmax(eos1.density(pL[f], T1L[f]), MU_EPS);
@@ -447,11 +714,29 @@ inline MaterialResult material_update(const std::vector<double>& a1,
             }
         }
         for (int f = 0; f < nf; ++f) {
-            Slau2Face fc = slau2_face(rho_L[f], rho_R[f], uL[f], uR[f], pL[f], pR[f],
-                                      c_ext[f], c_ext[f + 1]);
-            if (std::isfinite(fc.u_face) && std::isfinite(fc.p_face) &&
-                (rho_L[f] > MU_EPS) && (rho_R[f] > MU_EPS)) {
-                p_star[f] = fc.p_face; u_star[f] = fc.u_face;   // slau2_valid overwrite
+            if (cfg.material_flux == MaterialFlux::HllcContact) {
+                const double cL = std::sqrt(dmax(c_ext[f], MU_EPS));
+                const double cR = std::sqrt(dmax(c_ext[f + 1], MU_EPS));
+                const double sL = dmin(uL[f] - cL, uR[f] - cR);
+                const double sR = dmax(uL[f] + cL, uR[f] + cR);
+                const double den = rho_L[f] * (sL - uL[f]) - rho_R[f] * (sR - uR[f]);
+                const double den_safe = std::fabs(den) > MU_EPS ? den : (den + 1.0e-300 >= 0.0 ? MU_EPS : -MU_EPS);
+                const double sM = (pR[f] - pL[f] + rho_L[f] * uL[f] * (sL - uL[f])
+                    - rho_R[f] * uR[f] * (sR - uR[f])) / den_safe;
+                const double pmL = pL[f] + rho_L[f] * (sL - uL[f]) * (sM - uL[f]);
+                const double pmR = pR[f] + rho_R[f] * (sR - uR[f]) * (sM - uR[f]);
+                const double pm = .5 * (pmL + pmR);
+                if (std::isfinite(sM) && std::isfinite(pm) && (rho_L[f] > MU_EPS) &&
+                    (rho_R[f] > MU_EPS) && (pm > 0.0) && (sR > sL)) {
+                    p_star[f] = pm; u_star[f] = sM;
+                }
+            } else {
+                Slau2Face fc = slau2_face(rho_L[f], rho_R[f], uL[f], uR[f], pL[f], pR[f],
+                                          c_ext[f], c_ext[f + 1]);
+                if (std::isfinite(fc.u_face) && std::isfinite(fc.p_face) &&
+                    (rho_L[f] > MU_EPS) && (rho_R[f] > MU_EPS)) {
+                    p_star[f] = fc.p_face; u_star[f] = fc.u_face;
+                }
             }
         }
         if (cfg.bc_l == BC5::Reflective) { p_star[0] = p_ext[1]; u_star[0] = 0.0; }
@@ -461,7 +746,7 @@ inline MaterialResult material_update(const std::vector<double>& a1,
     if (cfg.bc_l == BC5::Reflective) u_star[0] = 0.0;
     if (cfg.bc_r == BC5::Reflective) u_star[nf - 1] = 0.0;
 
-    // upwind alpha + primitive face reconstruction (tmlpu vanleer).
+    // Upwind alpha + Python-configured T-MLP-u primitive reconstruction.
     std::vector<char> upwind_left(nf);
     std::vector<double> alpha_upwind(nf);
     for (int f = 0; f < nf; ++f) {
@@ -469,10 +754,10 @@ inline MaterialResult material_update(const std::vector<double>& a1,
         alpha_upwind[f] = upwind_left[f] ? a_ext[f] : a_ext[f + 1];
     }
     std::vector<double> T1_f(nf), T2_f(nf), u_adv_f(nf), p_adv_f(nf);
-    reconstruct_upwind_faces(T1_ext.data(), ne, u_star.data(), TvdLimiter::VanLeer, dt, dx, true, 1.0, T1_f.data());
-    reconstruct_upwind_faces(T2_ext.data(), ne, u_star.data(), TvdLimiter::VanLeer, dt, dx, true, 1.0, T2_f.data());
-    reconstruct_upwind_faces(u_ext.data(), ne, u_star.data(), TvdLimiter::VanLeer, dt, dx, true, -1.0, u_adv_f.data());
-    reconstruct_upwind_faces(p_ext.data(), ne, u_star.data(), TvdLimiter::VanLeer, dt, dx, true, 1.0e-12, p_adv_f.data());
+    reconstruct_upwind_faces(T1_ext.data(), ne, u_star.data(), primitive_tvd, dt, dx, true, 1.0, T1_f.data());
+    reconstruct_upwind_faces(T2_ext.data(), ne, u_star.data(), primitive_tvd, dt, dx, true, 1.0, T2_f.data());
+    reconstruct_upwind_faces(u_ext.data(), ne, u_star.data(), primitive_tvd, dt, dx, true, -1.0, u_adv_f.data());
+    reconstruct_upwind_faces(p_ext.data(), ne, u_star.data(), primitive_tvd, dt, dx, true, 1.0e-12, p_adv_f.data());
 
     std::vector<double> rho1_f(nf), rho2_f(nf);
     for (int f = 0; f < nf; ++f) {
@@ -481,7 +766,19 @@ inline MaterialResult material_update(const std::vector<double>& a1,
     }
     // mixture / density reconstruction branch.
     std::vector<double> mix_rho_f, mix_y1_f;   // empty => not on mixture path
-    if (mixture_recon) {
+    if (characteristic_recon) {
+        CharacteristicFaces cf = characteristic_upwind_faces(
+            a_ext, T1_ext, T2_ext, u_ext, p_ext, c_ext, u_star, eos1, eos2,
+            dt, dx, primitive_tvd);
+        mix_rho_f = cf.rho; mix_y1_f = cf.y;
+        for (int f = 0; f < nf; ++f) {
+            const double a_mix = dmax(alpha_upwind[f], 1.0e-12);
+            const double a2_mix = dmax(1.0 - alpha_upwind[f], 1.0e-12);
+            u_adv_f[f] = cf.u[f]; p_adv_f[f] = cf.p[f];
+            rho1_f[f] = dmax(cf.y[f] * cf.rho[f] / a_mix, MU_EPS);
+            rho2_f[f] = dmax((1.0 - cf.y[f]) * cf.rho[f] / a2_mix, MU_EPS);
+        }
+    } else if (mixture_recon) {
         ensure_hlr();
         mix_rho_f.resize(nf); mix_y1_f.resize(nf);
         for (int f = 0; f < nf; ++f) {
@@ -682,8 +979,37 @@ inline MaterialResult material_update(const std::vector<double>& a1,
         F_rE[f] = rE_f[f] * u_star[f];        // allaire advective energy flux
         F_pu[f] = p_star[f] * u_star[f];
     }
+    if (cfg.energy_form == EnergyForm::Secant || cfg.energy_form == EnergyForm::Differential) {
+        std::vector<double> F_rho(nf);
+        for (int f = 0; f < nf; ++f) F_rho[f] = F_q1[f] + F_q2[f];
+        FaceEnergy face;
+        face.alpha = alpha_f;
+        face.p = p_star;
+        face.u = u_star;
+        face.a_L.resize(nf); face.a_R.resize(nf);
+        face.rho1 = rho1_f; face.rho2 = rho2_f;
+        face.rho1_L.resize(nf); face.rho1_R.resize(nf);
+        face.rho2_L.resize(nf); face.rho2_R.resize(nf);
+        face.T1.resize(nf); face.T2.resize(nf); face.e1.resize(nf); face.e2.resize(nf);
+        for (int f = 0; f < nf; ++f) {
+            face.a_L[f] = a_ext[f]; face.a_R[f] = a_ext[f + 1];
+            face.rho1_L[f] = dmax(eos1.density(p_star[f], T1_ext[f]), MU_EPS);
+            face.rho1_R[f] = dmax(eos1.density(p_star[f], T1_ext[f + 1]), MU_EPS);
+            face.rho2_L[f] = dmax(eos2.density(p_star[f], T2_ext[f]), MU_EPS);
+            face.rho2_R[f] = dmax(eos2.density(p_star[f], T2_ext[f + 1]), MU_EPS);
+            const bool left = upwind_left[f];
+            face.T1[f] = left ? T1_ext[f] : T1_ext[f + 1];
+            face.T2[f] = left ? T2_ext[f] : T2_ext[f + 1];
+            face.e1[f] = eos1.energy(rho1_f[f], p_star[f]);
+            face.e2[f] = eos2.energy(rho2_f[f], p_star[f]);
+        }
+        total_energy_flux(face, eos1, eos2, F_q1, F_q2, F_alpha,
+                          F_rho, cfg.energy_form,
+                          std::fmax(cfg.energy_alpha_pure_tol, 0.0), F_rE);
+    }
 
-    // Kapila source (mixed_path).
+    // Kapila alpha source.  All seven Python kapila_source_mode branches use
+    // the same face/cell candidates; the selector below is branch-exact.
     std::vector<double> B_ext(ne), B_f(nf);
     for (int k = 0; k < ne; ++k)
         B_ext[k] = a_ext[k] + D_K_kapila_cell(eos1, eos2, a_ext[k], T1_ext[k], T2_ext[k], p_ext[k]);
@@ -702,12 +1028,26 @@ inline MaterialResult material_update(const std::vector<double>& a1,
         double src_face = (B_f[i + 1] * (u_star[i + 1] - u[i])
                          + B_f[i] * (u[i] - u_star[i])) * inv_dx;
         double src_cell = (a1[i] + D_K_kapila_cell(eos1, eos2, a1[i], T1[i], T2[i], p[i])) * div_u;
+        if (!cfg.kapila_closure) {
+            source_alpha[i] = a1[i] * div_u;
+            continue;
+        }
         double src_hybrid = mat_cells[i] ? src_cell : src_face;
         // 3-neighbour stencil on a_ext: a_ext[i], a_ext[i+1], a_ext[i+2].
         double a_lo = dmin(dmin(a_ext[i], a_ext[i + 1]), a_ext[i + 2]);
         double a_hi = dmax(dmax(a_ext[i], a_ext[i + 1]), a_ext[i + 2]);
         bool true_mix = (a_lo > pure_tol_auto) && (a_hi < 1.0 - pure_tol_auto);
-        source_alpha[i] = true_mix ? src_face : src_hybrid;
+        double src_trap = .5 * (src_face + src_cell);
+        bool immiscible = (a_lo <= pure_tol_auto) && (a_hi >= 1.0 - pure_tol_auto);
+        switch (cfg.kapila_source_mode) {
+            case KapilaSourceMode::Path:                 source_alpha[i] = src_face; break;
+            case KapilaSourceMode::Cell:                 source_alpha[i] = src_cell; break;
+            case KapilaSourceMode::Hybrid:               source_alpha[i] = src_hybrid; break;
+            case KapilaSourceMode::Trapezoid:            source_alpha[i] = src_trap; break;
+            case KapilaSourceMode::ImmiscibleTrapezoid:  source_alpha[i] = immiscible ? src_hybrid : src_trap; break;
+            case KapilaSourceMode::MixedTrapezoid:       source_alpha[i] = true_mix ? src_trap : src_hybrid; break;
+            case KapilaSourceMode::MixedPath:            source_alpha[i] = true_mix ? src_face : src_hybrid; break;
+        }
     }
 
     MaterialResult out;

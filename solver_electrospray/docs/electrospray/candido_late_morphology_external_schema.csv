@@ -1,0 +1,11 @@
+column,required,description
+case,yes,Must be long_window_ca025 for the current Candido late-morphology gate.
+reference_time_ms,yes,Must include separate rows at 0.8 and 0.9 ms.
+digitized_experimental_volume_di3,volume_mode,Positive finite experimental morphology volume in inlet-diameter-cubed units.
+contour_y_di,contour_mode,Axial free-surface contour coordinate normalized by inlet diameter; at least three rows per required time.
+contour_radius_di,contour_mode,Radial free-surface contour coordinate normalized by inlet diameter; integrated as pi*integral(radius^2 dy).
+point_id,optional,Stable contour point identifier for ordered digitization provenance.
+source,yes,External source identifier such as digitized Candido Fig. 3(b) contour data or corresponding-author numerical data.
+source_type,yes,Allowed intent is external_digitized_contour or corresponding_author_dataset; reported_error_backsolve and relative_error_backsolve are rejected.
+extraction_method,yes,Method used to obtain geometry/volume; rows derived from reported relative error are rejected. Contour mode computes V/Di^3 as pi*integral(r_di^2 dy_di).
+not_derived_from_reported_error,yes,Must be 1/true/yes. The paper's 0.8/0.9 relative-error row is not an acceptable reference-volume source.

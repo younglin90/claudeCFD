@@ -1,0 +1,2 @@
+case,cells,faces,max_snGrad_difference,max_kappa,max_force,max_pressure_grad,max_sn_alpha,max_sn_pressure,state_snGrad_difference,state_balance_residual,contact_angle_deg,adjusted_angle_deg,tangent_alignment
+snGrad_invariant,1320,4322,0,27.5492,78.0753,35.5742,9.34619,3.03865,0,7.58045,51,51,1

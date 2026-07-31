@@ -1,0 +1,4 @@
+case,cells,potential_l2,linear_residual,iterations,charge_mass_drift,charge_min,charge_max,charge_final_mass
+parallel_plate,1024,1.27434e-12,9.41946e-13,48,nan,nan,nan,nan
+concentric_sphere,97200,0.0070516,9.65552e-13,252,nan,nan,nan,nan
+charge_transport,480,nan,nan,nan,1.35687e-16,0.198038,0.4505,0.204556

@@ -1,0 +1,9 @@
+[ 1] Kolmogorov N=32
+[ 2] Channel N=32
+[ 3] Couette N=32
+[ 4] Cavity Re=100 N=65
+[ 5] Cavity Re=400 N=97
+[ 6] Multi-cylinder N=32
+[ 7] 3D Kolmogorov N=24
+[ 8] 3D Channel N=24
+Done. Contours saved to results_contours

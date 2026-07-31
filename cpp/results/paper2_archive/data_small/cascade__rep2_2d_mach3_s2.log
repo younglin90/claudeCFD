@@ -1,0 +1,18 @@
+### case=mach3 scheme=s2 rep=2
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 M3_MESH=uniform M3_BVD_ONLY=1 M3_FLUX=hll M3_CFL=0.3 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 ./mach3_bench 480 160 4.0
+### loadavg_before: 26.71 26.15 27.88 26/1370 3225987
+### date_start: 2026-07-28T19:53:17+09:00
+Mach-3 forward step: cells=129024  grid=480x160  mesh=unstructured_2d  t_end=4.00
+[WALL] mlp_u1 wall=51.838s steps=500
+[C3GMOM] moment table (re)built: N=129024 cells, analytic
+[WALL] BVD wall=88.167s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=52.571s  THINC=27.300s (geom=10.911s face=16.388s)  BVD_sel=5.174s  (THINC/MUSCL=0.52x)
+  BVD       : steps=500 rho[0.2796,6.5576] p_min=0.3126 max|drho|=4.2529 | rollups=0 Qint=0.000
+  BVD vs mlp_u1: shock 1.3458, rollups 0 vs 0
+  mlp_u1    : steps=500 rho[0.3076,6.3274] p_min=0.3564 max|drho|=3.1601 | upper-rollups=0 enstrophy=0.000
+  T-MLP-u-L : steps=0 rho[0.0000,0.0000] p_min=0.0000 max|drho|=0.0000 | upper-rollups=0 enstrophy=0.000
+  Mach3 gate: shock 0.0000 (softer), rollups 0 vs 0, enstrophy ratio 0.0000; positivity VIOLATION
+[WALL] TOTAL wall=140.892s
+### rc=0
+### loadavg_after: 30.70 27.82 28.24 18/1379 3318363
+### date_end: 2026-07-28T19:55:39+09:00

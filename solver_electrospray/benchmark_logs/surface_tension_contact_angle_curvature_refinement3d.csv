@@ -1,0 +1,4 @@
+n,cells,wall_mixed_cells,baseline_wall_error_percent,contact_wall_error_percent,baseline_fallback_fraction,contact_fallback_fraction,status
+10,800,168,-22.1469,-14.3279,0,0,CONTACT_ERROR_NET_DECREASING
+14,1960,328,-21.3379,-2.52372,0,0,CONTACT_ERROR_NET_DECREASING
+18,4212,552,-22.1589,13.5757,0,0,CONTACT_ERROR_NET_DECREASING

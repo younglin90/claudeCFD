@@ -1,0 +1,151 @@
+{
+  "boundary_conditions": {
+    "collector_ground": {
+      "alpha": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "charge": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "potential": {
+        "type": "fixedValue",
+        "value": 0
+      },
+      "pressure": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "velocity": {
+        "type": "movingWall",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "liquid_inlet": {
+      "alpha": {
+        "type": "fixedValue",
+        "value": 1
+      },
+      "charge": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "potential": {
+        "type": "fixedValue",
+        "value": 2180.0
+      },
+      "pressure": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "velocity": {
+        "type": "fixedValue",
+        "value": [
+          0,
+          1,
+          0
+        ]
+      }
+    },
+    "nozzle_electrode": {
+      "alpha": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "charge": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "potential": {
+        "type": "fixedValue",
+        "value": 2180.0
+      },
+      "pressure": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "velocity": {
+        "type": "noSlip",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "open_atmosphere": {
+      "alpha": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "charge": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "potential": {
+        "type": "zeroGradient",
+        "value": 0
+      },
+      "pressure": {
+        "type": "fixedValue",
+        "value": 0
+      },
+      "velocity": {
+        "type": "zeroGradient",
+        "value": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "boundary_faces": 1088,
+  "cells": 2016,
+  "dimensions": {
+    "air_domain_radius": 0.0007799999999999999,
+    "collector_diameter": 0.005,
+    "collector_distance": 0.0015,
+    "inner_diameter": 0.00016,
+    "outer_diameter": 0.00026
+  },
+  "faces": 6592,
+  "generated_polyMesh": "/home/younglin90/work/claude_code/claudeCFD/solver_electrospray/runs/generated_meshes/candido_gui_smoke/constant/polyMesh",
+  "generator": "internal_candido_nozzle_template",
+  "internal_faces": 5504,
+  "notes": [
+    "Cartesian cut-cylinder full-3D template with stair-stepped cylindrical farfield.",
+    "Nozzle is represented by split top patches, not a resolved internal capillary wall."
+  ],
+  "patch_roles": {
+    "collector_ground": "collector",
+    "liquid_inlet": "inlet",
+    "nozzle_electrode": "electrode",
+    "open_atmosphere": "outlet"
+  },
+  "patches": [
+    {
+      "faces": 4,
+      "name": "liquid_inlet"
+    },
+    {
+      "faces": 0,
+      "name": "nozzle_electrode"
+    },
+    {
+      "faces": 112,
+      "name": "collector_ground"
+    },
+    {
+      "faces": 972,
+      "name": "open_atmosphere"
+    }
+  ],
+  "points": 2603,
+  "status": "pass"
+}

@@ -1,0 +1,9 @@
+[case] channel_n32__1x: Plane Poiseuille (periodic x, wall y, force-free) (N=32, 1x)
+  anderson_lbm           lbe=   29606 wall=  12.124 res=9.999e-08 rel=9.780e-01 conv=1
+  preconditioned_lbm     lbe=    7237 wall=   1.718 res=9.368e-08 rel=9.794e-01 conv=1
+  inexact_newton_lbe     lbe=    5185 wall=   1.955 res=9.987e-08 rel=9.782e-01 conv=1
+  dual_time_mg_lbm       lbe=   13561 wall=   6.429 res=9.987e-08 rel=9.817e-01 conv=1
+  proposed               lbe=    4148 wall=   1.094 res=3.040e-09 rel=9.993e-01 conv=1
+[saved] paper_revision_data/no_force_scaling_benchmark/summary.csv
+[saved] paper_revision_data/no_force_scaling_benchmark/metrics.json
+{"accuracy_win_count": 0, "all_pass": 0, "base_cases": ["channel_n32"], "case_count": 1, "case_results": [{"acc_win": 0, "base_case_id": "channel_n32", "best_fixed_lbe": 5185, "best_fixed_rel_l2": 0.9780031638744239, "best_fixed_wall": 1.6995782398153096, "case_id": "channel_n32__1x", "case_pass": 0, "converged": 1, "lbe_win": 1, "proposed_lbe": 4148, "proposed_rel_l2": 0.9993470314461067, "proposed_wall": 1.0943828281015158, "scaling_level": 1, "wall_win": 1}], "converged_count": 1, "elapsed_wall_seconds": 25.04895900702104, "lbe_win_count": 1, "levels": [1], "mean_lbe_speedup_vs_best_fixed": 1.25, "method_count": 6, "methods": ["picard_lbm", "anderson_lbm", "preconditioned_lbm", "inexact_newton_lbe", "dual_time_mg_lbm", "proposed"], "output_dir": "paper_revision_data/no_force_scaling_benchmark", "pass_count": 0, "physics_scaling": {"cavity_refinement": "N_level = 1 + level * (N_1x - 1)", "max_steps": "scaled by level^2 with safety caps", "tolerance": "tol_scale(level) = tol_scale(1) / level", "wall_driven_velocity": "U_scale(level) = U_scale(1) / level"}, "wall_win_count": 1}

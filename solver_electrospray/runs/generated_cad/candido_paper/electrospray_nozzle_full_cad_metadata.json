@@ -1,0 +1,24 @@
+{
+  "axis": "y",
+  "collector_diameter": 0.005,
+  "collector_distance": 0.0015,
+  "farfield_radius": 0.0025,
+  "inner_diameter": 0.00016,
+  "intended_meshing": "OpenFOAM snappyHexMesh/cfMesh triSurface input",
+  "limitations": [
+    "Triangulated analytic surface package, not a STEP/BREP solid.",
+    "Nozzle bore, inner wall, electrode wall, collector, and farfield are resolved as named surfaces.",
+    "Meniscus/cone shape is not included; that remains an initial VoF field."
+  ],
+  "nozzle_length": 0.0003,
+  "outer_diameter": 0.00026,
+  "patches": {
+    "collector_ground": 128,
+    "inner_nozzle_wall": 256,
+    "liquid_inlet": 128,
+    "nozzle_electrode": 512,
+    "open_atmosphere": 512
+  },
+  "segments": 128,
+  "units": "m"
+}

@@ -1,0 +1,3 @@
+case,cells,forward_steps,reverse_steps,dt,initial_mass,final_mass,relative_mass_drift,min_alpha,max_alpha,shape_l1,target_shape_l1
+rider_kothe_sphere,5832,40,40,0.01,0.0521262,0.0521262,5.338e-14,0,0.998505,0.00305262,0.02
+zalesak_slotted_sphere,5832,40,40,0.01,0.0524691,0.0524691,5.114e-13,0,0.999994,0.00493424,0.02

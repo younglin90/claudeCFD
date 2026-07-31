@@ -216,6 +216,22 @@ class MLPU1(Reconstruction):
 
 
 @dataclass
+class MLPU1TMLPU(Reconstruction):
+    """MLP-u1 reconstruction with an additional T-MLP-u face LMP bound."""
+    name: str = 'mlp_u1_tmlpu'
+
+    def reconstruct(self, mesh, W_cell, eq, eval_points=None):
+        return _limited_linear_2d(
+            mesh, W_cell, eq, eval_points=eval_points,
+            limiter='bj',
+            stencil='vertex',
+            vertex_bounds=True,
+            n_rings=1,
+            tmlpu_face_bound=True,
+        )
+
+
+@dataclass
 class MLPU2(Reconstruction):
     """MLP-u2 comparison: one-ring vertex stencil with Venkat smooth limiter."""
     name: str = 'mlp_u2'
@@ -288,6 +304,12 @@ class TMLPU(Reconstruction):
     # Safety factor for the face-local vertex cap.  1.0 reproduces the
     # conservative cell-wide PYG cap; >1 allows limited face-local relaxation
     # while keeping the original cell-wide cap as a positivity/stability guard.
+    vertex_mlp_augment: bool = False
+    # Park-Kim MLP-u2-style smooth-extremum augmenting condition.  When the
+    # vertex area-weighted average gradient is consistent with the local
+    # T-MLP-u vertex increment, the vertex box is relaxed to ψ=1.  This is a
+    # parameter-free way to avoid clipping smooth cone/hump extrema while
+    # keeping discontinuous slot vertices bounded.
     tvb_M: float = 0.0   # Cockburn-Shu TVB modulus (M·h² LMP tolerance)
     virtual_uu_gradient: bool = False
     # When True, the slope ratio r = (φ_U − φ_UU)/(φ_D − φ_U) uses a
@@ -296,6 +318,24 @@ class TMLPU(Reconstruction):
     # geometric face-neighbour search and works on any unstructured mesh.
     #     φ_UU_virt = φ_D − 2·∇φ_U · (x_D − x_U)
     #     ⇒ φ_U − φ_UU_virt = −Δ⁺ + 2·∇φ_U · d_UD
+    face_skew_correction: bool = False
+    # Use the same arithmetic-average-gradient skew correction for the
+    # reconstructed face increment that the T-MLP-u vertex criterion uses:
+    #   δ_f = 0.5(φ_R-φ_L) + \bar∇φ·(d_f - 0.5 d_LR).
+    # On orthogonal uniform grids this reduces exactly to α_f=0.5.
+    face_gradient_correction: str = 'beta'
+    # 'beta' uses the Mathur-Murthy style LR projection blend.  'jasak'
+    # uses an over-relaxed normal correction that enforces the face-normal
+    # gradient from the L/R jump while retaining the averaged tangential part.
+    face_increment: str = 'tmlpu'
+    # 'tmlpu' uses the t* plus corrected face-gradient increment from the
+    # T-MLP-u vertex criterion.  'lsq' uses the upwind cell's WLSQ
+    # projection grad_L·(x_f-x_L) for the final face value while keeping the
+    # T-MLP-u vertex box as the limiter constraint.
+    r_form: str = 'far_upwind'
+    # 'far_upwind' uses r=(phi_R-phi_L)/(phi_L-phi_LL) with a clipped
+    # gradient-based far-upwind value.  'nvf' uses the Darwish-Moukalled
+    # inverted normalized-variable form before mapping back to Sweby r.
     cicsam_full: bool = False
     # Full CICSAM (Ubbink 1997) in NVD framework:
     #   • Hyper-C arm (sharp): φ̃_f^HC = min(1, φ̃_C/Co)
@@ -310,12 +350,9 @@ class TMLPU(Reconstruction):
     #     virtual-UU formulation for φ̃_C natively.
     cicsam_courant: float = 0.4   # Co for both HC and UQ formulae
     tvd_smooth: object = None
-    # Optional secondary TVD limiter used ONLY at smooth cells (when
-    # extremum_relax=True and is_smooth_cell[c]=True).  Sharp cells keep
-    # the primary `tvd` limiter clipped by LMP.  Mesh-independent
-    # criterion (LSQ residual) replaces CICSAM's cos²(2θ) blend.
-    #     Sharp cell:  ψ = min(ψ_TVD, ψ_LMP)            ← compressive
-    #     Smooth cell: ψ = clip(ψ_TVD_smooth, 0, 2)     ← gentler
+    # Optional secondary TVD limiter used only when explicitly requested
+    # with extremum_relax=True.  The default T-MLP-u path uses a single
+    # primary ψ_TVD and does not switch or blend limiters by threshold.
     smoothness_threshold: float = 0.1
     # LSQ-residual ratio below which a cell is classified `smooth`
     # (extremum_relax / tvd_smooth dispatch).  Lower = stricter, more
@@ -586,26 +623,20 @@ class TMLPU(Reconstruction):
     def _reconstruct_unstructured_2d(self, mesh, W_cell, eq, eval_points=None):
         """T-MLP-u extended to unstructured 2D grids — fully vectorised.
 
-        Per cell C, an unlimited least-squares polynomial is computed from
-        the chosen stencil.  For standard TVD/T-MLP-u limiting, the face
-        increment is the cell-to-cell jump scaled by the geometric face
-        location coefficient α_f:
+        Per cell/face side L→R, an unlimited least-squares polynomial is
+        computed from the chosen stencil.  The T-MLP-u path follows the
+        vertex formula:
 
-            α_f      = ((x_f − x_U) · (x_D − x_U)) / |x_D − x_U|²
-            Δ_+      = W_N − W_C            (cell-to-cell along U → D)
-            δ        = (1 − C_f) · α_f · Δ_+
-            Δ_-      = W_C − W_UU
-            r        = Δ_- / Δ_+
-            ψ_TVD    = self._psi_tvd(r)
-            φ_min    = min over face-neighbours of C (incl. C itself)
-            φ_max    = max over the same set
-            ψ_MLP    = (φ_max − W_C)/δ  if δ>0,  (φ_min − W_C)/δ  if δ<0
-            ψ_final  = max(0, min(2, ψ_TVD, ψ_MLP))
-            W_face   = W_C + ψ_final · δ
+            φ_LL = clip(φ_R − 2∇φ_L·d_LR, φ_L^min, φ_L^max)
+            r    = (φ_R − φ_L) / (φ_L − φ_LL)
+            Δφ_V = 0.5(φ_R − φ_L) + \bar{∇φ}·(d_V − 0.5d_LR)
+            α_V  = bound_V / (Δφ_V min(1,r))
+            ψ    = min_V min(α_V r, α_V, ψ_TVD)
+            φ_f  = φ_L + ψ (1 − C_f) α_f (φ_R − φ_L)
 
-        α_f is clipped to [0, 1] for skewed unstructured faces.  It reduces
-        to the 1D / 2D-Cartesian formulae on uniform structured grids
-        because the face midpoint has α_f = 0.5.
+        α_f is the geometric face-location coefficient.  For pure downwind
+        stress tests it is forced to 0.5 so ψ_TVD=2 gives φ_f=φ_R when the
+        MLP bound is disabled.
 
         UU is chosen per face as the face-neighbour of C whose centroid
         offset is most *opposite* the downstream direction (x_D − x_C).
@@ -651,6 +682,27 @@ class TMLPU(Reconstruction):
                             optimize=True) / safe_d_sq
         alpha_o = np.clip(alpha_o, 0.0, 1.0)
         alpha_n = np.clip(alpha_n, 0.0, 1.0)
+        if self._tvd_name in ('bounded_cd', 'central', 'cd',
+                              'pure_downwind'):
+            alpha_o = np.full_like(alpha_o, 0.5)
+            alpha_n = np.full_like(alpha_n, 0.5)
+        face_n_o = mesh.face_normals[interior]
+        norm_den = np.einsum('ij,ij->i', d_o_int, face_n_o,
+                             optimize=True)
+        norm_den_safe = np.where(np.abs(norm_den) > 1e-30,
+                                 norm_den, np.copysign(1e-30, norm_den))
+        tstar_o = np.einsum('ij,ij->i', dx_fo, face_n_o,
+                            optimize=True) / norm_den_safe
+        tstar_n = np.einsum('ij,ij->i', dx_fn, -face_n_o,
+                            optimize=True) / norm_den_safe
+        tstar_o = np.clip(np.where(np.abs(norm_den) > 1e-30,
+                                   tstar_o, alpha_o), 0.0, 1.0)
+        tstar_n = np.clip(np.where(np.abs(norm_den) > 1e-30,
+                                   tstar_n, alpha_n), 0.0, 1.0)
+        d_len = np.sqrt(np.maximum(d_sq, 1e-30))
+        e_o = d_o_int / d_len[:, None]
+        e_n = -e_o
+        theta_min = 0.3
 
         # 1) phi_min / phi_max per cell over (self ∪ chosen stencil).
         # Avoid np.nanmin/nanmax by replacing invalid neighbour slots with
@@ -751,17 +803,17 @@ class TMLPU(Reconstruction):
             tvb_eps = self.tvb_M * h_sq
         else:
             tvb_eps = 0.0
-
-        # Vertex-MLP — Park-Yoon-Kim 2010 cell-wise ψ.
-        # CANONICAL T-MLP-u: linear gradient projection at vertices only,
-        # not the full polynomial.  The LSQ poly's higher-order terms
-        # (½∂xx, ∂xy, ½∂yy, …) overshoot at vertices for cubic k=3 LSQ
-        # and over-shrink ψ; PYG2010 uses ∇W_C · (x_v − x_C) only.
-        # Augmented with TVB (Cockburn-Shu) tolerance M·h² so smooth
-        # extrema do not get pinned by the LMP.
+        # Vertex data for the T-MLP-u bound.  The final face limiter below
+        # uses the paper formula with Δφ_Vi based on the arithmetic-average
+        # gradient, but we also keep the older cell-wise PYG projection
+        # available for legacy options.
         psi_vertex_cell = None
         psi_vertex_face_o = None
         psi_vertex_face_n = None
+        vertex_min_values = None
+        vertex_max_values = None
+        vertex_grad_x_values = None
+        vertex_grad_y_values = None
         if self.vertex_mlp and ctx['vertex_offsets'] is not None:
             v2c_safe = ctx['v2c_safe']
             v2c_valid = ctx['v2c_valid']
@@ -773,6 +825,15 @@ class TMLPU(Reconstruction):
             face_node_valid = ctx.get('face_node_int_valid')
 
             psi_vertex_cell = np.ones((nvar, N), dtype=float)
+            vertex_min_values = np.empty((nvar, v2c_safe.shape[0]),
+                                         dtype=float)
+            vertex_max_values = np.empty((nvar, v2c_safe.shape[0]),
+                                         dtype=float)
+            if self.vertex_mlp_augment:
+                vertex_grad_x_values = np.empty((nvar, v2c_safe.shape[0]),
+                                                dtype=float)
+                vertex_grad_y_values = np.empty((nvar, v2c_safe.shape[0]),
+                                                dtype=float)
             if (self.vertex_mlp_face_local
                     and face_node_safe is not None
                     and face_node_valid is not None
@@ -808,10 +869,20 @@ class TMLPU(Reconstruction):
                 W_at_vc_filled = np.where(v2c_valid, W_at_vc, W_self_v)
                 phi_min_v = W_at_vc_filled.min(axis=1)         # (Nnodes,)
                 phi_max_v = W_at_vc_filled.max(axis=1)
+                vertex_min_values[v] = phi_min_v
+                vertex_max_values[v] = phi_max_v
                 # ─── Fix 1: linear gradient only (canonical PYG2010) ────
                 # Per-cell gradient = (coeffs[0], coeffs[1])
                 grad_x = coeffs[v, :, 0]                       # (N,)
                 grad_y = coeffs[v, :, 1]
+                if self.vertex_mlp_augment:
+                    area_at_vc = mesh.cell_volumes[v2c_safe]
+                    w_vc = np.where(v2c_valid, area_at_vc, 0.0)
+                    w_sum = np.maximum(np.sum(w_vc, axis=1), 1.0e-30)
+                    vertex_grad_x_values[v] = (
+                        np.sum(w_vc * grad_x[v2c_safe], axis=1) / w_sum)
+                    vertex_grad_y_values[v] = (
+                        np.sum(w_vc * grad_y[v2c_safe], axis=1) / w_sum)
                 proj = (grad_x[:, None] * vertex_offsets[..., 0]
                         + grad_y[:, None] * vertex_offsets[..., 1])
                 W_C = W_cell[v]
@@ -911,6 +982,91 @@ class TMLPU(Reconstruction):
                 return clip_v
             return recon_cic
 
+        def _safe_ratio(num, den, zero_value=1.0):
+            out = np.full_like(num, zero_value, dtype=float)
+            np.divide(num, den, out=out, where=np.abs(den) > _EPS)
+            large = np.where(num >= 0.0, 1e30, -1e30)
+            return np.where((np.abs(den) <= _EPS) & (np.abs(num) > _EPS),
+                            large, out)
+
+        def _tmlpu_vertex_face_psi(var, L_idx, d_lr, phi_L, delta_plus,
+                                   tstar, grad_corr_x, grad_corr_y,
+                                   r_tmlpu, psi_tvd):
+            """T-MLP-u vertex constraint from the paper formula.
+
+            For every vertex V_i of the left/upwind cell L,
+
+                Δφ_Vi = 0.5(φ_R-φ_L)
+                        + \bar{∇φ} · (d_Vi - 0.5 d_LR)
+                α_i = bound_i / (Δφ_Vi min(1,r))
+                ψ_i = min(α_i r, α_i, ψ_TVD), with ψ_i=0 for r<=0
+
+            The returned limiter is min_i ψ_i.  Invalid padded vertices are
+            neutral and impose only the base TVD cap.
+            """
+            if (vertex_min_values is None or vertex_max_values is None
+                    or ctx['cell_node_valid'] is None):
+                return None
+
+            node_safe = cell_node_safe[L_idx]
+            node_valid = cell_node_valid[L_idx]
+            d_vi = vertex_offsets[L_idx]
+            d_corr = d_vi - tstar[:, None, None] * d_lr[:, None, :]
+            delta_vi = (tstar[:, None] * delta_plus[:, None]
+                        + grad_corr_x[:, None] * d_corr[:, :, 0]
+                        + grad_corr_y[:, None] * d_corr[:, :, 1])
+
+            vmin = vertex_min_values[var, node_safe] - tvb_eps
+            vmax = vertex_max_values[var, node_safe] + tvb_eps
+            allowed = np.where(delta_vi >= 0.0,
+                               vmax - phi_L[:, None],
+                               vmin - phi_L[:, None])
+
+            r_pos = np.maximum(r_tmlpu, 0.0)
+            monotone = r_tmlpu > _EPS
+            min1r = np.minimum(1.0, r_pos)
+            denom = delta_vi * min1r[:, None]
+            alpha_i = np.full_like(delta_vi, np.inf)
+            np.divide(allowed, denom, out=alpha_i,
+                      where=np.abs(denom) > _EPS)
+            alpha_i = np.where(alpha_i > 0.0, alpha_i, 0.0)
+
+            base_i = np.full_like(delta_vi, np.inf)
+            np.divide(allowed, delta_vi, out=base_i,
+                      where=np.abs(delta_vi) > _EPS)
+            base_i = np.where(base_i > 0.0, base_i, 0.0)
+            # alpha*r = allowed*r/(Δφ_Vi*min(1,r)).  For r <= 1 this
+            # reduces exactly to allowed/Δφ_Vi, avoiding inf*0 at r=0.
+            with np.errstate(over='ignore', invalid='ignore'):
+                alpha_r_i = np.where(r_pos[:, None] <= 1.0,
+                                     base_i,
+                                     base_i * r_pos[:, None])
+            psi_tvd_cap = np.nan_to_num(psi_tvd, nan=0.0,
+                                        posinf=2.0, neginf=0.0)
+            psi_tvd_cap = np.clip(psi_tvd_cap, 0.0, 2.0)
+            psi_i = np.minimum(alpha_r_i, alpha_i)
+            psi_i = np.minimum(psi_i, psi_tvd_cap[:, None])
+            psi_i = np.where(monotone[:, None], psi_i, 0.0)
+            if (self.vertex_mlp_augment
+                    and vertex_grad_x_values is not None
+                    and vertex_grad_y_values is not None):
+                avg_proj = (
+                    vertex_grad_x_values[var, node_safe] * d_vi[:, :, 0]
+                    + vertex_grad_y_values[var, node_safe] * d_vi[:, :, 1])
+                smooth_extremum = (
+                    (avg_proj * delta_vi > 0.0)
+                    & (np.abs(avg_proj) >= 0.5 * np.abs(delta_vi))
+                    & node_valid
+                    & monotone[:, None]
+                    & (np.abs(allowed)
+                       <= _EPS * (1.0 + np.abs(phi_L[:, None])
+                                  + np.abs(vmin) + np.abs(vmax))))
+                psi_i = np.where(smooth_extremum, 1.0, psi_i)
+            psi_i = np.where(node_valid, psi_i, psi_tvd_cap[:, None])
+            psi_i = np.nan_to_num(psi_i, nan=0.0,
+                                  posinf=2.0, neginf=0.0)
+            return np.min(psi_i, axis=1)
+
         for v in range(nvar):
             # ---------- Owner side ----------
             phi_U  = W_cell[v, o_idx]
@@ -918,11 +1074,57 @@ class TMLPU(Reconstruction):
             phi_UU = W_cell[v, UU_o_safe]
 
             delta_plus = phi_D - phi_U
-            delta = one_minus_C * alpha_o * delta_plus
-            abs_dp = np.abs(delta_plus)
+            grad_x_U = coeffs[v, o_idx, 0]
+            grad_y_U = coeffs[v, o_idx, 1]
+            if self.face_skew_correction:
+                tstar = tstar_o
+                n_local = face_n_o
+                grad_bar_x = ((1.0 - tstar) * coeffs[v, o_idx, 0]
+                              + tstar * coeffs[v, n_idx, 0])
+                grad_bar_y = ((1.0 - tstar) * coeffs[v, o_idx, 1]
+                              + tstar * coeffs[v, n_idx, 1])
+                cell_slope = delta_plus / d_len
+                cos_no = np.einsum('ij,ij->i', e_o, n_local, optimize=True)
+                if str(self.face_gradient_correction).lower() == 'jasak':
+                    cos_safe = np.where(
+                        np.abs(cos_no) > _EPS,
+                        cos_no,
+                        np.where(cos_no >= 0.0, _EPS, -_EPS))
+                    grad_n = (grad_bar_x * n_local[:, 0]
+                              + grad_bar_y * n_local[:, 1])
+                    corr = cell_slope / cos_safe - grad_n
+                    grad_corr_x = grad_bar_x + corr * n_local[:, 0]
+                    grad_corr_y = grad_bar_y + corr * n_local[:, 1]
+                else:
+                    grad_proj = grad_bar_x * e_o[:, 0] + grad_bar_y * e_o[:, 1]
+                    beta = np.minimum(
+                        1.0,
+                        np.maximum(cos_no, 0.0) / theta_min)
+                    corr = beta * (grad_proj - cell_slope)
+                    grad_corr_x = grad_bar_x - corr * e_o[:, 0]
+                    grad_corr_y = grad_bar_y - corr * e_o[:, 1]
+                d_face_corr = dx_fo - tstar[:, None] * d_o_int
+                delta_face = (tstar * delta_plus
+                              + grad_corr_x * d_face_corr[:, 0]
+                              + grad_corr_y * d_face_corr[:, 1])
+                if str(self.face_increment).lower() == 'lsq':
+                    delta_face = (grad_x_U * dx_fo[:, 0]
+                                  + grad_y_U * dx_fo[:, 1])
+                delta = one_minus_C * delta_face
+                delta_plus_tvd = delta_plus
+            else:
+                delta = one_minus_C * alpha_o * delta_plus
+                tstar = alpha_o
+                grad_corr_x = 0.5 * (coeffs[v, o_idx, 0]
+                                     + coeffs[v, n_idx, 0])
+                grad_corr_y = 0.5 * (coeffs[v, o_idx, 1]
+                                     + coeffs[v, n_idx, 1])
+                delta_plus_tvd = delta_plus
+            abs_dp = np.abs(delta_plus_tvd)
             is_zero_dp = abs_dp <= _EPS
             safe_dp = np.where(is_zero_dp,
-                               np.copysign(_EPS, delta_plus), delta_plus)
+                               np.copysign(_EPS, delta_plus_tvd),
+                               delta_plus_tvd)
 
             # ─── Full CICSAM path (bypasses ψ_TVD machinery) ───────────
             if self.cicsam_full:
@@ -959,26 +1161,34 @@ class TMLPU(Reconstruction):
                 continue   # next variable — skip standard ψ path
 
             if self.virtual_uu_gradient:
-                grad_x_U = coeffs[v, o_idx, 0]
-                grad_y_U = coeffs[v, o_idx, 1]
                 gdotd = grad_x_U * d_o_int[:, 0] + grad_y_U * d_o_int[:, 1]
-                delta_minus_virt = -delta_plus + 2.0 * gdotd
-                delta_minus = delta_minus_virt
+                phi_LL_raw = phi_U - gdotd
             else:
-                delta_minus = np.where(valid_o, phi_U - phi_UU, 0.0)
-            r = delta_minus / safe_dp
+                phi_LL_raw = np.where(valid_o, phi_UU, phi_U)
+            phi_LL = np.clip(
+                phi_LL_raw,
+                phi_min_cell[v, o_idx] - tvb_eps,
+                phi_max_cell[v, o_idx] + tvb_eps,
+            )
+            delta_minus = phi_U - phi_LL
+            if str(self.r_form).lower() == 'nvf':
+                gdotd = grad_x_U * d_o_int[:, 0] + grad_y_U * d_o_int[:, 1]
+                r_tilde = 2.0 * _safe_ratio(gdotd, delta_plus_tvd) - 1.0
+                r = _safe_ratio(1.0 + r_tilde, 1.0 - r_tilde)
+                r = np.nan_to_num(r, nan=0.0, posinf=1.0e30,
+                                  neginf=-1.0e30)
+            else:
+                r = _safe_ratio(delta_plus_tvd, delta_minus)
             psi_tvd = self._psi_tvd(r)
             psi_tvd = np.where(is_zero_dp, 2.0, psi_tvd)
 
             if self.mlp_bound:
                 if psi_vertex_cell is not None:
-                    if psi_vertex_face_o is not None:
-                        relax = max(float(self.vertex_mlp_face_relax), 1.0)
-                        psi_v_o = np.minimum(psi_vertex_face_o[v],
-                                             relax * psi_vertex_cell[v, o_idx])
-                    else:
-                        psi_v_o = psi_vertex_cell[v, o_idx]
-                    psi_lmp = np.minimum(psi_tvd, psi_v_o)
+                    psi_lmp = _tmlpu_vertex_face_psi(
+                        v, o_idx, d_o_int, phi_U, delta_plus,
+                        tstar, grad_corr_x, grad_corr_y, r, psi_tvd)
+                    if psi_lmp is None:
+                        psi_lmp = psi_tvd
                 else:
                     phi_min = phi_min_cell[v, o_idx] - tvb_eps
                     phi_max = phi_max_cell[v, o_idx] + tvb_eps
@@ -998,7 +1208,8 @@ class TMLPU(Reconstruction):
                                              0.0, 2.0)
                     else:
                         psi_smooth = np.clip(psi_tvd, 0.0, 2.0)
-                    # 3-tier dispatch: very-smooth uses tvd_smooth2.
+                    # Legacy explicit dispatch.  No continuous threshold
+                    # blend is applied: each face side uses one ψ_TVD arm.
                     if self._psi_tvd_smooth2 is not None:
                         psi_smooth2 = np.clip(self._psi_tvd_smooth2(r),
                                               0.0, 2.0)
@@ -1025,33 +1236,87 @@ class TMLPU(Reconstruction):
             phi_UU = W_cell[v, UU_n_safe]
 
             delta_plus = phi_D - phi_U
-            delta = one_minus_C * alpha_n * delta_plus
-            abs_dp = np.abs(delta_plus)
+            d_n_int = -d_o_int
+            grad_x_U = coeffs[v, n_idx, 0]
+            grad_y_U = coeffs[v, n_idx, 1]
+            if self.face_skew_correction:
+                tstar = tstar_n
+                n_local = -face_n_o
+                grad_bar_x = ((1.0 - tstar) * coeffs[v, n_idx, 0]
+                              + tstar * coeffs[v, o_idx, 0])
+                grad_bar_y = ((1.0 - tstar) * coeffs[v, n_idx, 1]
+                              + tstar * coeffs[v, o_idx, 1])
+                cell_slope = delta_plus / d_len
+                cos_no = np.einsum('ij,ij->i', e_n, n_local, optimize=True)
+                if str(self.face_gradient_correction).lower() == 'jasak':
+                    cos_safe = np.where(
+                        np.abs(cos_no) > _EPS,
+                        cos_no,
+                        np.where(cos_no >= 0.0, _EPS, -_EPS))
+                    grad_n = (grad_bar_x * n_local[:, 0]
+                              + grad_bar_y * n_local[:, 1])
+                    corr = cell_slope / cos_safe - grad_n
+                    grad_corr_x = grad_bar_x + corr * n_local[:, 0]
+                    grad_corr_y = grad_bar_y + corr * n_local[:, 1]
+                else:
+                    grad_proj = grad_bar_x * e_n[:, 0] + grad_bar_y * e_n[:, 1]
+                    beta = np.minimum(
+                        1.0,
+                        np.maximum(cos_no, 0.0) / theta_min)
+                    corr = beta * (grad_proj - cell_slope)
+                    grad_corr_x = grad_bar_x - corr * e_n[:, 0]
+                    grad_corr_y = grad_bar_y - corr * e_n[:, 1]
+                d_face_corr = dx_fn - tstar[:, None] * d_n_int
+                delta_face = (tstar * delta_plus
+                              + grad_corr_x * d_face_corr[:, 0]
+                              + grad_corr_y * d_face_corr[:, 1])
+                if str(self.face_increment).lower() == 'lsq':
+                    delta_face = (grad_x_U * dx_fn[:, 0]
+                                  + grad_y_U * dx_fn[:, 1])
+                delta = one_minus_C * delta_face
+                delta_plus_tvd = delta_plus
+            else:
+                delta = one_minus_C * alpha_n * delta_plus
+                tstar = alpha_n
+                grad_corr_x = 0.5 * (coeffs[v, n_idx, 0]
+                                     + coeffs[v, o_idx, 0])
+                grad_corr_y = 0.5 * (coeffs[v, n_idx, 1]
+                                     + coeffs[v, o_idx, 1])
+                delta_plus_tvd = delta_plus
+            abs_dp = np.abs(delta_plus_tvd)
             is_zero_dp = abs_dp <= _EPS
             safe_dp = np.where(is_zero_dp,
-                               np.copysign(_EPS, delta_plus), delta_plus)
+                               np.copysign(_EPS, delta_plus_tvd),
+                               delta_plus_tvd)
             if self.virtual_uu_gradient:
-                grad_x_U = coeffs[v, n_idx, 0]
-                grad_y_U = coeffs[v, n_idx, 1]
-                gdotd = -(grad_x_U * d_o_int[:, 0] +
-                          grad_y_U * d_o_int[:, 1])
-                delta_minus_virt = -delta_plus + 2.0 * gdotd
-                delta_minus = delta_minus_virt
+                gdotd = grad_x_U * d_n_int[:, 0] + grad_y_U * d_n_int[:, 1]
+                phi_LL_raw = phi_U - gdotd
             else:
-                delta_minus = np.where(valid_n, phi_U - phi_UU, 0.0)
-            r = delta_minus / safe_dp
+                phi_LL_raw = np.where(valid_n, phi_UU, phi_U)
+            phi_LL = np.clip(
+                phi_LL_raw,
+                phi_min_cell[v, n_idx] - tvb_eps,
+                phi_max_cell[v, n_idx] + tvb_eps,
+            )
+            delta_minus = phi_U - phi_LL
+            if str(self.r_form).lower() == 'nvf':
+                gdotd = grad_x_U * d_n_int[:, 0] + grad_y_U * d_n_int[:, 1]
+                r_tilde = 2.0 * _safe_ratio(gdotd, delta_plus_tvd) - 1.0
+                r = _safe_ratio(1.0 + r_tilde, 1.0 - r_tilde)
+                r = np.nan_to_num(r, nan=0.0, posinf=1.0e30,
+                                  neginf=-1.0e30)
+            else:
+                r = _safe_ratio(delta_plus_tvd, delta_minus)
             psi_tvd = self._psi_tvd(r)
             psi_tvd = np.where(is_zero_dp, 2.0, psi_tvd)
 
             if self.mlp_bound:
                 if psi_vertex_cell is not None:
-                    if psi_vertex_face_n is not None:
-                        relax = max(float(self.vertex_mlp_face_relax), 1.0)
-                        psi_v_n = np.minimum(psi_vertex_face_n[v],
-                                             relax * psi_vertex_cell[v, n_idx])
-                    else:
-                        psi_v_n = psi_vertex_cell[v, n_idx]
-                    psi_lmp = np.minimum(psi_tvd, psi_v_n)
+                    psi_lmp = _tmlpu_vertex_face_psi(
+                        v, n_idx, d_n_int, phi_U, delta_plus,
+                        tstar, grad_corr_x, grad_corr_y, r, psi_tvd)
+                    if psi_lmp is None:
+                        psi_lmp = psi_tvd
                 else:
                     phi_min = phi_min_cell[v, n_idx] - tvb_eps
                     phi_max = phi_max_cell[v, n_idx] + tvb_eps
@@ -1299,6 +1564,212 @@ class TMLPU(Reconstruction):
         return ctx
 
 
+@dataclass
+class TMLPUBVD(Reconstruction):
+    """BVD selection between MLP-u1 and a T-MLP-u candidate.
+
+    The smooth candidate is canonical one-ring MLP-u1.  The compressive
+    candidate is T-MLP-u with one supplied ψ_TVD arm.  For each cell and
+    variable, the candidate with smaller total boundary variation over the
+    cell's incident faces is selected.  This is a no-threshold BVD choice:
+    smooth regions keep the lower-variation MLP-u1 state, while sharp
+    interfaces may select the T-MLP-u state when it reduces boundary
+    variation.
+    """
+    name: str = 't_mlp_u_bvd'
+    tvd: object = 'tmlpu_shape'
+    stencil: str = 'vertex'
+    order: int = 1
+    idw_p: float = 2.0
+    vertex_mlp_cap: float = 2.0
+    face_skew_correction: bool = True
+    face_gradient_correction: str = 'beta'
+    vertex_mlp_augment: bool = False
+    r_form: str = 'far_upwind'
+    hancock_courant: float = 0.0
+    moment_bvd: bool = False
+
+    def reconstruct(self, mesh, W_cell, eq, eval_points=None):
+        base = MLPU1()
+        tmlpu = TMLPU(
+            tvd=self.tvd,
+            mlp_bound=True,
+            extremum_relax=False,
+            tvb_M=0.0,
+            virtual_uu_gradient=True,
+            stencil=self.stencil,
+            order=self.order,
+            idw_p=self.idw_p,
+            hancock_courant=self.hancock_courant,
+            vertex_mlp=True,
+            vertex_mlp_cap=self.vertex_mlp_cap,
+            vertex_mlp_augment=self.vertex_mlp_augment,
+            face_skew_correction=self.face_skew_correction,
+            face_gradient_correction=self.face_gradient_correction,
+            r_form=self.r_form,
+        )
+        A_L, A_R = base.reconstruct(
+            mesh, W_cell, eq, eval_points=eval_points)
+        B_L, B_R = tmlpu.reconstruct(
+            mesh, W_cell, eq, eval_points=eval_points)
+
+        owner = mesh.face_owner
+        nei = mesh.face_neighbour
+        interior = np.where(nei >= 0)[0]
+        if interior.size == 0:
+            return A_L, A_R
+
+        nvar, n_cells = W_cell.shape
+        o_idx = owner[interior]
+        n_idx = nei[interior]
+        def _bvd_scores(left, right):
+            tbv = np.zeros((nvar, n_cells), dtype=float)
+            jump = np.abs(left[:, interior] - right[:, interior])
+            if not self.moment_bvd:
+                for vv in range(nvar):
+                    np.add.at(tbv[vv], o_idx, jump[vv])
+                    np.add.at(tbv[vv], n_idx, jump[vv])
+                return tbv, None
+            mx = np.zeros((nvar, n_cells), dtype=float)
+            my = np.zeros((nvar, n_cells), dtype=float)
+            face_c = mesh.face_centers[interior]
+            d_o = face_c - mesh.cell_centers[o_idx]
+            d_n = face_c - mesh.cell_centers[n_idx]
+            for vv in range(nvar):
+                j = jump[vv]
+                np.add.at(tbv[vv], o_idx, j)
+                np.add.at(tbv[vv], n_idx, j)
+                np.add.at(mx[vv], o_idx, j * d_o[:, 0])
+                np.add.at(my[vv], o_idx, j * d_o[:, 1])
+                np.add.at(mx[vv], n_idx, j * d_n[:, 0])
+                np.add.at(my[vv], n_idx, j * d_n[:, 1])
+            return tbv, np.sqrt(mx * mx + my * my)
+
+        tbv_A, mbv_A = _bvd_scores(A_L, A_R)
+        tbv_B, mbv_B = _bvd_scores(B_L, B_R)
+        if self.moment_bvd:
+            use_B = (tbv_B < tbv_A) & (mbv_B < mbv_A)
+        else:
+            use_B = tbv_B < tbv_A
+        W_L = A_L.copy()
+        W_R = A_R.copy()
+        for v in range(nvar):
+            W_L[v, interior] = np.where(
+                use_B[v, o_idx], B_L[v, interior], A_L[v, interior])
+            W_R[v, interior] = np.where(
+                use_B[v, n_idx], B_R[v, interior], A_R[v, interior])
+        return W_L, W_R
+
+
+@dataclass
+class TMLPUSmoothSharpBVD(Reconstruction):
+    """BVD selection between smooth and sharp all-TMLP-u candidates.
+
+    The default branches are both all-TMLP-u candidates: a smooth bounded-CD
+    branch using the least-squares face increment and a sharp TMLP-u shape
+    branch using the skew-corrected TMLP-u face increment.  The BVD wrapper
+    remains active, but no MLP-u1 branch is used.
+    """
+    name: str = 't_mlp_u_smooth_sharp_bvd'
+    smooth_mode: str = 'tmlpu'
+    smooth_tvd: object = 'bounded_cd'
+    smooth_face_increment: str = 'lsq'
+    sharp_tvd: object = 'tmlpu_shape'
+    sharp_face_increment: str = 'tmlpu'
+    stencil: str = 'vertex'
+    order: int = 1
+    idw_p: float = 0.0
+    vertex_mlp_cap: float = 2.0
+    face_skew_correction: bool = True
+    face_gradient_correction: str = 'jasak'
+    vertex_mlp_augment: bool = True
+    r_form: str = 'far_upwind'
+    moment_bvd: bool = False
+
+    def _tmlpu_candidate(self, tvd, face_increment):
+        return TMLPU(
+            tvd=tvd,
+            mlp_bound=True,
+            extremum_relax=False,
+            tvb_M=0.0,
+            virtual_uu_gradient=True,
+            stencil=self.stencil,
+            order=self.order,
+            idw_p=self.idw_p,
+            vertex_mlp=True,
+            vertex_mlp_cap=self.vertex_mlp_cap,
+            vertex_mlp_augment=self.vertex_mlp_augment,
+            face_skew_correction=self.face_skew_correction,
+            face_gradient_correction=self.face_gradient_correction,
+            face_increment=face_increment,
+            r_form=self.r_form,
+        )
+
+    def _smooth_candidate(self):
+        if str(self.smooth_mode).lower() == 'mlp_u1_tmlpu':
+            raise ValueError(
+                "TMLPUSmoothSharpBVD smooth branch must be TMLP-u based; "
+                "MLP-u1 is reserved for external baselines only.")
+        return self._tmlpu_candidate(self.smooth_tvd,
+                                     self.smooth_face_increment)
+
+    def reconstruct(self, mesh, W_cell, eq, eval_points=None):
+        A_L, A_R = self._smooth_candidate().reconstruct(
+            mesh, W_cell, eq, eval_points=eval_points)
+        B_L, B_R = self._tmlpu_candidate(
+            self.sharp_tvd, self.sharp_face_increment).reconstruct(
+                mesh, W_cell, eq, eval_points=eval_points)
+
+        owner = mesh.face_owner
+        nei = mesh.face_neighbour
+        interior = np.where(nei >= 0)[0]
+        if interior.size == 0:
+            return A_L, A_R
+
+        nvar, n_cells = W_cell.shape
+        o_idx = owner[interior]
+        n_idx = nei[interior]
+
+        def _bvd_scores(left, right):
+            tbv = np.zeros((nvar, n_cells), dtype=float)
+            jump = np.abs(left[:, interior] - right[:, interior])
+            if not self.moment_bvd:
+                for vv in range(nvar):
+                    np.add.at(tbv[vv], o_idx, jump[vv])
+                    np.add.at(tbv[vv], n_idx, jump[vv])
+                return tbv, None
+            mx = np.zeros((nvar, n_cells), dtype=float)
+            my = np.zeros((nvar, n_cells), dtype=float)
+            face_c = mesh.face_centers[interior]
+            d_o = face_c - mesh.cell_centers[o_idx]
+            d_n = face_c - mesh.cell_centers[n_idx]
+            for vv in range(nvar):
+                j = jump[vv]
+                np.add.at(tbv[vv], o_idx, j)
+                np.add.at(tbv[vv], n_idx, j)
+                np.add.at(mx[vv], o_idx, j * d_o[:, 0])
+                np.add.at(my[vv], o_idx, j * d_o[:, 1])
+                np.add.at(mx[vv], n_idx, j * d_n[:, 0])
+                np.add.at(my[vv], n_idx, j * d_n[:, 1])
+            return tbv, np.sqrt(mx * mx + my * my)
+
+        tbv_A, mbv_A = _bvd_scores(A_L, A_R)
+        tbv_B, mbv_B = _bvd_scores(B_L, B_R)
+        if self.moment_bvd:
+            use_B = (tbv_B < tbv_A) & (mbv_B < mbv_A)
+        else:
+            use_B = tbv_B < tbv_A
+
+        W_L = A_L.copy()
+        W_R = A_R.copy()
+        for v in range(nvar):
+            W_L[v, interior] = np.where(
+                use_B[v, o_idx], B_L[v, interior], A_L[v, interior])
+            W_R[v, interior] = np.where(
+                use_B[v, n_idx], B_R[v, interior], A_R[v, interior])
+        return W_L, W_R
+
+
 def _build_vertex_neighbours(mesh, n_rings: int = 1):
     """Cells sharing any vertex with each cell.
 
@@ -1334,7 +1805,8 @@ def _build_vertex_neighbours(mesh, n_rings: int = 1):
 
 def _limited_linear_2d(mesh, W_cell, eq, eval_points=None, *,
                        limiter='bj', stencil='face', vertex_bounds=False,
-                       n_rings=1, venkat_K=1.0):
+                       n_rings=1, venkat_K=1.0,
+                       tmlpu_face_bound=False):
     """Shared 2D limited-linear reconstruction for BJ/Venkat/MLP-u baselines."""
     if mesh.dim != 2:
         return FirstOrder().reconstruct(mesh, W_cell, eq, eval_points=eval_points)
@@ -1489,6 +1961,32 @@ def _limited_linear_2d(mesh, W_cell, eq, eval_points=None, *,
             W_cell[var, n]
             + phi_cell[var, n] * np.einsum('fi,fi->f', grad[var, n], dx_n)
         )
+    if tmlpu_face_bound:
+        eps = 1e-30
+        for var in range(nvar):
+            center_o = W_cell[var, o]
+            delta_o = W_L[var, interior] - center_o
+            allowed_o = np.where(delta_o >= 0.0,
+                                 phi_max_cell[var, o] - center_o,
+                                 center_o - phi_min_cell[var, o])
+            theta_o = np.where(np.abs(delta_o) > eps,
+                               np.maximum(allowed_o, 0.0)
+                               / np.maximum(np.abs(delta_o), eps),
+                               1.0)
+            theta_o = np.clip(theta_o, 0.0, 1.0)
+            W_L[var, interior] = center_o + theta_o * delta_o
+
+            center_n = W_cell[var, n]
+            delta_n = W_R[var, interior] - center_n
+            allowed_n = np.where(delta_n >= 0.0,
+                                 phi_max_cell[var, n] - center_n,
+                                 center_n - phi_min_cell[var, n])
+            theta_n = np.where(np.abs(delta_n) > eps,
+                               np.maximum(allowed_n, 0.0)
+                               / np.maximum(np.abs(delta_n), eps),
+                               1.0)
+            theta_n = np.clip(theta_n, 0.0, 1.0)
+            W_R[var, interior] = center_n + theta_n * delta_n
     return W_L, W_R
 
 
@@ -1524,8 +2022,13 @@ def get_reconstruction(name: str, **kwargs) -> Reconstruction:
         'venkatakrishnan': Venkatakrishnan,
         'venkat':       Venkatakrishnan,
         'mlp_u1':       MLPU1,
+        'mlp_u1_tmlpu': MLPU1TMLPU,
         'mlp_u2':       MLPU2,
         't_mlp_u':      TMLPU,
+        't_mlp_u_bvd':  TMLPUBVD,
+        'tmlpu_bvd':    TMLPUBVD,
+        't_mlp_u_smooth_sharp_bvd': TMLPUSmoothSharpBVD,
+        'tmlpu_smooth_sharp_bvd': TMLPUSmoothSharpBVD,
     }
     name = name.lower()
     if name not in table:

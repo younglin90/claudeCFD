@@ -1,0 +1,1 @@
+wall_s=180 rc=0 cmd=./validation_smoke env=VS_ONLY=16 VS_FLUX=rhllc VS_RECON=bvd VS_NSCALE=4 VS_DUMP=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3_data/shockvortex/s1/field.txt BVD_CHENG3=1 BVD_BETA_L=1.6 BVD_BETA_S=0.8 BVD_CANDFLAG=1

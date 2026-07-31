@@ -397,7 +397,7 @@
             <tbody id="patchRows"></tbody>
           </table>
         </div>
-        <p class="muted">Patch별 상세 BC는 `case.json`의 `boundary_conditions`에 저장됩니다. 현재 builtin Candido smoke 실행은 자체 경계 모델을 쓰므로, 이 상세 BC는 OpenFOAM/external mesh solver 연결 전까지 기록/검증용입니다.</p>
+        <p class="muted">패치 <b>role</b>(inlet/nozzle/collector/outlet)은 external OpenFOAM mesh 실행에서 Boundary &amp; Initialization의 <b>honor named-patch BCs</b>를 켜면 solver가 논문(Candido &amp; Páscoa 2023 §II.D) 기본 BC로 반영합니다. builtin hex 실행은 자체 기하 경계 모델을 씁니다. 이 표의 개별 필드 값(U/p/alpha/phi/rhoE)은 `case.json`·`boundary_conditions.json`에 저장되지만, <b>커스텀 값 override는 아직 solver에 연결되지 않았습니다</b>(현재는 role별 논문 기본값 적용).</p>
       </section>
 
       <section>

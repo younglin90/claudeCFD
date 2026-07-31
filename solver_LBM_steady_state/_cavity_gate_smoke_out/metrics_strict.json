@@ -1,0 +1,65 @@
+{
+  "score_mode": "strict_best_of_reference",
+  "all_pass": 0,
+  "case_count": 1,
+  "pass_count": 0,
+  "converged_count": 1,
+  "lbe_win_count": 1,
+  "wall_win_count": 1,
+  "accuracy_win_count": 1,
+  "mean_lbe_speedup_vs_best_fixed": 1.0791896869244935,
+  "case_results": [
+    {
+      "case_id": "cavity_re100_n33__1x",
+      "base_case_id": "cavity_re100_n33",
+      "scaling_level": 1,
+      "case_pass": 0,
+      "converged": 1,
+      "lbe_win": 1,
+      "wall_win": 1,
+      "acc_win": 1,
+      "hard_pass": 0,
+      "proposed_lbe": 2715,
+      "best_fixed_lbe": 2930,
+      "proposed_wall": 0.22810984984971583,
+      "best_fixed_wall": 1.0832613629754633,
+      "proposed_rel_l2": 0.013735265796032816,
+      "best_fixed_rel_l2": 0.01420522799484994
+    }
+  ],
+  "elapsed_wall_seconds": 1.341530857142061,
+  "method_count": 2,
+  "methods": [
+    "picard_lbm",
+    "proposed"
+  ],
+  "levels": [
+    1
+  ],
+  "base_cases": [
+    "cavity_re100_n33"
+  ],
+  "output_dir": "_cavity_gate_smoke_out",
+  "run_mode": "strict",
+  "canonical_base_cases": [
+    "channel_poiseuille_rect",
+    "couette_n32",
+    "cavity_re100_n33",
+    "cavity_re400_n49",
+    "cavity_re1000_n129",
+    "multi_cylinder_n32",
+    "backward_step_n64",
+    "cylinder_wake_n64",
+    "t_junction_rect"
+  ],
+  "auxiliary_base_cases": [
+    "channel_n32",
+    "t_junction_n64"
+  ],
+  "physics_scaling": {
+    "wall_driven_velocity": "U_scale(level) = U_scale(1) / level",
+    "tolerance": "tol_scale(level) = tol_scale(1) / level",
+    "cavity_refinement": "N_level = 1 + level * (N_1x - 1)",
+    "max_steps": "scaled by level^2 with safety caps"
+  }
+}

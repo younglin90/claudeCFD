@@ -1,0 +1,320 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1779334275403,
+  "projectRoot": "/home/younglin90/work/claude_code/claudeCFD",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "archive": {
+      "path": "archive",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1779334275389,
+      "keyFiles": []
+    },
+    "autoresearch-results": {
+      "path": "autoresearch-results",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1779334275391,
+      "keyFiles": [
+        "context.json",
+        "lessons.md",
+        "results.tsv",
+        "state.json",
+        "verify_denner07_air_water.py"
+      ]
+    },
+    "autoresearch-results.diverged-20260513-092022": {
+      "path": "autoresearch-results.diverged-20260513-092022",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779334275392,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-20260513-090235": {
+      "path": "autoresearch-results.prev-20260513-090235",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779334275393,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-20260513-foreground-denner-accidental": {
+      "path": "autoresearch-results.prev-20260513-foreground-denner-accidental",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1779334275393,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json",
+        "verify_denner07_air_water.py"
+      ]
+    },
+    "autoresearch-results.prev-20260513-foreground-denner-current": {
+      "path": "autoresearch-results.prev-20260513-foreground-denner-current",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779334275393,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-denner07-20260512-conflict-2307": {
+      "path": "autoresearch-results.prev-denner07-20260512-conflict-2307",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779334275393,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-denner07-20260512-foreground": {
+      "path": "autoresearch-results.prev-denner07-20260512-foreground",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1779334275394,
+      "keyFiles": [
+        "context.json",
+        "lessons.md",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-denner1d-20260512": {
+      "path": "autoresearch-results.prev-denner1d-20260512",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1779334275394,
+      "keyFiles": [
+        "context.json",
+        "context.prev.json",
+        "launch.prev.json",
+        "lessons.md",
+        "results.prev.tsv"
+      ]
+    },
+    "autoresearch-results.prev-tmlp-active-20260513-105021": {
+      "path": "autoresearch-results.prev-tmlp-active-20260513-105021",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779334275395,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "autoresearch-results.prev-tmlpu-misconfigured-20260512": {
+      "path": "autoresearch-results.prev-tmlpu-misconfigured-20260512",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1779334275395,
+      "keyFiles": [
+        "context.json",
+        "results.tsv",
+        "state.json"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 29,
+      "lastAccessed": 1779334275395,
+      "keyFiles": [
+        "1d_method_paper_readiness.md",
+        "ask_claude_rootcause_and_fix_prompt.md",
+        "ask_claude_rootcause_and_fix_prompt_2026-04-27.md",
+        "chatgpt_diagnosis_brief.md",
+        "claude_code_issue_plan_request.md"
+      ]
+    },
+    "downloads": {
+      "path": "downloads",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1779334275396,
+      "keyFiles": [
+        "1704.08041v2.pdf"
+      ]
+    },
+    "papers": {
+      "path": "papers",
+      "purpose": null,
+      "fileCount": 49,
+      "lastAccessed": 1779334275396,
+      "keyFiles": [
+        "02_janodet_2025_coupled_large_density_summary.md",
+        "03_denner_2018_coupled_compressible_summary.md",
+        "05_pandare_2018_compressible_twophase_summary.md",
+        "06_fraysse_2019_adoo_implicit_summary.md",
+        "07_fan_2022_jfnk_twophase_summary.md"
+      ]
+    },
+    "results": {
+      "path": "results",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1779334275396,
+      "keyFiles": [
+        "all_26_summary.md",
+        "attempts_catalog.md",
+        "leveque_convergence.png",
+        "leveque_convergence.tsv",
+        "round177_unified.py"
+      ]
+    },
+    "solver": {
+      "path": "solver",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1779334275396,
+      "keyFiles": [
+        "__init__.py",
+        "boundary.py",
+        "flux.py",
+        "flux_allspeed.py",
+        "jacobian.py"
+      ]
+    },
+    "solver_LBM_steady_state": {
+      "path": "solver_LBM_steady_state",
+      "purpose": null,
+      "fileCount": 121,
+      "lastAccessed": 1779334275397,
+      "keyFiles": [
+        "COMPARISON_REPORT.md",
+        "PAPER_DRAFT.md",
+        "PAPER_DRAFT_FINAL.md",
+        "PAPER_DRAFT_v2.md",
+        "PAPER_SAFENN_FULL_KR.md"
+      ]
+    },
+    "solver_denner": {
+      "path": "solver_denner",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1779334275397,
+      "keyFiles": [
+        "AGENTS.md"
+      ]
+    },
+    "solver_electrospray": {
+      "path": "solver_electrospray",
+      "purpose": null,
+      "fileCount": 74,
+      "lastAccessed": 1779334275398,
+      "keyFiles": [
+        "__init__.py",
+        "axisymmetric_conejet_stepper.py",
+        "axisymmetric_electrostatics.py",
+        "axisymmetric_grid.py",
+        "axisymmetric_projection.py"
+      ]
+    },
+    "solver_tmlpu": {
+      "path": "solver_tmlpu",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1779334275398,
+      "keyFiles": [
+        "AGENTS.md",
+        "README.md"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 22,
+      "lastAccessed": 1779334275398,
+      "keyFiles": [
+        "test_acoustic_RT_diagnostic.py",
+        "test_acoustic_impedance_coefficients.py",
+        "test_amplification_matrix.py",
+        "test_dUdW_blocks.py",
+        "test_dUdW_jacobian.py"
+      ]
+    },
+    "validation": {
+      "path": "validation",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1779334275399,
+      "keyFiles": [
+        "INDEX.md"
+      ]
+    },
+    "백업": {
+      "path": "백업",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1779334275399,
+      "keyFiles": []
+    },
+    "solver_denner/docs": {
+      "path": "solver_denner/docs",
+      "purpose": "Documentation",
+      "fileCount": 4,
+      "lastAccessed": 1779334275402,
+      "keyFiles": [
+        "denner1d_autoresearch_progress.md",
+        "denner1d_case07_autoresearch_memory_20260518.md",
+        "denner1d_eos_validation_policy.md"
+      ]
+    },
+    "백업/docs": {
+      "path": "백업/docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1779334275403,
+      "keyFiles": [
+        "APEC_flux.md",
+        "DENNER_SCHEME.md"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

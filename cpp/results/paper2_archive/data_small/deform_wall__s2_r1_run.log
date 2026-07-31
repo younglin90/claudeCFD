@@ -1,0 +1,1 @@
+DeformUnstr recon=bvd+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh cells=2633856 E1=2.499471e-02 volRatio=1.000000 g_range=[-0.0017,1.0028] steps=500 t=0.1953 wall=481.9s

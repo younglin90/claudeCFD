@@ -1,0 +1,1 @@
+wall_s=4652 rc=0 cmd=./mach3_bench 480 160 4 env=BC_FACE_RECON=1 M3_FLUX=hll M3_INT=2 M3_CFL=0.3 M3_MESH=uniform M3_BVD_ONLY=1 M3_DUMP=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3_data/mach3/s2/m3.txt BVD_CHENG3=1 BVD_BETA_L=1.6 BVD_BETA_S=0.8 THINCQQ_GAUSS=1 BVD_CANDFLAG=1

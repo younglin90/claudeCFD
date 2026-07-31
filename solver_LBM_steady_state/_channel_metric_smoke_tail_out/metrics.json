@@ -1,0 +1,199 @@
+{
+  "strict": {
+    "score_mode": "strict_best_of_reference",
+    "all_pass": 0,
+    "case_count": 1,
+    "pass_count": 0,
+    "converged_count": 1,
+    "lbe_win_count": 1,
+    "wall_win_count": 0,
+    "accuracy_win_count": 0,
+    "mean_lbe_speedup_vs_best_fixed": 1.1036772216547497,
+    "case_results": [
+      {
+        "case_id": "channel_poiseuille_Ny32_Nx192__1x",
+        "base_case_id": "channel_poiseuille_rect",
+        "scaling_level": 1,
+        "case_pass": 0,
+        "converged": 1,
+        "lbe_win": 1,
+        "wall_win": 0,
+        "acc_win": 0,
+        "hard_pass": 1,
+        "proposed_lbe": 7832,
+        "best_fixed_lbe": 8644,
+        "proposed_wall": 5.799770355923101,
+        "best_fixed_wall": 5.173746936023235,
+        "proposed_rel_l2": 0.009812135429717877,
+        "best_fixed_rel_l2": 0.009669344697786358
+      }
+    ],
+    "elapsed_wall_seconds": 11.774764633039013,
+    "method_count": 1,
+    "methods": [
+      "proposed"
+    ],
+    "levels": [
+      1
+    ],
+    "base_cases": [
+      "channel_poiseuille_rect"
+    ],
+    "output_dir": "_channel_metric_smoke_tail_out",
+    "run_mode": "strict",
+    "canonical_base_cases": [
+      "channel_poiseuille_rect",
+      "couette_n32",
+      "cavity_re100_n33",
+      "cavity_re400_n49",
+      "cavity_re1000_n129",
+      "multi_cylinder_n32",
+      "backward_step_n64",
+      "cylinder_wake_n64",
+      "t_junction_rect"
+    ],
+    "auxiliary_base_cases": [
+      "channel_n32",
+      "t_junction_n64"
+    ],
+    "physics_scaling": {
+      "wall_driven_velocity": "U_scale(level) = U_scale(1) / level",
+      "tolerance": "tol_scale(level) = tol_scale(1) / level",
+      "cavity_refinement": "N_level = 1 + level * (N_1x - 1)",
+      "max_steps": "scaled by level^2 with safety caps"
+    }
+  },
+  "paper": {
+    "score_mode": "paper_weighted_total_score",
+    "all_pass": 0,
+    "case_count": 1,
+    "pass_count": 0,
+    "best_ref_total_mean": 0.6185527639148435,
+    "mean_total_score": 0.583834724074116,
+    "case_results": [
+      {
+        "case_id": "channel_poiseuille_Ny32_Nx192__1x",
+        "base_case_id": "channel_poiseuille_rect",
+        "scaling_level": 1,
+        "case_pass": 0,
+        "hard_pass": 1,
+        "converged": 1,
+        "accuracy_pass": 1,
+        "finite_fields": 1,
+        "cache_hash_valid": 1,
+        "residual_pass": 1,
+        "history_wall_monotone": 1,
+        "history_final_consistent": 1,
+        "proposed_lbe": 7832,
+        "best_fixed_lbe": 8644,
+        "proposed_wall": 5.799770355923101,
+        "best_fixed_wall": 5.173746936023235,
+        "proposed_rel_l2": 0.009812135429717877,
+        "best_fixed_rel_l2": 0.009669344697786358,
+        "wall_score": 0.5,
+        "lbe_score": 0.5,
+        "speed_score": 0.5,
+        "accuracy_score": 0.6470868101852898,
+        "simplicity_score": 0.75,
+        "total_score": 0.583834724074116,
+        "best_ref_total": 0.6185527639148435,
+        "total_margin": -0.03471803984072752,
+        "accuracy_detail": [
+          {
+            "name": "channel_core_rel_l2_analytic",
+            "error": 0.007467070165921404,
+            "tolerance": 0.006,
+            "z": 1.2445116943202341
+          },
+          {
+            "name": "channel_rel_l2_vs_tight_picard",
+            "error": 0.0007441453459758684,
+            "tolerance": 0.003,
+            "z": 0.2480484486586228
+          },
+          {
+            "name": "channel_core_flux_cv",
+            "error": 0.00011051218112842678,
+            "tolerance": 0.0005,
+            "z": 0.22102436225685357
+          },
+          {
+            "name": "channel_boundary_flux_imbalance",
+            "error": 0.000577558961345316,
+            "tolerance": 0.001,
+            "z": 0.577558961345316
+          }
+        ]
+      }
+    ],
+    "elapsed_wall_seconds": 11.774774180958048,
+    "method_count": 1,
+    "methods": [
+      "proposed"
+    ],
+    "levels": [
+      1
+    ],
+    "base_cases": [
+      "channel_poiseuille_rect"
+    ],
+    "output_dir": "_channel_metric_smoke_tail_out",
+    "run_mode": "strict",
+    "canonical_base_cases": [
+      "channel_poiseuille_rect",
+      "couette_n32",
+      "cavity_re100_n33",
+      "cavity_re400_n49",
+      "cavity_re1000_n129",
+      "multi_cylinder_n32",
+      "backward_step_n64",
+      "cylinder_wake_n64",
+      "t_junction_rect"
+    ],
+    "auxiliary_base_cases": [
+      "channel_n32",
+      "t_junction_n64"
+    ],
+    "physics_scaling": {
+      "wall_driven_velocity": "U_scale(level) = U_scale(1) / level",
+      "tolerance": "tol_scale(level) = tol_scale(1) / level",
+      "cavity_refinement": "N_level = 1 + level * (N_1x - 1)",
+      "max_steps": "scaled by level^2 with safety caps"
+    }
+  },
+  "elapsed_wall_seconds": 11.77477716607973,
+  "case_count": 1,
+  "method_count": 1,
+  "methods": [
+    "proposed"
+  ],
+  "levels": [
+    1
+  ],
+  "base_cases": [
+    "channel_poiseuille_rect"
+  ],
+  "output_dir": "_channel_metric_smoke_tail_out",
+  "run_mode": "strict",
+  "canonical_base_cases": [
+    "channel_poiseuille_rect",
+    "couette_n32",
+    "cavity_re100_n33",
+    "cavity_re400_n49",
+    "cavity_re1000_n129",
+    "multi_cylinder_n32",
+    "backward_step_n64",
+    "cylinder_wake_n64",
+    "t_junction_rect"
+  ],
+  "auxiliary_base_cases": [
+    "channel_n32",
+    "t_junction_n64"
+  ],
+  "physics_scaling": {
+    "wall_driven_velocity": "U_scale(level) = U_scale(1) / level",
+    "tolerance": "tol_scale(level) = tol_scale(1) / level",
+    "cavity_refinement": "N_level = 1 + level * (N_1x - 1)",
+    "max_steps": "scaled by level^2 with safety caps"
+  }
+}

@@ -1,0 +1,2 @@
+case,cells,faces,unsupported_cells,internal_face,wet_fraction,status
+irregular_bipyramid_swept_face,2,9,2,0,1,IRREGULAR_SWEPT_DIAGNOSTIC_NOT_EXACT_CELL_CUT

@@ -12,6 +12,7 @@ slope ratio r = Δ_-/Δ_+ and return ψ(r) ∈ [0, 2].
   van_albada : ψ_VA(r)    = (r²+r)/(r²+1)                            van Albada 1982
   mc         : ψ_MC(r)    = max(0, min(2r, ½(1+r), 2))               monotonized central
   umist      : ψ_UMIST(r) = max(0, min(2r, ¼+¾r, ¾+¼r, 2))           Lien-Leschziner 1994
+  bounded_cd : ψ_CD(r)    = 1                                        central difference
 
 # ─── T-MLP-u wrapper ────────────────────────────────────────────────────────
 T-MLP-u takes any base TVD limiter ψ_TVD and adds a Local Maximum Principle
@@ -45,7 +46,8 @@ import numpy as np
 __all__ = [
     'minmod', 'van_leer', 'superbee', 'modified_superbee',
     'van_albada', 'mc', 'umist',
-    'downwind',
+    'stoic', 'stacs', 'mstacs',
+    'bounded_cd', 'downwind',
     'minmod2',
     't_mlp_u_face_value',
     'TVD_LIMITERS',
@@ -103,6 +105,129 @@ def umist(r):
                       np.minimum(np.minimum(np.minimum(a, b), c), 2.0))
 
 
+def _nvd_coord_from_tmlpu_r(r):
+    """Return NVD donor coordinate for TMLP-u's face ratio convention.
+
+    The unstructured TMLP-u paper form uses
+
+        r = (phi_R - phi_L) / (phi_L - phi_LL).
+
+    With phi_LL, phi_L, phi_R as upwind/current/downwind states, the
+    normalized current-cell value is
+
+        C_D = (phi_L - phi_LL) / (phi_R - phi_LL) = 1 / (1 + r).
+
+    Non-monotone r<=0 states are mapped to the upwind fallback by the caller.
+    """
+    rr = np.asarray(r, dtype=float)
+    rr_pos = np.maximum(rr, 0.0)
+    return 1.0 / (1.0 + rr_pos)
+
+
+def _psi_from_nvd_current(cd, cf):
+    """Convert NVD face value to the TMLP-u limiter coefficient.
+
+    For alpha_f=0.5, C_f = C_D + 0.5*psi*(1-C_D), hence
+
+        psi = 2*(C_f-C_D)/(1-C_D).
+    """
+    denom = np.maximum(1.0 - cd, 1.0e-30)
+    psi = 2.0 * (cf - cd) / denom
+    return np.maximum(0.0, psi)
+
+
+def _nvd_superbee(cd):
+    return np.where(
+        cd < 0.0, cd,
+        np.where(
+            cd < 1.0 / 3.0, 2.0 * cd,
+            np.where(
+                cd < 0.5, 0.5 + 0.5 * cd,
+                np.where(
+                    cd < 2.0 / 3.0, 1.5 * cd,
+                    np.where(cd <= 1.0, 1.0, cd)))))
+
+
+def _nvd_stoic(cd):
+    return np.where(
+        cd < 0.0, cd,
+        np.where(
+            cd < 0.2, 3.0 * cd,
+            np.where(
+                cd < 0.5, 0.5 + 0.5 * cd,
+                np.where(
+                    cd < 5.0 / 6.0, 0.375 + 0.75 * cd,
+                    np.where(cd <= 1.0, 1.0, cd)))))
+
+
+def stoic(r):
+    """STOIC NVD high-resolution scheme as a TMLP-u psi(r) arm.
+
+    STOIC is the HR arm used in STACS/MSTACS.  The piecewise NVD definition
+    is converted to a face-limiter coefficient for the TMLP-u paper ratio.
+    """
+    rr = np.asarray(r, dtype=float)
+    cd = _nvd_coord_from_tmlpu_r(rr)
+    cf = _nvd_stoic(cd)
+    return np.where(rr > 0.0, _psi_from_nvd_current(cd, cf), 0.0)
+
+
+def stacs(r):
+    """STACS compressive aligned-interface arm.
+
+    Darwish-Moukalled STACS blends SUPERBEE and STOIC with a cos(theta)^4
+    weight.  The scalar TVD limiter API has no face/interface angle, so this
+    arm represents the sharp, aligned-interface limit used by the BVD sharp
+    candidate.  The smooth branch is supplied separately by bounded CD.
+    """
+    rr = np.asarray(r, dtype=float)
+    cd = _nvd_coord_from_tmlpu_r(rr)
+    cf = _nvd_superbee(cd)
+    return np.where(rr > 0.0, _psi_from_nvd_current(cd, cf), 0.0)
+
+
+def mstacs(r, courant=0.4):
+    """MSTACS compressive differencing arm in NVD form.
+
+    For Co <= 0.33 MSTACS uses Hyper-C, C_f=min(C_D/Co, 1).  For larger
+    Courant numbers it uses C_f=min(3*C_D, 1).  STOIC is the HR arm in the
+    full scheme; here BVD supplies the smooth/sharp switching.
+    """
+    rr = np.asarray(r, dtype=float)
+    cd = _nvd_coord_from_tmlpu_r(rr)
+    if courant <= 0.33:
+        cf = np.minimum(cd / max(courant, 1.0e-10), 1.0)
+    else:
+        cf = np.minimum(3.0 * cd, 1.0)
+    cf = np.where((cd >= 0.0) & (cd <= 1.0), cf, cd)
+    return np.where(rr > 0.0, _psi_from_nvd_current(cd, cf), 0.0)
+
+
+def mstacs_co25(r):
+    return mstacs(r, courant=0.25)
+
+
+def mstacs_co5(r):
+    return mstacs(r, courant=0.5)
+
+
+def mstacs_co75(r):
+    return mstacs(r, courant=0.75)
+
+
+def bounded_cd(r):
+    """Central-difference limiter arm: ψ_CD(r) = 1.
+
+    With the generic T-MLP-u face formula
+
+        phi_f = phi_U + psi * alpha_f * (phi_D - phi_U),
+
+    this gives bounded central differencing when ``mlp_bound=True`` and
+    plain central differencing when the MLP bound is disabled.
+    """
+    return np.ones_like(r, dtype=float)
+
+
 def downwind(r):
     """Roe ultrabee / fully-downwind TVD limiter:
 
@@ -128,6 +253,39 @@ def pure_downwind(r):
     a TVD constraint.
     """
     return np.full_like(r, 2.0)
+
+
+def tmlpu_shape(r):
+    """Smooth compressive arm for T-MLP-u shape preservation.
+
+    The limiter is central at locally linear data (r=1 ⇒ ψ=1) and
+    smoothly becomes downwind-compressive as r moves away from one:
+
+        ψ(r) = 1 + tanh(|log(max(r, eps))|)
+
+    Negative or zero r is treated as the compressive limit.  This is intended
+    to be used inside the T-MLP-u vertex LMP wrapper, which supplies the
+    monotonicity/boundedness constraint.
+    """
+    rr = np.maximum(np.asarray(r, dtype=float), 1.0e-12)
+    return np.minimum(2.0, 1.0 + np.tanh(np.abs(np.log(rr))))
+
+
+def tmlpu_preserve(r):
+    """One-sided smooth-compressive arm for shape preservation.
+
+    The symmetric ``tmlpu_shape`` arm compresses both r < 1 and r > 1.
+    That is sharp for discontinuities but can squeeze smooth cone/hump
+    profiles.  This arm keeps central differencing on the r >= 1 side and
+    only moves toward downwind compression when r < 1:
+
+        ψ(r) = 1 + tanh(max(0, -log(max(r, eps))))
+
+    It is a single continuous ψ_TVD arm, not a smoothness-threshold switch.
+    The T-MLP-u vertex bound supplies the multidimensional boundedness cap.
+    """
+    rr = np.maximum(np.asarray(r, dtype=float), 1.0e-12)
+    return np.minimum(2.0, 1.0 + np.tanh(np.maximum(-np.log(rr), 0.0)))
 
 
 def hyper_c(r, courant=0.4):
@@ -194,8 +352,21 @@ TVD_LIMITERS = {
     'van_albada':   van_albada,
     'mc':           mc,
     'umist':        umist,
+    'stoic':        stoic,
+    'stacs':        stacs,
+    'mstacs':       mstacs,
+    'mstacs_co25':  mstacs_co25,
+    'mstacs_co5':   mstacs_co5,
+    'mstacs_co75':  mstacs_co75,
+    'bounded_cd':   bounded_cd,
+    'central':      bounded_cd,
+    'cd':           bounded_cd,
     'downwind':     downwind,
     'pure_downwind': pure_downwind,
+    'tmlpu_shape':  tmlpu_shape,
+    'shape':        tmlpu_shape,
+    'tmlpu_preserve': tmlpu_preserve,
+    'preserve':     tmlpu_preserve,
     'hyper_c':      hyper_c,
     'cicsam':       hyper_c,    # alias — Hyper-C is CICSAM's compressive arm
     'cicsam_co3':   hyper_c_co3,

@@ -1,0 +1,155 @@
+[case] channel_poiseuille_Ny32_Nx192__1x: Plane Poiseuille inlet/outlet (Ny=32, Nx=192, 1x)
+  anderson_lbm           lbe=   63611 wall=  40.787 res=1.506e-14 rel=9.371e-03 conv=1
+  preconditioned_lbm     lbe=  123650 wall=  74.528 res=1.098e-14 rel=9.371e-03 conv=1
+  inexact_newton_lbe     lbe=   62793 wall=  40.151 res=1.429e-14 rel=9.371e-03 conv=1
+  dual_time_mg_lbm       lbe=  270647 wall= 163.645 res=7.147e-15 rel=9.371e-03 conv=1
+  proposed               lbe=  136249 wall=  88.286 res=1.146e-14 rel=9.371e-03 conv=1
+[case] channel_poiseuille_Ny64_Nx384__2x: Plane Poiseuille inlet/outlet (Ny=64, Nx=384, 2x)
+  anderson_lbm           lbe=  149006 wall= 597.282 res=1.626e-13 rel=2.274e-03 conv=1
+  preconditioned_lbm     lbe=  209321 wall= 800.666 res=3.152e-14 rel=2.274e-03 conv=1
+  inexact_newton_lbe     lbe=  148233 wall= 568.383 res=9.884e-14 rel=2.274e-03 conv=1
+  dual_time_mg_lbm       lbe=  353293 wall= 631.716 res=2.857e-14 rel=2.274e-03 conv=1
+  proposed               lbe=  262432 wall=1036.030 res=2.847e-14 rel=2.274e-03 conv=1
+[case] channel_poiseuille_Ny96_Nx576__3x: Plane Poiseuille inlet/outlet (Ny=96, Nx=576, 3x)
+  anderson_lbm           lbe=  300000 wall=2639.672 res=8.873e-14 rel=1.003e-03 conv=0
+  preconditioned_lbm     lbe=  296321 wall=2849.178 res=8.598e-14 rel=1.003e-03 conv=1
+  inexact_newton_lbe     lbe=  282737 wall=2833.058 res=6.795e-14 rel=1.003e-03 conv=1
+  dual_time_mg_lbm       lbe=  353295 wall=1271.016 res=8.067e-14 rel=1.003e-03 conv=1
+  proposed               lbe=  335156 wall=2637.933 res=7.424e-14 rel=1.003e-03 conv=1
+[case] couette_n32__1x: Couette flow N=32 (N=32, 1x)
+  anderson_lbm           lbe=   89706 wall=   9.550 res=4.603e-15 rel=8.667e-13 conv=1
+  preconditioned_lbm     lbe=   83372 wall=   4.567 res=3.903e-15 rel=2.251e-13 conv=1
+  inexact_newton_lbe     lbe=   60729 wall=   3.623 res=4.143e-15 rel=8.667e-13 conv=1
+  dual_time_mg_lbm       lbe=   84941 wall=  14.429 res=4.065e-15 rel=7.230e-13 conv=1
+  proposed               lbe=   65498 wall=   4.342 res=4.134e-15 rel=1.689e-12 conv=1
+[case] couette_n32__2x: Couette flow N=32 (N=64, 2x)
+  anderson_lbm           lbe=  147851 wall=  30.852 res=3.189e-12 rel=2.765e-08 conv=1
+  preconditioned_lbm     lbe=  169742 wall=  19.257 res=8.555e-15 rel=2.462e-12 conv=1
+  inexact_newton_lbe     lbe=  135729 wall=  25.768 res=3.228e-12 rel=2.799e-08 conv=1
+  dual_time_mg_lbm       lbe=  171277 wall=  70.575 res=3.277e-12 rel=2.842e-08 conv=1
+  proposed               lbe=  249924 wall=  48.608 res=9.427e-15 rel=7.599e-12 conv=1
+[case] couette_n32__3x: Couette flow N=32 (N=96, 3x)
+  anderson_lbm           lbe=  300000 wall= 126.354 res=5.096e-12 rel=1.006e-07 conv=0
+  preconditioned_lbm     lbe=  209321 wall=  43.346 res=7.513e-14 rel=1.410e-09 conv=1
+  inexact_newton_lbe     lbe=  299729 wall= 121.596 res=2.691e-12 rel=5.312e-08 conv=1
+  dual_time_mg_lbm       lbe=  300000 wall= 206.554 res=1.597e-11 rel=3.154e-07 conv=0
+  proposed               lbe=  471498 wall= 204.143 res=1.479e-14 rel=2.852e-11 conv=1
+[case] cavity_re100_n33__1x: Lid-driven cavity Re=100 N=33 (N=33, 1x)
+  anderson_lbm           lbe=   80706 wall=   8.293 res=1.012e-14 rel=1.174e-01 conv=1
+  preconditioned_lbm     lbe=  154501 wall=   8.117 res=2.427e-04 rel=1.174e-01 conv=1
+  inexact_newton_lbe     lbe=   54729 wall=   2.489 res=4.420e-12 rel=1.174e-01 conv=1
+  dual_time_mg_lbm       lbe=   84958 wall=  13.813 res=4.303e-15 rel=1.174e-01 conv=1
+  proposed               lbe=   71361 wall=   3.567 res=2.728e-14 rel=1.174e-01 conv=1
+[case] cavity_re100_n33__2x: Lid-driven cavity Re=100 N=33 (N=65, 2x)
+  anderson_lbm           lbe=   96141 wall=  26.605 res=2.580e-14 rel=6.694e-02 conv=1
+  preconditioned_lbm     lbe=  126556 wall=  13.677 res=3.529e-05 rel=6.694e-02 conv=1
+  inexact_newton_lbe     lbe=  600000 wall=  76.263 res=4.896e-11 rel=6.694e-02 conv=0
+  dual_time_mg_lbm       lbe=  123277 wall=  59.785 res=7.758e-14 rel=6.694e-02 conv=1
+  proposed               lbe=  132285 wall=  20.553 res=1.504e-11 rel=6.694e-02 conv=1
+[case] cavity_re100_n33__3x: Lid-driven cavity Re=100 N=33 (N=97, 3x)
+  anderson_lbm           lbe=  600000 wall=  28.021 res=4.609e-09 rel=4.927e-02 conv=0
+  preconditioned_lbm     lbe=  220075 wall=   8.916 res=1.452e-05 rel=4.927e-02 conv=1
+  inexact_newton_lbe     lbe=  600000 wall=  23.564 res=4.316e-07 rel=4.927e-02 conv=0
+  dual_time_mg_lbm       lbe=  125277 wall= 120.404 res=8.639e-12 rel=4.927e-02 conv=1
+  proposed               lbe=  127948 wall=  26.667 res=1.859e-09 rel=4.927e-02 conv=1
+[case] cavity_re400_n49__1x: Lid-driven cavity Re=400 N=49 (N=49, 1x)
+  anderson_lbm           lbe=  225587 wall=  23.969 res=4.007e-13 rel=1.056e-01 conv=1
+  preconditioned_lbm     lbe= 1064402 wall=  63.986 res=1.513e-04 rel=1.056e-01 conv=1
+  inexact_newton_lbe     lbe=  480767 wall=  30.554 res=3.063e-12 rel=1.056e-01 conv=1
+  dual_time_mg_lbm       lbe=  338926 wall=  44.484 res=2.846e-11 rel=1.056e-01 conv=1
+  proposed               lbe=  319482 wall=  21.499 res=1.148e-09 rel=1.056e-01 conv=1
+[case] cavity_re400_n49__2x: Lid-driven cavity Re=400 N=49 (N=97, 2x)
+  anderson_lbm           lbe= 1110039 wall=  49.951 res=8.227e-09 rel=6.417e-02 conv=0
+  preconditioned_lbm     lbe= 1093715 wall=  47.209 res=2.781e-05 rel=6.417e-02 conv=1
+  inexact_newton_lbe     lbe= 1103110 wall=  42.489 res=1.684e-08 rel=6.417e-02 conv=0
+  dual_time_mg_lbm       lbe=  467385 wall= 134.183 res=2.593e-10 rel=6.417e-02 conv=1
+  proposed               lbe=  454212 wall=  39.140 res=2.115e-07 rel=6.417e-02 conv=1
+[case] cavity_re400_n49__3x: Lid-driven cavity Re=400 N=49 (N=145, 3x)
+  anderson_lbm           lbe=  307574 wall=  35.675 res=9.362e-08 rel=5.005e-02 conv=1
+  preconditioned_lbm     lbe= 1121270 wall=  90.658 res=9.669e-06 rel=5.005e-02 conv=1
+  inexact_newton_lbe     lbe=  444763 wall=  31.534 res=4.065e-11 rel=5.005e-02 conv=1
+  dual_time_mg_lbm       lbe=  478513 wall= 300.365 res=5.249e-10 rel=5.005e-02 conv=1
+  proposed               lbe=  323466 wall=  58.129 res=2.274e-08 rel=5.005e-02 conv=1
+[case] cavity_re1000_n129__1x: Lid-driven cavity Re=1000 N=129 (N=129, 1x)
+  anderson_lbm           lbe=  225316 wall=  27.186 res=1.747e-06 rel=5.417e-02 conv=1
+  preconditioned_lbm     lbe= 1102733 wall=  76.802 res=9.148e-05 rel=5.417e-02 conv=1
+  inexact_newton_lbe     lbe=  247971 wall=  20.785 res=1.729e-07 rel=5.417e-02 conv=1
+  dual_time_mg_lbm       lbe=  453934 wall= 241.439 res=3.398e-10 rel=5.417e-02 conv=1
+  proposed               lbe=  237369 wall=  47.778 res=1.127e-07 rel=5.417e-02 conv=1
+[case] cavity_re1000_n129__2x: Lid-driven cavity Re=1000 N=129 (N=257, 2x)
+  anderson_lbm           lbe=  374307 wall= 123.753 res=1.057e-06 rel=3.259e-02 conv=1
+  preconditioned_lbm     lbe= 1190909 wall= 331.524 res=1.785e-05 rel=3.259e-02 conv=1
+  inexact_newton_lbe     lbe=  420120 wall=  81.032 res=2.892e-07 rel=3.259e-02 conv=1
+  dual_time_mg_lbm       lbe=  740316 wall= 257.452 res=1.076e-08 rel=3.259e-02 conv=1
+  proposed               lbe=  369147 wall= 212.274 res=5.831e-07 rel=3.259e-02 conv=1
+[case] cavity_re1000_n129__3x: Lid-driven cavity Re=1000 N=129 (N=385, 3x)
+  anderson_lbm           lbe= 1055696 wall= 372.577 res=6.121e-05 rel=2.565e-02 conv=1
+  preconditioned_lbm     lbe=  799219 wall= 743.594 res=5.660e-06 rel=2.565e-02 conv=1
+  inexact_newton_lbe     lbe= 1200000 wall= 245.876 res=1.055e-09 rel=2.565e-02 conv=0
+  dual_time_mg_lbm       lbe= 1200000 wall= 641.605 res=2.411e-09 rel=2.565e-02 conv=0
+  proposed               lbe=  696351 wall= 426.330 res=1.305e-07 rel=2.556e-02 conv=1
+[case] multi_cylinder_n32__1x: Multi-cylinder masked flow (N=32, 1x)
+  anderson_lbm           lbe=   91804 wall=  11.923 res=3.422e-11 rel=4.146e-05 conv=1
+  preconditioned_lbm     lbe=  171351 wall=  38.374 res=4.152e-11 rel=4.146e-05 conv=0
+  inexact_newton_lbe     lbe=   52905 wall=   5.054 res=3.516e-15 rel=4.146e-05 conv=1
+  dual_time_mg_lbm       lbe=  104273 wall=   7.707 res=1.374e-07 rel=4.125e-05 conv=0
+  proposed               lbe=   59660 wall=   4.090 res=4.944e-15 rel=4.146e-05 conv=1
+[case] multi_cylinder_n32__2x: Multi-cylinder masked flow (N=64, 2x)
+  anderson_lbm           lbe=   76090 wall=  43.591 res=1.098e-14 rel=1.277e-14 conv=1
+  preconditioned_lbm     lbe=  100604 wall=  47.875 res=1.843e-14 rel=1.140e-14 conv=1
+  inexact_newton_lbe     lbe=   54729 wall=  17.098 res=1.032e-14 rel=4.154e-14 conv=1
+  dual_time_mg_lbm       lbe=   63188 wall=  20.944 res=1.124e-14 rel=4.867e-14 conv=1
+  proposed               lbe=   74996 wall=  22.273 res=8.288e-15 rel=1.278e-14 conv=1
+[case] multi_cylinder_n32__3x: Multi-cylinder masked flow (N=96, 3x)
+  anderson_lbm           lbe=   82557 wall=  59.964 res=1.655e-14 rel=8.205e-14 conv=1
+  preconditioned_lbm     lbe=  122648 wall=  77.517 res=3.915e-14 rel=1.167e-14 conv=1
+  inexact_newton_lbe     lbe=   54729 wall=  14.032 res=1.491e-14 rel=7.448e-14 conv=1
+  dual_time_mg_lbm       lbe=   76895 wall=  37.524 res=1.468e-14 rel=8.808e-14 conv=1
+  proposed               lbe=   96984 wall=  15.779 res=3.139e-14 rel=2.310e-14 conv=1
+[case] backward_step_n64__1x: Backward-facing step (N=64, 1x)
+  anderson_lbm           lbe=  114649 wall=  39.661 res=2.497e-08 rel=3.260e-03 conv=0
+  preconditioned_lbm     lbe=  201702 wall=  98.035 res=2.588e-08 rel=3.260e-03 conv=0
+  inexact_newton_lbe     lbe=  106729 wall=  28.458 res=2.541e-08 rel=3.260e-03 conv=0
+  dual_time_mg_lbm       lbe=  107660 wall=  28.903 res=1.865e-06 rel=3.294e-03 conv=0
+  proposed               lbe=  122865 wall=  32.732 res=2.433e-08 rel=3.260e-03 conv=1
+[case] backward_step_n64__2x: Backward-facing step (N=128, 2x)
+  anderson_lbm           lbe=  300000 wall= 103.057 res=3.128e-05 rel=2.357e-03 conv=0
+  preconditioned_lbm     lbe=  300000 wall= 201.066 res=7.239e-05 rel=6.368e-03 conv=0
+  inexact_newton_lbe     lbe=  300000 wall=  58.997 res=4.745e-05 rel=4.988e-04 conv=0
+  dual_time_mg_lbm       lbe=  300000 wall= 121.718 res=1.275e-04 rel=1.173e-02 conv=0
+  proposed               lbe=  360000 wall=  77.643 res=2.015e-09 rel=3.556e-03 conv=0
+[case] backward_step_n64__3x: Backward-facing step (N=192, 3x)
+  anderson_lbm           lbe=  300000 wall= 121.302 res=1.013e-04 rel=7.042e-04 conv=0
+  preconditioned_lbm     lbe=  300000 wall=1102.175 res=1.055e-04 rel=1.982e-02 conv=0
+  inexact_newton_lbe     lbe=  300000 wall= 112.873 res=1.015e-04 rel=1.908e-02 conv=0
+\\wsl.localhost\ubuntu\home\younglin90\work\claude_code\claudeCFD\solver_LBM_steady_state\lbm_periodic.py:24: RuntimeWarning: overflow encountered in multiply
+  feq[i] = W[i] * rho * (1.0 + cu + 0.5 * cu * cu - u2)
+\\wsl.localhost\ubuntu\home\younglin90\work\claude_code\claudeCFD\solver_LBM_steady_state\no_force_suite\no_force_lb_core.py:530: RuntimeWarning: overflow encountered in multiply
+  fstar = f - self.omega * (f - feq)
+\\wsl.localhost\ubuntu\home\younglin90\work\claude_code\claudeCFD\solver_LBM_steady_state\no_force_suite\no_force_lb_core.py:122: RuntimeWarning: invalid value encountered in add
+  rhoux_r = f[1, :, -1] + f[5, :, -1] + f[8, :, -1] - f[3, :, -1] - f[6, :, -1] - f[7, :, -1]
+\\wsl.localhost\ubuntu\home\younglin90\work\claude_code\claudeCFD\solver_LBM_steady_state\no_force_suite\no_force_lb_core.py:122: RuntimeWarning: invalid value encountered in subtract
+  rhoux_r = f[1, :, -1] + f[5, :, -1] + f[8, :, -1] - f[3, :, -1] - f[6, :, -1] - f[7, :, -1]
+C:\Users\user\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\_methods.py:49: RuntimeWarning: overflow encountered in reduce
+  return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+C:\Users\user\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\_methods.py:49: RuntimeWarning: invalid value encountered in reduce
+  return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+\\wsl.localhost\ubuntu\home\younglin90\work\claude_code\claudeCFD\solver_LBM_steady_state\no_force_suite\no_force_lb_core.py:557: RuntimeWarning: invalid value encountered in multiply
+  ux = (f * CX[:, None, None]).sum(axis=0) / rho_safe
+\\wsl.localhost\ubuntu\home\younglin90\work\claude_code\claudeCFD\solver_LBM_steady_state\no_force_suite\no_force_lb_core.py:557: RuntimeWarning: invalid value encountered in divide
+  ux = (f * CX[:, None, None]).sum(axis=0) / rho_safe
+\\wsl.localhost\ubuntu\home\younglin90\work\claude_code\claudeCFD\solver_LBM_steady_state\no_force_suite\no_force_lb_core.py:558: RuntimeWarning: invalid value encountered in multiply
+  uy = (f * CY[:, None, None]).sum(axis=0) / rho_safe
+\\wsl.localhost\ubuntu\home\younglin90\work\claude_code\claudeCFD\solver_LBM_steady_state\no_force_suite\no_force_lb_core.py:558: RuntimeWarning: invalid value encountered in divide
+  uy = (f * CY[:, None, None]).sum(axis=0) / rho_safe
+\\wsl.localhost\ubuntu\home\younglin90\work\claude_code\claudeCFD\solver_LBM_steady_state\paper_faithful_baselines.py:70: RuntimeWarning: overflow encountered in multiply
+  return float(np.sqrt(np.sum(dp * dp) + np.sum(dux * dux) + np.sum(duy * duy)))
+  dual_time_mg_lbm       lbe=  300000 wall= 192.411 res=1.391e-04 rel=3.170e-03 conv=0
+  proposed               lbe=  360000 wall= 168.916 res=6.974e-10 rel=9.859e-03 conv=0
+[case] cylinder_wake_n64__1x: Cylinder wake analogue (N=64, 1x)
+  anderson_lbm           lbe=   63661 wall=  40.081 res=9.442e-15 rel=7.935e-05 conv=1
+  preconditioned_lbm     lbe=   90083 wall=  50.277 res=9.546e-15 rel=7.935e-05 conv=1
+  inexact_newton_lbe     lbe=   54729 wall=  19.820 res=9.655e-15 rel=7.935e-05 conv=1
+  dual_time_mg_lbm       lbe=   58411 wall=  20.738 res=9.748e-15 rel=7.935e-05 conv=1
+  proposed               lbe=   81518 wall=  25.035 res=9.466e-15 rel=7.935e-05 conv=1
+[case] cylinder_wake_n64__2x: Cylinder wake analogue (N=128, 2x)

@@ -1,0 +1,27 @@
+[case] channel_n32__1x: Plane Poiseuille (periodic x, wall y, force-free) (N=32, 1x)
+  anderson_lbm           lbe=   29606 wall=  11.986 res=9.999e-08 rel=9.780e-01 conv=1
+  preconditioned_lbm     lbe=    7237 wall=   1.715 res=9.368e-08 rel=9.794e-01 conv=1
+  inexact_newton_lbe     lbe=    5185 wall=   1.890 res=9.987e-08 rel=9.782e-01 conv=1
+  dual_time_mg_lbm       lbe=   13561 wall=   6.371 res=9.987e-08 rel=9.817e-01 conv=1
+  proposed               lbe=    3497 wall=   0.836 res=6.509e-07 rel=8.589e-01 conv=0
+[case] couette_n32__1x: Couette flow N=32 (N=32, 1x)
+  anderson_lbm           lbe=   22406 wall=   7.545 res=9.997e-08 rel=3.995e-02 conv=1
+  preconditioned_lbm     lbe=    3619 wall=   1.265 res=9.558e-08 rel=1.887e-02 conv=1
+  inexact_newton_lbe     lbe=    4033 wall=   1.725 res=9.853e-08 rel=3.910e-02 conv=1
+  dual_time_mg_lbm       lbe=   11101 wall=   5.130 res=9.864e-08 rel=3.288e-02 conv=1
+  proposed               lbe=    3497 wall=   0.858 res=3.269e-07 rel=1.307e-01 conv=1
+[case] multi_cylinder_n32__1x: Multi-cylinder masked flow (N=32, 1x)
+  anderson_lbm           lbe=    1769 wall=   1.174 res=9.967e-08 rel=6.744e-04 conv=1
+  preconditioned_lbm     lbe=   62311 wall=  27.230 res=9.570e-08 rel=0.000e+00 conv=1
+  inexact_newton_lbe     lbe=     609 wall=   0.350 res=8.092e-08 rel=5.856e-04 conv=1
+  dual_time_mg_lbm       lbe=   40073 wall=  25.445 res=6.363e-04 rel=6.569e-01 conv=0
+  proposed               lbe=    3294 wall=   1.469 res=7.639e-05 rel=3.654e-02 conv=0
+[case] backward_step_n64__1x: Backward-facing step (N=64, 1x)
+  anderson_lbm           lbe=   34809 wall=  38.288 res=7.726e-07 rel=1.232e-07 conv=0
+  preconditioned_lbm     lbe=  100702 wall=  68.586 res=1.178e-06 rel=1.818e-14 conv=0
+  inexact_newton_lbe     lbe=    5729 wall=   5.964 res=6.194e-07 rel=1.841e-03 conv=0
+  dual_time_mg_lbm       lbe=   78463 wall=  78.222 res=1.362e-03 rel=8.872e-01 conv=0
+  proposed               lbe=    6843 wall=   4.641 res=6.523e-07 rel=1.490e-05 conv=0
+[saved] paper_revision_data/no_force_scaling_benchmark/summary.csv
+[saved] paper_revision_data/no_force_scaling_benchmark/metrics.json
+{"accuracy_win_count": 1, "all_pass": 0, "base_cases": ["channel_n32", "couette_n32", "multi_cylinder_n32", "backward_step_n64"], "case_count": 4, "case_results": [{"acc_win": 1, "base_case_id": "channel_n32", "best_fixed_lbe": 5185, "best_fixed_rel_l2": 0.9780031638744239, "best_fixed_wall": 1.7149869659915566, "case_id": "channel_n32__1x", "case_pass": 0, "converged": 0, "lbe_win": 1, "proposed_lbe": 3497, "proposed_rel_l2": 0.8589254162415518, "proposed_wall": 0.8359050159342587, "scaling_level": 1, "wall_win": 1}, {"acc_win": 0, "base_case_id": "couette_n32", "best_fixed_lbe": 3619, "best_fixed_rel_l2": 0.01887362986856884, "best_fixed_wall": 1.2650328718591481, "case_id": "couette_n32__1x", "case_pass": 0, "converged": 1, "lbe_win": 1, "proposed_lbe": 3497, "proposed_rel_l2": 0.1307095610617042, "proposed_wall": 0.8578969629015774, "scaling_level": 1, "wall_win": 1}, {"acc_win": 0, "base_case_id": "multi_cylinder_n32", "best_fixed_lbe": 609, "best_fixed_rel_l2": 0.0, "best_fixed_wall": 0.3495871089398861, "case_id": "multi_cylinder_n32__1x", "case_pass": 0, "converged": 0, "lbe_win": 0, "proposed_lbe": 3294, "proposed_rel_l2": 0.03653772573528175, "proposed_wall": 1.4691004171036184, "scaling_level": 1, "wall_win": 0}, {"acc_win": 0, "base_case_id": "backward_step_n64", "best_fixed_lbe": 5729, "best_fixed_rel_l2": 1.8179150899385896e-14, "best_fixed_wall": 5.963868740014732, "case_id": "backward_step_n64__1x", "case_pass": 0, "converged": 0, "lbe_win": 0, "proposed_lbe": 6843, "proposed_rel_l2": 1.4900126316362705e-05, "proposed_wall": 4.6408086800947785, "scaling_level": 1, "wall_win": 1}], "converged_count": 1, "elapsed_wall_seconds": 388.1497298460454, "lbe_win_count": 2, "levels": [1], "mean_lbe_speedup_vs_best_fixed": 0.8849185023685869, "method_count": 6, "methods": ["picard_lbm", "anderson_lbm", "preconditioned_lbm", "inexact_newton_lbe", "dual_time_mg_lbm", "proposed"], "output_dir": "paper_revision_data/no_force_scaling_benchmark", "pass_count": 0, "physics_scaling": {"cavity_refinement": "N_level = 1 + level * (N_1x - 1)", "max_steps": "scaled by level^2 with safety caps", "tolerance": "tol_scale(level) = tol_scale(1) / level", "wall_driven_velocity": "U_scale(level) = U_scale(1) / level"}, "wall_win_count": 3}

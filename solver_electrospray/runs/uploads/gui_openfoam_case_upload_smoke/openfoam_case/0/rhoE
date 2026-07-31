@@ -1,0 +1,12 @@
+FoamFile { version 2.0; format ascii; class volScalarField; object rhoE; }
+dimensions [0 0 0 0 0 0 0];
+internalField nonuniform List<scalar> 2 ( 0.1 -0.2 );
+boundaryField
+{
+  xmin { type fixedValue; value uniform 0; }
+  xmax { type fixedValue; value uniform 0; }
+  ymin { type zeroGradient; }
+  ymax { type zeroGradient; }
+  zmin { type symmetryPlane; }
+  zmax { type symmetryPlane; }
+}

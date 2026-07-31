@@ -1,0 +1,192 @@
+{
+  "benchmark_blocks": [
+    {
+      "case_id": "das_saintillan_transient_system_1b",
+      "digitization_tasks": [
+        {
+          "independent_variables": [
+            "time_over_maxwell_wagner_time"
+          ],
+          "observable": "deformation_parameter",
+          "source_figure": "Figure 4"
+        },
+        {
+          "independent_variables": [
+            "polar_angle",
+            "time_over_maxwell_wagner_time"
+          ],
+          "observable": "surface_charge_profile",
+          "source_figure": "Figure 4"
+        }
+      ],
+      "flow_class": "leaky_dielectric_drop_small_deformation",
+      "model_scope": "transient small-deformation theory with charge relaxation",
+      "reference_values": [
+        {
+          "comparison_role": "boundary_element_reference",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "time_over_maxwell_wagner_time": 6.0
+          },
+          "observable": "deformation_parameter",
+          "source_figure": "Figure 4a",
+          "uncertainty": 0.006,
+          "unit": "dimensionless",
+          "value": -0.078
+        },
+        {
+          "comparison_role": "boundary_element_reference",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "polar_angle_end": "pi",
+            "polar_angle_start": 0.0
+          },
+          "observable": "surface_charge_endpoint_difference",
+          "source_figure": "Figure 4b",
+          "uncertainty": 0.15,
+          "unit": "source_plot_units",
+          "value": 1.0
+        }
+      ],
+      "required_outputs": [
+        "deformation_parameter",
+        "surface_charge_profile"
+      ],
+      "status": "partial_numeric_reference"
+    },
+    {
+      "case_id": "das_saintillan_transient_system_1c",
+      "digitization_tasks": [
+        {
+          "independent_variables": [
+            "time_over_maxwell_wagner_time"
+          ],
+          "observable": "deformation_parameter",
+          "source_figure": "Figure 5"
+        },
+        {
+          "independent_variables": [
+            "polar_angle",
+            "time_over_maxwell_wagner_time"
+          ],
+          "observable": "surface_charge_profile",
+          "source_figure": "Figure 5"
+        }
+      ],
+      "flow_class": "leaky_dielectric_drop_small_deformation",
+      "model_scope": "transient small-deformation theory with charge convection",
+      "reference_values": [
+        {
+          "comparison_role": "boundary_element_reference",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "note": "pre-instability boundary-element marker cluster",
+            "time_over_maxwell_wagner_time": 2.0
+          },
+          "observable": "deformation_parameter",
+          "source_figure": "Figure 5a",
+          "uncertainty": 0.02,
+          "unit": "dimensionless",
+          "value": -0.14
+        },
+        {
+          "comparison_role": "boundary_element_reference",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "polar_angle_interval": "0_to_pi"
+          },
+          "observable": "surface_charge_sign_change",
+          "source_figure": "Figure 5b",
+          "uncertainty": 0.0,
+          "unit": "boolean_numeric",
+          "value": 1.0
+        }
+      ],
+      "required_outputs": [
+        "deformation_parameter",
+        "surface_charge_profile"
+      ],
+      "status": "partial_numeric_reference"
+    },
+    {
+      "case_id": "das_saintillan_prolate_system_3",
+      "digitization_tasks": [
+        {
+          "independent_variables": [
+            "time_over_maxwell_wagner_time"
+          ],
+          "observable": "deformation_parameter",
+          "source_figure": "Figure 6"
+        }
+      ],
+      "flow_class": "leaky_dielectric_drop_finite_deformation",
+      "model_scope": "small-deformation theory compared against BEM and experiment",
+      "reference_values": [
+        {
+          "comparison_role": "boundary_element_reference",
+          "digitization_method": "text_extracted_reference",
+          "independent_variables": {
+            "time_over_maxwell_wagner_time": "steady"
+          },
+          "observable": "deformation_parameter",
+          "source_figure": "Figure 6",
+          "source_location": "text immediately following Figure 6",
+          "uncertainty": 0.01,
+          "unit": "dimensionless",
+          "value": 0.27
+        }
+      ],
+      "required_outputs": [
+        "deformation_parameter",
+        "electric_capillary_number"
+      ],
+      "status": "partial_numeric_reference",
+      "textual_reference_notes": [
+        "source text reports steady BEM deformation near 0.27 and experimental deformation near 0.25 for system 3"
+      ]
+    },
+    {
+      "case_id": "das_saintillan_steady_systems_2a_2b",
+      "digitization_tasks": [
+        {
+          "independent_variables": [
+            "electric_capillary_number"
+          ],
+          "observable": "deformation_parameter",
+          "source_figure": "Figure 7"
+        }
+      ],
+      "flow_class": "leaky_dielectric_drop_steady_deformation",
+      "model_scope": "steady deformation versus electric capillary number",
+      "reference_values": [
+        {
+          "comparison_role": "boundary_element_reference_system_2a",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "electric_capillary_number": 0.5
+          },
+          "observable": "deformation_parameter",
+          "source_figure": "Figure 7a",
+          "uncertainty": 0.006,
+          "unit": "dimensionless",
+          "value": -0.067
+        }
+      ],
+      "required_outputs": [
+        "deformation_parameter",
+        "electric_capillary_number"
+      ],
+      "status": "partial_numeric_reference"
+    }
+  ],
+  "completion_gate": "reference_values must contain digitized or tabulated numeric entries before droplet external comparison can pass",
+  "source": {
+    "arxiv": "1605.04036",
+    "authors": [
+      "Debasish Das",
+      "David Saintillan"
+    ],
+    "doi": "10.1017/jfm.2016.704",
+    "title": "A nonlinear small-deformation theory for transient droplet electrohydrodynamics"
+  }
+}

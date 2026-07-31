@@ -1,0 +1,14 @@
+[09:14:23] === probe15min start ===
+[09:16:24] [deform_S1] calib per_step=1.047s ctx=12.0s -> MAXSTEP=848
+[09:33:15] [deform_S1] RESULT maxstep=848 wall=967.1 steps=848 rate=1.1404s/step
+[09:35:10] [deform_S2] calib per_step=1.000s ctx=9.7s -> MAXSTEP=890
+[09:49:33] [deform_S2] RESULT maxstep=890 wall=819.3 steps=890 rate=0.9206s/step
+[09:56:05] [sphere_S1] calib per_step=4.760s ctx=61.5s -> MAXSTEP=176
+[10:12:41] [sphere_S1] RESULT maxstep=176 wall=951.5 steps=176 rate=5.4062s/step
+[10:18:28] [sphere_S2] calib per_step=4.553s ctx=47.5s -> MAXSTEP=187
+[10:34:33] [sphere_S2] RESULT maxstep=187 wall=918.9 steps=187 rate=4.9139s/step
+[10:37:17] [2cyl_S1] calib per_step=2.307s ctx=22.8s -> MAXSTEP=380
+[10:55:32] [2cyl_S1] RESULT maxstep=380 wall=1074.7 steps=380 rate=2.8282s/step
+[10:58:06] [2cyl_S2] calib per_step=1.967s ctx=23.7s -> MAXSTEP=446
+[11:15:35] [2cyl_S2] RESULT maxstep=446 wall=1030.2 steps=446 rate=2.3099s/step
+[11:15:35] === probe15min ALL DONE ===

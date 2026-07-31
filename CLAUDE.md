@@ -1,157 +1,39 @@
 # CLAUDE.md
 
+> **응답 규칙**: 항상 caveman full 모드로 응답 (skill: caveman). 코드/커밋/에러문자열/명령어는 verbatim, 보안경고·되돌릴수없는작업은 정상문체. 끄기: "stop caveman".
+> **언어 (2026-06-16~)**: **C++ 전면 마이그레이션** 진행 중. 모든 신규 개발·검증은 `cpp/` (WSL2 ubuntu `wsl.exe -d ubuntu` 빌드, OpenMP/OpenACC). Python `solver/*`는 검증 oracle 전용(삭제 금지). 상태: `cpp/MIGRATION.md`.
+> **T-MLP-u 자율 연구**: 질문하지 말고 `solver_tmlpu/docs/tmlpu_autonomy_charter.md` 헌장대로 결정·실행·로깅. 최종 목표 = **T-MLP-u-L 스킴을 C++로 구현 + LeVeque/Mach3/DoubleMach C++ 검증**. 백그라운드 런 완료 알림이 연속성 보장.
+
 ## 프로젝트 개요
 
 **1D 전속도 영역 다성분 압축성 FVM 솔버** (비압축성~압축성 통합).
 
-### 활성 작업 (2026-04-27 부터)
+프로젝트는 3개 독립 워크스페이스로 분리됨:
 
-- **신규 작업 폴더**: `solver/five_eq_IMEX/` — clean-room 시작.
-  - 진입점: `solver/five_eq_IMEX/main.py::solve(eos1, eos2, W0, dx, t_end, …)`
-  - 원시변수 W = (α₁, T₁, T₂, u, p), 보존변수 U = (α₁ρ₁, α₂ρ₂, ρu, ρE, α₁)
-  - IMEX-SSP2 / ARS(2,2,2) γ=1−1/√2, F_E (advection) + F_I (∇p, p·u) 분리
-  - 일반 EOS 도함수 4종 (drhodp_T, drhodT_p, dedp_T, dedT_p) 직접 사용
-  - 분석형 5×5 dU/dW 직접 사용 (`solver.He2024.primitive_W.dUdW_analytic`)
-- **이전 솔버 폴더 (frozen, 수정 금지)**:
-  - `solver/He2024/` — `explicit_mmacm_ex.py::solve_IMEX` 외 모두 동결. Phase 1/2 산출물 (`eos_general.py`, `primitive_W.py`) 만 신규 솔버에서 import 허용.
-  - `solver/denner_1d/`, `solver/demou2022_1d/`, `solver/denner2018_1d.py`, `solver/solve.py` 등 — 동결.
-- **언어**: Python (NumPy/SciPy/autograd). C extension 금지.
+- `solver_5eq/` — 5-방정식 다성분 솔버 (자체 `CLAUDE.md`/`AGENTS.md`/`.claude/agents`)
+- `solver_tmlpu/` — T-MLP-u / THINC-QQ-BVD reconstruction 연구 + 활성 C++ 작업 (`cpp/`) (자체 `CLAUDE.md`)
+- `solver_denner/` — Denner 계열 (자체 `AGENTS.md`)
 
-### 지배방정식
+각 워크스페이스 작업 세션은 **해당 디렉터리를 cwd 로 열고** 그 폴더의 `CLAUDE.md`/`AGENTS.md` 를 따를 것.
 
-```
-∂(αᵢρᵢ)/∂t + ∂(αᵢρᵢu)/∂x = 0
-∂(ρu)/∂t + ∂(ρu²+p)/∂x = 0
-∂(ρE)/∂t + ∂((ρE+p)u)/∂x = 0
-∂αᵢ/∂t + u·∂αᵢ/∂x = (αᵢ+Dᵢ)∂u/∂x   (Allaire-Massoni: Dₖ=0; Kapila: D₁ = α₁α₂(ρ₂c₂² − ρ₁c₁²)/(α₂ρ₁c₁² + α₁ρ₂c₂²))
-```
+## 5eq 프로젝트 이동 (2026-07-02)
 
-### 수정 가능 / 금지
+five_eq(5-방정식) 관련 **전체가 `solver_5eq/` 로 이동됨**. 주요 매핑: `solver/five_eq_IMEX*` → `solver_5eq/solver/`, `tests/` → `solver_5eq/tests/`, `validation/` → `solver_5eq/validation/`, `results/{1D,2D,3D}` + 5eq driver → `solver_5eq/results/` (`results/T-MLP-u/` 는 잔류), `.claude/agents` (CFD 4종) → `solver_5eq/.claude/`.
 
-- **수정 가능**: `solver/five_eq_IMEX/`, `tests/`, `docs/`, `results/round177_unified.py`, baseline용 새 driver.
-- **수정 금지**: `solver/He2024/`, `solver/denner_1d/`, `solver/denner2018_1d.py`, `solver/solve.py`, `solver/boundary.py`, `solver/jacobian.py`, `solver/utils.py`, `solver/flux*.py`, `solver/solver_1d.py`, `solver/eos/`, `validation/`, `백업_*`, `archive/`.
+5eq 상세 전부 (로드맵, 검증 현황, 케이스 명세, 지배방정식, 폴더 구조, driver, 논문 목록) = **`solver_5eq/CLAUDE.md` 가 단일 진실** — 그것을 읽을 것.
 
----
+## 언어 / C++ 마이그레이션 (2026-06-16~)
 
-## 신규 솔버 (`solver/five_eq_IMEX/`) 구현 로드맵
-
-| Phase | 목표 | 상태 | 산출물 |
-|---|---|---|---|
-| 0 | Audit + plan | ✅ | `docs/five_eq_all_mach_plan.md` |
-| 1 | EOS p,T 도함수 + 단위 테스트 | ✅ | `solver/He2024/eos_general.py` (`drhodp_T/drhodT_p/dedp_T/dedT_p` Ideal/SG/NASG closed-form), `tests/test_eos_derivatives.py` |
-| 2 | 5×5 dU/dW + W↔U 변환 + 단위 테스트 | ✅ | `solver/He2024/primitive_W.py` (`prim_to_cons_W`, `cons_to_prim_W`, `dUdW_analytic`), `tests/test_dUdW_jacobian.py` |
-| 3 | IMEX 잔차 + ARS(2,2,2) 스테이지 staging | TBD | `solver/five_eq_IMEX/main.py::solve` 본체 |
-| 4 | 일반화 Rhie-Chow + checkerboard 단위 테스트 | TBD | `solver/five_eq_IMEX/face_state.py` |
-| 5 | 전속도 mass flux (SLAU2-style) + Galilean 테스트 | TBD | `solver/five_eq_IMEX/flux.py` |
-| 6 | ACID face thermodynamics | TBD | `solver/five_eq_IMEX/face_state.py` |
-| 7 | APEC χ_k / χ_a cross-term + PE-equil 테스트 | 참조 구현 (legacy `_imex5n_compute_explicit_fluxes`) | `solver/five_eq_IMEX/energy_flux.py` |
-| 8 | Layered positivity θ_f ∈ [0,1] | TBD | `solver/five_eq_IMEX/limiters.py` |
-| 9 | D₁ semi-implicit (Kapila 옵션) | 참조 구현 (legacy `_imex5n_residual` `kapila_closure`) | `solver/five_eq_IMEX/main.py` |
-| 10 | 고차 interface capturing (THINC-BVD) | TBD | `solver/five_eq_IMEX/alpha_scheme.py` |
-
-각 Phase 완료 시 02-A NASG (`results/round177_unified.py` 의 `run_02A`) byte-exact PASS (err_p < 1e-9, err_u < 1e-6) 를 회귀 게이트로 검증.
-
----
-
-## 검증 통과 현황 (참고용 — 활성 솔버는 `solver/He2024/` 기준)
-
-`results/round177_unified.py` (lagrange_projection / imex_5n auto-dispatch) 기준:
-
-| 그룹 | 케이스 | 상태 |
-|---|---|---|
-| 02-A NASG (Test A, dt=0.01) | err_p=2.897e-13 | **PASS** |
-| 07-B Air-Water (Z=3337) | Lip=1.51 | FAIL |
-| 07-B Helium-Air | Lip=0.72 | FAIL |
-| 07-B Argon-Air | Liu=0.56 | FAIL (Lip=0.40 통과) |
-
-신규 `solver/five_eq_IMEX/` 의 1차 우선순위 검증 케이스: **02-A**, **07-B 3 sub-case**.
-
-### 핵심 검증 케이스 명세
-
-- **02-A Test A**: water-air advection, N=10, dt_fixed=0.01 (acoustic CFL≈162), 100 step periodic, err_p<1e-2.
-- **07-B Air-Water/Helium-Air/Argon-Air**: Gaussian acoustic pulse (u_peak=0.02), N=200, L=1.5, t_end 케이스별. Reflective wall (left) + transmissive (right). Linear acoustics R, T 비교. PASS = `L2p<0.30, Lip<0.50, L2u<0.30, Liu<0.50, frac>0.7, |corr|>0.5`.
-
-자세한 명세: `validation/1D/02_A_PE_advection_unified.md`, `validation/1D/07_B_acoustic_reflection_transmission.md`.
-
-전체 26 case: `validation/1D/INDEX.md`.
-
----
+- 목적 = 계산속도 + C++ 친숙도. 이전 규칙 "Python only, C extension 금지"는 **폐기**.
+- GPGPU = **OpenACC** (`nvc++`, NVIDIA HPC SDK), 멀티스레드 = **OpenMP**.
+- 툴체인 = **WSL2 ubuntu** (`wsl.exe -d ubuntu`). g++/cmake/OpenMP 설치됨. nvc++(OpenACC GPU)는 NVHPC 설치 대기.
+- 신규 트리: `cpp/` (`include/cfd/`, `src/`, `tests/`, CMake). 빌드: WSL 내부 `cd cpp/build && cmake .. && make` (GPU: `-DCFD_GPU=ON`).
+- 진행 현황·계획: `cpp/MIGRATION.md`. 기존 Python 은 검증 oracle 로 보존 (**삭제 금지**).
 
 ## 결과 PNG 저장 — 절대 필수
 
-모든 테스트 실행은 `matplotlib.use('Agg')` + `plt.savefig('results/1D/{case_name}/diff_vs_exact.png', dpi=120)`.
-**round 별 신규 파일명 금지** — 항상 같은 경로에 덮어쓰기. 실행 후 `Plot saved: ...` 출력.
-
----
-
-## 폴더 구조 (2026-04-27 청소 후)
-
-```
-solver/
-├── five_eq_IMEX/            ← ★ 활성 작업 (clean-room 신규)
-│   ├── __init__.py
-│   └── main.py              ← solve(eos1, eos2, W0, ...) 진입점
-├── He2024/                  ← 동결, Phase 1/2 산출물만 import 허용
-│   ├── eos_general.py       ← General EOS (Ideal/SG/NASG/MG/JWL/RKPR + p,T 도함수)
-│   ├── primitive_W.py       ← prim_to_cons_W / cons_to_prim_W / dUdW_analytic
-│   └── explicit_mmacm_ex.py ← 이전 활성 (regression baseline)
-├── denner_1d/, demou2022_1d/, eos/   ← 모두 동결
-└── (legacy: denner2018_1d.py, solve.py, solver_1d.py, flux*.py …)
-
-tests/                       ← Phase 별 단위 테스트
-├── test_eos_derivatives.py
-└── test_dUdW_jacobian.py
-
-docs/                        ← 활성 명세 (단일 진실)
-├── five_eq_all_mach_plan.md ← 로드맵 + 베이스라인 + 변경 로그
-└── historic_solvers.md      ← 이전 후보 명세 3종 요약 (Fraysse, Denner, He2024 fully coupled)
-
-validation/1D/               ← 검증 명세 (수정 금지, 26 case)
-
-results/
-├── 1D/{case_name}/diff_vs_exact.png   ← 자동 갱신, round 무관
-├── round177_unified.py                ← 마지막 활성 driver (02-A + 07-B)
-├── all_26_plots/, all_26_summary.md   ← 누적 26 case 결과
-└── attempts_catalog.md                ← round 별 시도 카탈로그
-
-archive/                     ← 2026-04-27 청소된 이전 산출물 (참조용, 작업 금지)
-├── round_reports/           ← fix_report_r*, qa_report_*, plan_report_*, unit_report_* (~50)
-├── round_drivers/           ← round{NN}_unified.py + round*_results.txt + .log (~50)
-├── throwaway_scripts/       ← tmp_*.py, ablation_*.py, debug_*.py, case_*_test.py (~50)
-├── pipeline_legacy/         ← 이전 pipeline/ 의 디버그 스크립트 (~58)
-└── spec_drafts/             ← BLOCKED.md, DONE.md, ITERATION_LOG.md, RESEARCH_PLAN_*.md, VALIDATION_INDEX.md, Solver_*.md
-
-papers/                      ← PDF + 요약 md (보존)
-백업_*/                      ← 2025 백업 (보존)
-
-CLAUDE.md                    ← 본 문서
-HARNESS_HISTORY.md           ← 24차+ 압축 누적 히스토리 (lazy-load)
-SOLVER_DESIGN_GUIDE.md       ← 이론 설계 누적 (§1-§22, lazy-load)
-```
-
----
-
-## 주요 논문
-
-| 논문 | 핵심 |
-|---|---|
-| He & Zhao 2025 (GFE+PT) | DC compact, c_eff, ρ-recon |
-| Zhao 2025 (MMACM-Ex) | H_k + pure downwind + G corrections |
-| He & Tan 2024 | DC λ_k, c_eff |
-| Allaire 2002, Kapila 2001, Murrone-Guillard 2005 | 5-eq 모델 / Kapila D₁ |
-| Peluchon 2017 (JCP 339) | IM1 block-tridiag acoustic |
-| ten Eikelder 2017, Tallois 2022 | IMEX 2nd-order ARS222/SSP222 |
-| Deng 2025 (JCP) | SLAU2 all-Mach |
-| Terashima 2025 | APEC energy flux (χ_k, χ_a) |
-| Denner 2018 | ACID face density, MWI/Rhie-Chow |
-| Yoo & Sung 2018 | Phase 2-2 ref |
-| Le Métayer & Saurel 2016 | NASG EOS |
-| Peng-Robinson 1976, Lee-Tarver 1973 | RKPR / JWL EOS |
-| Deng-Shyue-Xiao 2018 | THINC-BVD multi-fluid |
-| Boscheri-Pareschi 2021 | nested Newton scalar elliptic |
-| Dumbser-Casulli 2016 | linear elliptic + Casulli-Zanolli 2012 |
-
----
+모든 테스트 실행은 `matplotlib.use('Agg')` + `plt.savefig(...)` 로 항상 같은 경로에 덮어쓰기.
+**round 별 신규 파일명 금지**. 실행 후 `Plot saved: ...` 출력.
 
 ## GitHub
 

@@ -1,0 +1,13 @@
+case,value,expected,abs_error
+single_hex_x_half,0.5,0.5,0
+single_hex_x_quarter_wet,0.25,0.25,0
+single_hex_x_three_quarter_wet,0.75,0.75,1.11022e-16
+single_hex_diagonal_half,0.5,0.5,0
+single_hex_empty,0,0,0
+single_hex_full,1,1,0
+hex_grid_x_half,0.5,0.5,2.22045e-16
+tet_grid_x_half,0.5,0.5,6.66134e-16
+hex_grid_diagonal_half,0.5,0.5,2.22045e-16
+swept_face_half,0.5,0.5,0
+swept_face_full,1,1,0
+swept_face_empty,0,0,0

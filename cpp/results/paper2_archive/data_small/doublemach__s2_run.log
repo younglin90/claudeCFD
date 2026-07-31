@@ -1,0 +1,8 @@
+DM_MESH2D=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/dmr_wc_paper.mesh2d cells=370421 nodes=186212
+(idw_p=2.0 bj_idw=2.0)
+Double-Mach reflection: cells=370421 grid=240x60 t_end=0.200
+  BVD          : posOK=1 rho[1.399,22.444] p_min=0.9990 | Q-crit vort=5 (S2/M2/L1) Qint=14.45
+  mlp_u1_tmlpu : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  T-MLP-u-L    : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  DM gate BVD vs mlp_u1: vortices 5 vs 0 (BVD MORE); size-bins S/M/L 2/2/1 vs 0/0/0; Qint ratio 14452422179539845995390839029760.000
+  DM gate (Q-criterion, robust): vortices 0 vs 0 (tie); size-bins S/M/L 0/0/0 vs 0/0/0; Qint ratio 0.000

@@ -34,6 +34,11 @@ enum class PressureClosure {
     pressure_work_consistent,
     compressive_recovery,
     implicit_energy,
+    implicit_energy_momentum,
+    no_recovery,
+    path_kapila,
+    dual_entropy,
+    apec_pe,
 };
 
 namespace regime_detail {
@@ -52,7 +57,8 @@ inline double eps025() {
 inline bool pressure_jump_stiff_to_soft(
         const std::vector<double>& alpha, const std::vector<double>& T1,
         const std::vector<double>& T2, const std::vector<double>& p,
-        const EOS& eos1, const EOS& eos2, double alpha_pure_tol) {
+        const EOS& eos1, const EOS& eos2, double alpha_pure_tol,
+        MixtureSoundSpeedKind mixture_kind = MixtureSoundSpeedKind::Kapila) {
     const int n = (int)alpha.size();
     if (n < 2) return false;
     const double jump_tol = regime_detail::eps025();
@@ -80,7 +86,7 @@ inline bool pressure_jump_stiff_to_soft(
     };
     auto Zcell = [&](int i) -> double {
         PhaseAcoustic pa = phase_acoustic(eos1, eos2, alpha[i], T1[i], T2[i],
-                                          p[i], alpha_pure_tol);
+                                          p[i], alpha_pure_tol, mixture_kind);
         return pa.Z;
     };
 
@@ -101,13 +107,15 @@ inline bool pressure_jump_stiff_to_soft(
 inline PressureClosure select_regime(
         const std::vector<double>& alpha, const std::vector<double>& T1,
         const std::vector<double>& T2, const std::vector<double>& p,
-        const EOS& eos1, const EOS& eos2, double alpha_pure_tol) {
+        const EOS& eos1, const EOS& eos2, double alpha_pure_tol,
+        MixtureSoundSpeedKind mixture_kind = MixtureSoundSpeedKind::Kapila) {
     double amin = alpha[0], amax = alpha[0];
     for (double a : alpha) { amin = std::fmin(amin, a); amax = std::fmax(amax, a); }
     double pure_tol_auto = std::fmax(alpha_pure_tol, regime_detail::eps025());
     bool immiscible = (amin <= pure_tol_auto) && (amax >= 1.0 - pure_tol_auto);
     if (!immiscible) return PressureClosure::implicit_energy;
-    if (pressure_jump_stiff_to_soft(alpha, T1, T2, p, eos1, eos2, alpha_pure_tol))
+    if (pressure_jump_stiff_to_soft(alpha, T1, T2, p, eos1, eos2, alpha_pure_tol,
+                                    mixture_kind))
         return PressureClosure::compressive_recovery;
     return PressureClosure::pressure_work_consistent;
 }

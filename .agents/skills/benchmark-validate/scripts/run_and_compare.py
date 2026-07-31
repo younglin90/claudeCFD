@@ -15,24 +15,24 @@ from pathlib import Path
 BASE_COMMANDS = [
     {
         "name": "uniform_flow",
-        "cmd": [sys.executable, "tests/test_uniform_flow.py"],
+        "cmd": [sys.executable, "solver_5eq/tests/test_uniform_flow.py"],
         "timeout": 180,
     },
     {
         "name": "amplification_matrix",
-        "cmd": [sys.executable, "tests/test_amplification_matrix.py"],
+        "cmd": [sys.executable, "solver_5eq/tests/test_amplification_matrix.py"],
         "timeout": 240,
     },
     {
         "name": "transport_eigenmode",
-        "cmd": [sys.executable, "tests/test_transport_eigenmode.py"],
+        "cmd": [sys.executable, "solver_5eq/tests/test_transport_eigenmode.py"],
         "timeout": 240,
     },
     {
         "name": "02A_nasg",
         "cmd": [
             sys.executable,
-            "results/run_02_07_five_eq_imex.py",
+            "solver_5eq/results/run_02_07_five_eq_imex.py",
             "--case", "02",
             "--variant02", "nasg",
             "--tend02", "1.0",
@@ -46,7 +46,7 @@ EXTRA_07 = {
     "name": "07B_smoke_n50",
     "cmd": [
         sys.executable,
-        "results/run_02_07_five_eq_imex.py",
+        "solver_5eq/results/run_02_07_five_eq_imex.py",
         "--case", "07",
         "--n07", "50",
         "--cfl07", "0.1",

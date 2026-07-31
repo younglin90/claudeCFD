@@ -1,0 +1,15 @@
+[14:40:20] === S1 (tanh) start ===
+[16:09:15] S1 done in 5335s
+  BVD          : posOK=1 rho[1.399,22.367] p_min=0.9991 | Q-crit vort=6 (S4/M1/L1) Qint=14.58
+  mlp_u1_tmlpu : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  T-MLP-u-L    : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  DM gate BVD vs mlp_u1: vortices 6 vs 0 (BVD MORE); size-bins S/M/L 4/1/1 vs 0/0/0; Qint ratio 14576070049829190422803077136384.000
+  DM gate (Q-criterion, robust): vortices 0 vs 0 (tie); size-bins S/M/L 0/0/0 vs 0/0/0; Qint ratio 0.000
+[16:09:15] === S2 (GAUSS) start ===
+[17:37:01] S2 done in 5266s
+  BVD          : posOK=1 rho[1.399,22.444] p_min=0.9990 | Q-crit vort=5 (S2/M2/L1) Qint=14.45
+  mlp_u1_tmlpu : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  T-MLP-u-L    : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  DM gate BVD vs mlp_u1: vortices 5 vs 0 (BVD MORE); size-bins S/M/L 2/2/1 vs 0/0/0; Qint ratio 14452422179539845995390839029760.000
+  DM gate (Q-criterion, robust): vortices 0 vs 0 (tie); size-bins S/M/L 0/0/0 vs 0/0/0; Qint ratio 0.000
+[17:37:01] === ALL DONE ===

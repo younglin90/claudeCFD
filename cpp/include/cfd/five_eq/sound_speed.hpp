@@ -15,6 +15,9 @@
 
 namespace cfd {
 
+// Python sound_speed.py::mixture_sound_speed_sq(kind=...).
+enum class MixtureSoundSpeedKind { Kapila, Frozen };
+
 // Per-phase c_k^2 from analytic (p,T) derivatives (phase_sound_speed_sq 21-33).
 CFD_ROUTINE_SEQ
 inline double phase_sound_speed_sq(const EOS& eos, double rho, double T) {
@@ -37,9 +40,15 @@ inline double phase_sound_speed_sq(const EOS& eos, double rho, double T) {
 //   1/(rho c^2) = alpha1/(rho1 c1^2) + alpha2/(rho2 c2^2).
 CFD_ROUTINE_SEQ
 inline double mixture_sound_speed_sq(double alpha1, double rho1, double c1_sq,
-                                     double rho2, double c2_sq) {
+                                     double rho2, double c2_sq,
+                                     MixtureSoundSpeedKind kind = MixtureSoundSpeedKind::Kapila) {
     const double EPS = 1e-30;
     double a2  = 1.0 - alpha1;
+    if (kind == MixtureSoundSpeedKind::Frozen) {
+        const double inv = alpha1 / EOS::max2(c1_sq, EPS)
+                         + a2 / EOS::max2(c2_sq, EPS);
+        return 1.0 / EOS::max2(inv, EPS);
+    }
     double rho = alpha1 * rho1 + a2 * rho2;
     double inv = alpha1 / EOS::max2(rho1 * c1_sq, EPS)
                + a2     / EOS::max2(rho2 * c2_sq, EPS);
@@ -58,14 +67,15 @@ struct PhaseAcoustic {
 CFD_ROUTINE_SEQ
 inline PhaseAcoustic phase_acoustic(const EOS& eos1, const EOS& eos2,
                                     double alpha, double T1, double T2, double p,
-                                    double alpha_pure_tol) {
+                                    double alpha_pure_tol,
+                                    MixtureSoundSpeedKind mixture_kind = MixtureSoundSpeedKind::Kapila) {
     const double EPS = 1e-30;
     double rho1  = EOS::max2(eos1.density(p, T1), EPS);
     double rho2  = EOS::max2(eos2.density(p, T2), EPS);
     double c1_sq = phase_sound_speed_sq(eos1, rho1, T1);
     double c2_sq = phase_sound_speed_sq(eos2, rho2, T2);
     double rho = EOS::max2(alpha * rho1 + (1.0 - alpha) * rho2, EPS);
-    double c_mix_sq = mixture_sound_speed_sq(alpha, rho1, c1_sq, rho2, c2_sq);
+    double c_mix_sq = mixture_sound_speed_sq(alpha, rho1, c1_sq, rho2, c2_sq, mixture_kind);
     if (alpha_pure_tol > 0.0) {
         // np.where applied sequentially: pure1 then pure2 (pure2 wins if both).
         bool pure1 = alpha >= 1.0 - alpha_pure_tol;

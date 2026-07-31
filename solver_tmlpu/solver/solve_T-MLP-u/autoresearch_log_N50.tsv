@@ -1,0 +1,13 @@
+iter	change	metric	delta	verdict	notes
+0	N=50 baseline (k=3 vertex2 IDW2 extremum_relax 0.1 TVB M=4)	0.04565	0	keep	carry-over from N=25 best config
+1	TVB M=8	0.04574	+0.20%	revert	M=4 better
+2	smoothness threshold 0.1 -> 0.05	0.04591	+0.57%	revert	0.1 sweet spot at N=50 too
+3	TVB M=4 -> M=2	0.04563	-0.04%	keep	marginal
+4	IDW p=2 -> p=4 (1/d^4 weighting)	0.04449	-2.50%	keep	BIG WIN: closer cells weighted more
+5	IDW p=4 -> p=6 (1/d^6)	0.04358	-2.05%	keep	further improvement
+6	IDW p=6 -> p=8	0.04428	+1.61%	revert	p=6 sweet spot
+7	IDW p=5 (between 4 and 6)	0.04388	+0.69%	revert	p=6 best
+8	TVB M=2 -> M=4 (re-test with IDW p=6)	0.04351	-0.16%	keep	tiny gain
+9	TVB M=4 -> M=8	0.04349	-0.05%	keep	tiny
+10	TVB M=8 -> M=16 (last iter)	0.04332	-0.39%	keep	new best
+final	BEST: k=3 vertex2 + IDW p=6 + extremum_relax (smooth<0.1) + TVB M=16	0.04332	-5.10% vs base	-	10 iter exhausted; N=50 final

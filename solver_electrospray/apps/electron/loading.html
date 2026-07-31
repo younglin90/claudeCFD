@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Electrospray 3D Runner</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; background: #f5f6f8; color: #1c2430;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    h1 { margin: 0; font-size: 20px; font-weight: 700; }
+    .sub { color: #5d6877; font-size: 13px; }
+    .spinner {
+      width: 34px; height: 34px; border-radius: 50%;
+      border: 3px solid #d8dde5; border-top-color: #116d6e;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="spinner"></div>
+  <h1>Electrospray 3D Runner</h1>
+  <div class="sub">Starting the solver backend (WSL)…</div>
+</body>
+</html>

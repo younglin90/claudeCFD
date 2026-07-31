@@ -1,0 +1,1289 @@
+Implementation of BVD (boundary variation diminishing) algorithm in
+simulations of compressible multiphase ﬂows
+Xi Denga, Satoshi Inabaa, Bin Xiea, Keh-Ming Shyueb, Feng Xiaoa,∗
+aDepartment of Mechanical Engineering, Tokyo Institute of Technology,
+4259 Nagatsuta Midori-ku, Yokohama, 226-8502, Japan.
+bDepartment of Mathematics, National Taiwan University, Taipei 106, Taiwan
+Abstract
+We present in this work a new reconstruction scheme, so-called MUSCL-THINC-BVD scheme, to solve the ﬁve-
+equation model for interfacial two phase ﬂows. This scheme employs the traditional shock capturing MUSCL (Mono-
+tone Upstream-centered Schemes for Conservation Law) scheme as well as the interface sharpening THINC (Tan-
+gent of Hyperbola for INterface Capturing) scheme as two building-blocks of spatial reconstruction using the BVD
+(boundary variation diminishing) principle that minimizes the variations (jumps) of the reconstructed variables at cell
+boundaries, and thus eﬀectively reduces the numerical dissipations in numerical solutions. The MUSCL-THINC-
+BVD scheme is implemented to all state variables and volume fraction, which realizes the consistency among volume
+fraction and other physical variables. Benchmark tests are carried out to verify the capability of the present method in
+capturing the material interface as a well-deﬁned sharp jump in volume fraction, as well as signiﬁcant improvement
+in solution quality. The proposed scheme is a simple and eﬀective method of practical signiﬁcance for simulating
+compressible interfacial multiphase ﬂows.
+Keywords: Compressible multiphase ﬂows, ﬁve-equation model, interface capturing, THINC reconstruction, BVD
+algorithm
+1. Introduction
+Compressible multiphase ﬂow is one of active and challenging research areas of great importance in both theo-
+retical studies and industrial applications. For example, shock/interface interactions are thought to be crucial to the
+instability and evolution of material interfaces that separate diﬀerent ﬂuids as can be observed in a wide spectral of
+phenomena[2]. The material interfaces greatly complicate the physics and make problems formidably diﬃcult for
+analytical and experimental approaches in general. In many cases, numerical simulation turns out to be the most
+∗Corresponding author: Dr. F. Xiao (Email: xiao@es.titech.ac.jp)
+Preprint submitted to Elsevier
+November 10, 2021
+arXiv:1704.08041v2  [physics.comp-ph]  1 May 2017
+
+eﬀective approach to provide quantitative information to elucidate the fundamental mechanisms behind the complex
+phenomena of multiphase ﬂows.
+In comparison to computation of single phase ﬂow, development of numerical methods for multiphase ﬂow faces
+more challenging tasks. The major complexity comes from the moving interfaces between diﬀerent ﬂuids that usually
+associate with strong discontinuities, singular forces and phase changes. Given the numerical methods developed
+for multiphase incompressible ﬂow with interfaces having been reached a relatively mature stage, the numerical
+solvers for compressible interfacial multiphase ﬂow are apparently insuﬃcient. For incompressible multiphase ﬂows
+with moving interfaces where the density and other physical properties, e.g. viscosity and thermal conductivity, are
+constant in each ﬂuid, the one-ﬂuid model [1] can be implemented in a straightforward manner with an assumption
+that the physical ﬁelds change monotonically across the interface region. So, provided an indication function which
+identiﬁes the moving interface, one can uniquely determine the physical property ﬁelds for the whole computational
+domain. Some indication functions, such as volume of ﬂuid (VOF) function [3, 4, 5] and level set function [6, 7, 8],
+have been proposed and proved to be able to well deﬁne the moving interface with compact thickness and geometrical
+faithfulness if solved by advanced numerical algorithms. However, substantial barrier exists when implementing the
+one-ﬂuid model to compressible interfacial multiphase ﬂow.
+The new diﬃculties we face when applying the one-ﬂuid model 1 to compressible interfacial multiphase ﬂow lie
+in two aspects:
+(I) Density and energy in compressible ﬂow have to be computed separately in addition to the indication function,
+hence special formulations are required to reach a balanced state among all variables for the interface cell where
+a well-deﬁned interface falls in;
+(II) The numerical dissipation in the so-called high-resolution schemes designed for solving single phase compress-
+ible ﬂow involving shock waves tends to smear out discontinuities in numerical solutions including the material
+interfaces, which is fatal to simulations of interfacial multiphase ﬂows even if the schemes can produce accept-
+able results in single phase cases.
+For issue (I) mentioned above, mixing or averaging models that consist of Euler or Navier-Stokes equations along
+with interface-indication function equations for each of ﬂuid components have been derived and widely used as ef-
+ﬁcient approximations to the state of the interface cell where two or more species co-exist. A simple single-ﬂuid
+model was reported in [9, 11, 10] for interfacial multiphase compressible ﬂows using either explicit time marching or
+semi-implicit pressure-projection solution procedure. The latter results in a uniﬁed formulation for solving both com-
+1More precisely, it should be called single-state model or single-equivalent-ﬂuid (SEF) model[43]. We call such model SEF in the present paper.
+2
+
+pressible and incompressible multiphase ﬂows. As the primitive variables are used in these models, the conservation
+properties are not guaranteed, and thus might not be suitable for high-Mach ﬂows involving shock waves. Conserva-
+tive formulations, which have been well-established for single phase compressible ﬂows with shock waves, however
+may lead to spurious oscillations in pressure or other thermal ﬁelds [12, 13]. It was found that special treatments are
+required in transporting the material interface and mixing/averaging the state variables to ﬁnd the mixed state of ﬂuids
+in the interfacial cell that satisﬁes pressure balance across material interface for multiple polytropic and stiﬀgases
+[14, 15, 16, 17, 18], and for van der Waals and Mie-Gr¨uneisen equations of state (EOS) [46, 45]. A more general
+ﬁve-equation model [43] was developed for a wide range ﬂuids. These models apply to multiphase compressible ﬂows
+with either spread interfaces or sharp interfaces. The ﬁve-equation model will be used in the present work as the PDE
+(partial diﬀerential equation) set to solve.
+Provided the SEF models with some desired properties, such as hyperbolicity, conservation and well-balanced
+mixing closure without spurious oscillations in thermal variables, we can in principle implement numerical methods
+for single phase compressible ﬂow (e.g. standard shock-capturing schemes) to solve multiphase ones. TVD (Total
+Variation Diminishing) schemes, such as the MUSCL (Monotone Upstream-centered Schemes for Conservation Law)
+scheme [19], can resolve discontinuities without numerical oscillations, which is of paramount importance to ensure
+the physical ﬁelds to be bounded and monotonic in the transition region. However, TVD schemes suﬀer from excessive
+numerical dissipation, which brings the problem (II) listed above to us. The intrinsic numerical dissipation smears
+out the ﬂow structures including the discontinuities in mass fraction or volume fraction that are used to represent the
+material interfaces. Consequently, material interfaces are continuously blurred and spread out, which is not acceptable
+in many applications, especially for the simulations that need long-term computation. Applying high order schemes
+like WENO (Weighted Essentially Non-Oscillatory) scheme [20] to solve compressible multiphase ﬂow are found
+in the literatures [21, 22]. However, implementing high order schemes might generate numerical oscillations for
+compressible multiphase ﬂow with more complex EOS, such as the Mie-Gr¨uneisen equation of state. In [21], to
+reduce numerical oscillation introduced by high order schemes, the state variables have to be cast into characteristic
+ﬁelds. Although with this eﬀort, stability cannot be guaranteed in the long-term computation even using a forbiddingly
+small of time step. In a recent work [23], to further reduce the numerical oscillations and to deal with complicated
+EOS, an approximate intermediate state at each cell edges is obtained in a more careful way to conduct characteristic
+decomposition. Furthermore, high order monotonicity-preserving scheme [24] was used to ensure volume fraction
+remain bounded. In general, the implementation of high order shock capturing schemes in compressible multiphase
+ﬂows will increase complexity of algorithm and may invoke computational instability.
+In order to keep material interfaces being a compact thickness during computation, special treatments are required
+3
+
+to sharpen or steepen the interfaces. The existing methods for this purpose can be categorized into interface-tracking
+and interface-capturing. Interface-tracking methods like Arbitrary Lagrangian-Eulerian (ALE) [35, 36], free-Lagrange
+[37], front-tracking [38] and level set/ghost ﬂuid [39, 40, 41, 42] have the distinct advantage of treating interface
+as a sharp discontinuity. For example, ALE and free-Lagrange methods treat interfaces as boundaries of distorted
+computational grids, which however makes them complicated and computationally expensive when there are large
+interface deformations and topological changes. Another drawback is that these methods are typically not numerically
+conservative at material interfaces, which may lead to a wrong prediction about the position of interfaces and shock
+waves.
+Interface-capturing methods resolve the interfaces on ﬁxed Eulerian grids, using special numerical techniques
+to sharpen the interface from spreading out. For example, in [26, 28, 25] the advection equation of the interface
+function is treated by artiﬁcial compression method. As a post-processing approach, anti-diﬀusion techniques have
+been introduced by [59] and [30]. Another approach is to reconstruct the volume fraction under the ﬁnite volume
+framework by THINC (Tangent of Hyperbola for INterface Capturing) function [51]. By virtue of the desirable
+characteristics of the hyperbolic tangent function in mimicking the jump-like proﬁle of the volume fraction ﬁeld,
+the sharp interface can be accurately captured in a simple way [29, 23]. However, unlike incompressible multiphase
+ﬂow, a common occurrence when applying various interface-sharping methods explicitly on the SEF models is that
+velocity and pressure oscillations may occur across the interface [28, 29, 30, 26, 27] due to the inconsistency between
+the physical variables and the sharpened or compressed volume fraction ﬁeld. As stated in [26, 28], in contrast to
+incompressible ﬂows where density of ﬂuid is ﬁxed, artiﬁcial interface sharpening scheme cannot be applied alone to
+volume fraction function in compressible multiphase cases. In compressible multiphase ﬂows, neither ﬂuid density nor
+volume fraction alone is suﬃcient to determine the interface location and the ﬂuid density. As some remedies, density
+correction equations are formulated in [26, 28]. In [29], a homogeneous reconstruction has been proposed where the
+reconstructed volume fraction is used to extrapolate the remaining conservative variables across the interface to ensure
+the thermal and mechanical consistency across the isolated material interfaces. In [27], a consistent compression
+method has been discussed to maintain equilibrium across interfaces.
+To alleviate the defect of shock capturing scheme when solving single-ﬂuid model for compressible multiphase
+ﬂows, a novel spatial reconstruction is presented in this work to resolve contact discontinuities including material
+interfaces with substantially reduced numerical dissipation, which then maintains the sharpness of the transition layer
+of material interfaces throughout even long term computations. The scheme, so-called MUSCL-THINC-BVD, im-
+plements the boundary variation diminishing (BVD) algorithm [32, 33] with the traditional MUSCL scheme and
+the interface-sharpening THINC scheme as two building-blocks for reconstruction. The BVD algorithm choose a
+4
+
+reconstruction function between MUSCL and THINC, so as to minimize the variations (jumps) of the reconstructed
+variables at cell boundaries, which in turn eﬀectively removes the numerical dissipations in numerical solutions. More
+importantly, we apply MUSCL-THINC-BVD scheme to all state variables and volume fraction, so sound consistency
+is achieved among volume fraction and other physical variables. Resultantly, the manipulations to the physical vari-
+ables according to the volume fraction in other existing methods are not needed in the present method. The numerical
+model is formulated under a standard ﬁnite volume framework with a Riemann solver in the wave propagation form
+[34]. The numerical results of benchmark tests verify the capability of the present method in capturing the material
+interface as a well-deﬁned sharp jump in volume fraction, as well as signiﬁcant improvement in solution quality.
+The format of this paper is outlined as follows. In Section 2, the governing equations of the ﬁve-equation model
+and closure strategies are stated. In Section 3, after a brief review of the ﬁnite volume method in wave-propagation
+form for solving the quasi-conservative ﬁve-equation model, the details of the new MUSCL-THINC-BVD scheme for
+spatial reconstruction are presented. In Section 4, numerical results of benchmark tests are presented in comparison
+with other high-order methods. Some concluding remarks end the paper in Section 5.
+2. Computational models
+2.1. Governing equations
+In this work, the inviscid compressible two-component ﬂows are formulated by the ﬁve-equation model developed
+in [43]. By assuming that the material interface is in mechanical equilibrium of mixed pressure and velocity, the ﬁve-
+equation model consists of two continuity equations for phasic mass, a momentum equation, an energy equation and
+an advection equation of volume fraction as follows
+∂
+∂t (α1ρ1) + ∇· (α1ρ1u) = 0,
+∂
+∂t (α2ρ2) + ∇· (α2ρ2u) = 0,
+∂
+∂t (ρu) + ∇· (ρu ⊗u) + ∇p = 0,
+∂E
+∂t + ∇· (Eu + pu) = 0,
+∂α1
+∂t + u · ∇α1 = 0,
+(1)
+where ρk and αk ∈[0, 1] denote in turn the kth phasic density and volume fraction for k = 1, 2, u the vector of particle
+velocity, p the mixture pressure and E the total energy. When considering more than two-phases, the ﬁve-equation
+model can be extended by supplementing additional continuity equations and volume fraction advection equations for
+each new phase.
+5
+
+2.2. Closures strategy
+To close the system, the ﬂuid of each phase is assumed to satisfy the Mie-Gr¨uneisen equation of state,
+pk (ρk, ek) = p∞,k(ρk) + ρkΓk(ρk)  ek −e∞,k(ρk) ,
+(2)
+where Γk = (1/ρk)(∂pk/∂ek)|ρk is the Gr¨uneisen coeﬃcient, and p∞,k, e∞,k are the properly chosen states of the pressure
+and internal energy along some reference curves (e.g., along an isentrope or other empirically ﬁtting curves) in order
+to match the experimental data of the material examined [44]. Usually, parameters Γk, p∞,k and e∞,k can be taken
+as functions only of the density. This equation of state can be employed to approximate a wide variety of materials
+including some gaesous or solid explosives and solid metals under high pressure.
+The further closure of the system is completed by deﬁning the mixed volume fraction, density and internal energy
+as
+α1 + α2 = 1,
+α1ρ1 + α2ρ2 = ρ,
+α1ρ1e1 + α2ρ2e2 = ρe,
+(3)
+Derived in [45], under the isobaric assumption the mixture Gr¨uneisen coeﬃcient and p∞,k, e∞,k can be expressed as
+α1
+Γ1(ρ1) +
+α2
+Γ2(ρ2) = 1
+Γ,
+α1ρ1e∞,1(ρ1) + α2ρ2e∞,2(ρ2) = ρe∞,
+α1
+p∞,1(ρ1)
+Γ1(ρ1) + α2
+p∞,2(ρ2)
+Γ2(ρ2) = p∞(ρ)
+Γ(ρ) .
+(4)
+The mixture pressure is then calculated by
+p =
+ρe −
+2
+X
+k=1
+αkρke∞,k(ρk) +
+2
+X
+k=1
+αk
+p∞,k(ρk)
+Γk(ρk)
+
+
+2
+X
+k=1
+αk
+Γk(ρk).
+(5)
+It should be noted that the mixing rule of Eq.(4) and Eq.(5) ensure that the mixed pressure is free of spurious osclil-
+lations, which is particularly important to prevent the spurious pressure oscillations across the material interfaces
+[14, 18, 16, 45, 46].
+3. Numerical methods
+For the sake of simplicity, we introduce the numerical method in one dimension. Our numerical method can be
+extended to the multidimensions on structured grids directly in dimension-wise reconstruction fashion. We will ﬁrst
+review the ﬁnite volume method in the wave propagation form [34] used in this work and then give details about the
+new MUSCL-THINC-BVD reconstruction scheme.
+6
+
+3.1. Wave propagation method
+We rewrite the one dimensional quasi-conservative ﬁve-equation model (1) as
+∂q
+∂t + ∂f(q)
+∂x
++ B(q)∂q
+∂x = 0,
+(6)
+where the vectors of physical variables q and ﬂux functions f are
+q = (α1ρ1, α2ρ2, ρu, E, α1)T ,
+f = (α1ρ1u, α2ρ2u, ρuu + p, Eu + pu, 0)T ,
+(7)
+respectively. The matrix B is deﬁned as
+B = diag (0, 0, 0, 0, u) ,
+(8)
+where u denotes the velocity component in x direction.
+We divide the computational domain into N non-overlapping cell elements, Ci : x ∈[xi−1/2, xi+1/2], i = 1, 2, . . . , N,
+with a uniform grid with the spacing ∆x = xi+1/2 −xi−1/2. For a standard ﬁnite volume method, the volume-integrated
+average value ¯qi(t) in the cell Ci is deﬁned as
+¯qi(t) ≈1
+∆x
+ˆ xi+1/2
+xi−1/2
+q(x, t) dx.
+(9)
+Denoting all the spatial discretization terms in (6) by L(¯q(t)), the semi-discrete version of the ﬁnite volume formula-
+tion can be expressed as a system of ordinary diﬀerential equations (ODEs)
+∂¯q(t)
+∂t
+= L (¯q(t)) .
+(10)
+In the wave-propagation method, the spatial discretization for cell Ci is computed by
+L  ¯qi(t) = −1
+∆x
+
+A+∆qi−1/2 + A−∆qi+1/2 + A∆qi
+
+(11)
+where A+∆qi−1/2 and A−∆qi+1/2, are the right- and left-moving ﬂuctuations, respectively, which enter into the grid
+cell, and A∆qi is the total ﬂuctuation within Ci. We need to solve Riemann problems to determine these ﬂuctuations.
+The right- and left-moving ﬂuctuations can be calculated by
+A±∆qi−1/2 =
+3
+X
+k=1
+h
+sk 
+qL
+i−1/2, qR
+i−1/2
+i± Wk 
+qL
+i−1/2, qR
+i−1/2
+
+,
+(12)
+where moving speeds sk and the jumps Wk (k = 1, 2, 3) of three propagating discontinuities can be solved by Riemann
+solver [48] with the reconstructed values qL
+i−1/2 and qR
+i−1/2 computed from the reconstruction functions ˜qi−1(x) and ˜qi(x)
+7
+
+to the left and right sides of cell edge xi−1/2, respectively. Similarly, the total ﬂuctuation can be determined by
+A∆qi =
+3
+X
+k=1
+h
+sk 
+qR
+i−1/2, qL
+i+1/2
+i± Wk 
+qR
+i−1/2, qL
+i+1/2
+
+(13)
+We will describe with details about the reconstructions to get these values, qL
+i−1/2 and qR
+i−1/2, at cell boundaries in next
+subsection as the core part of this paper.
+In practice, given the reconstructed values qL
+i−1/2 and qR
+i−1/2, the minimum and maximum moving speeds s1(qL
+i−1/2, qR
+i−1/2)
+and s3(qL
+i−1/2, qR
+i−1/2) can be estimated by HLLC Riemann solver [48] as
+s1 = min{uL
+i−1/2 −cL
+i−1/2, uR
+i−1/2 −cR
+i−1/2},
+s3 = max{uL
+i−1/2 + cL
+i−1/2, uR
+i−1/2 + cR
+i−1/2},
+(14)
+where cL
+i−1/2 and cR
+i−1/2 are sound speeds calculated by reconstructed values qL
+i−1/2 and qR
+i−1/2 respectively. Then the
+speed of the middle wave is estimated by
+s2 =
+pR
+i−1/2 −pL
+i−1/2 + ρL
+i−1/2uL
+i−1/2(s1 −uL
+i−1/2) −ρR
+i−1/2uR
+i−1/2(s3 −uR
+i−1/2)
+ρL
+i−1/2(s1 −uL
+i−1/2) −ρR
+i−1/2(s3 −uR
+i−1/2)
+.
+(15)
+The left-side intermediate state variables q∗L
+i−1/2 is evaluated by
+q∗L
+i−1/2 =
+(uL
+i−1/2 −s1)qL
+i−1/2 + (pL
+i−1/2nL
+i−1/2 −p∗
+i−1/2n∗
+i−1/2)
+s2 −s1
+(16)
+where the vector nL
+i−1/2 = (0, 0, 1, uL
+i−1/2, 0), n∗
+i−1/2 = (0, 0, 1, s2, 0) and the intermediate pressure may be estimated as
+p∗
+i−1/2 = ρL
+i−1/2(uL
+i−1/2 −s1)(uL
+i−1/2 −s2) + pL
+i−1/2 = ρR
+i−1/2(uR
+i−1/2 −s1)(uR
+i−1/2 −s2) + pR
+i−1/2.
+(17)
+Analogously, the right-side intermediate state variables q∗R
+i−1/2 is
+q∗R
+i−1/2 =
+(uR
+i−1/2 −s3)qR
+i−1/2 + (pR
+i−1/2nR
+i−1/2 −p∗
+i−1/2n∗
+i−1/2)
+s2 −s3
+(18)
+Then we calculate the jumps Wk(qR
+i−1/2, qL
+i+1/2) as
+W1 = q∗L
+i−1/2 −qL
+i−1/2,
+W2 = q∗R
+i−1/2 −q∗L
+i−1/2,
+W3 = qR
+i−1/2 −q∗R
+i−1/2.
+(19)
+Given the spatial discretization, we employ three-stage third-order SSP (Strong Stability-Preserving) Runge-Kutta
+8
+
+scheme [49]
+¯q∗= ¯qn + ∆tL (¯qn) ,
+¯q∗∗= 3
+4 ¯qn + 1
+4 ¯q∗+ 1
+4∆tL (¯q∗) ,
+¯qn+1 = 1
+3 ¯qn + 2
+3 ¯q∗+ 2
+3∆tL (¯q∗∗) ,
+(20)
+to solve the time evolution ODEs, where ¯q∗and ¯q∗∗denote the intermediate values at the sub-steps.
+3.2. MUSCL-THINC-BVD reconstruction
+In the previous subsection, we left the boundary values, qL
+i−1/2 and qR
+i−1/2, to be determined, which are presented in
+this subsection. We denote any single variable for reconstruction by q , which can be primitive variable, conservative
+variable or characteristic variable.
+The values qL
+i−1/2 and qR
+i+1/2 at cell boundaries are computed from the piecewise reconstruction functions ˜qi(x) in
+cell Ci. In the present work, we designed the MUSCL-THINC-BVD reconstruction scheme to capture both smooth
+and nonsmooth solutions. The BVD algorithm makes use of the MUSCL scheme [19] and the THINC scheme [51]
+as the candidates for spatial reconstruction.
+In the MUSCL scheme, a piecewise linear function is constructed from the volume-integrated average values ¯qi,
+which reads
+˜qi(x)MUSCL = ¯qi + σi(x −xi)
+(21)
+where x ∈[xi−1/2, xi+1/2] and σi is the slope deﬁned at the cell center xi = 1
+2(xi−1/2 + xi+1/2). To prevent numerical
+oscillation, a slope limiter [19, 50] is used to get numerical solutions satisfying the TVD property. We denote the
+reconstructed value at cell boundaries from MUSCL reconstruction as qR,MUSCL
+i−1/2
+and qL,MUSCL
+i+1/2
+. The MUSCL scheme,
+in spite of popular use in various numerical models, has excessive numerical dissipation and tends to smear out ﬂow
+structures, which might be a fatal drawback in simulating interfacial multiphase ﬂows.
+Being another reconstruction candidate, the THINC [31, 51] uses the hyperbolic tangent function, which is a
+diﬀerentiable and monotone function that ﬁts well a step-like discontinuity. The THINC reconstruction function is
+written as
+˜qi(x)THINC = ¯qmin + ¯qmax
+2
+ 
+1 + θ tanh
+ 
+β
+ 
+x −xi−1/2
+xi+1/2 −xi−1/2
+−˜xi
+!!!
+,
+(22)
+where ¯qmin = min(¯qi−1, ¯qi+1), ¯qmax = max(¯qi−1, ¯qi+1) −¯qmin and θ = sgn(¯qi+1 −¯qi−1). The jump thickness is controlled
+by parameter β. In our numerical tests shown later a constant value of β = 1.6 is used. The unknown ˜xi, which
+represents the location of the jump center, is computed from ¯qi =
+1
+∆x
+´ xi+1/2
+xi−1/2 ˜qi(x)THINC dx. Then the reconstructed
+9
+
+values at cell boundaries by THINC function can be expressed by
+qL,THINC
+i+1/2
+= ¯qmin + ¯qmax
+2
+ 
+1 + θ tanh(β) + A
+1 + A tanh(β)
+!
+qR,THINC
+i−1/2
+= ¯qmin + ¯qmax
+2
+(1 + θ A)
+(23)
+where A = B/ cosh(β)−1
+tanh(β)
+and B = exp(θ β(2 C −1)), where C = ¯qi −¯qmin + ϵ
+¯qmax + ϵ
+and ϵ = 10−20 is a mapping factor to project
+the physical ﬁelds onto [0, 1].
+The ﬁnal eﬀective reconstruction function is determined by the BVD algorithm [32, 33], which choose the re-
+construction function between ˜qi(x)MUSCL and ˜qi(x)THINC so that the variations of the reconstructed values at cell
+boundaries are minimized. BVD algorithm prefers the THINC reconstruction ˜qi(x)THINC within a cell where a dis-
+continuity exists. It is sensible that the THINC reconstruction should only be employed when a discontinuity is
+detected. In practice, a cell where a discontinuity may exist can be identiﬁed by the following conditions
+δ < C < 1 −δ,
+(¯qi+1 −¯qi)(¯qi −¯qi−1) > 0,
+(24)
+where δ is a small positive (e.g.,10−4).
+In summary, the eﬀective reconstruction function of MUSCL-THINC-BVD scheme reads
+˜qi(x)BVDl =
+
+˜qi(x)THINC
+if δ < C < 1 −δ, and (¯qi+1 −¯qi)(¯qi −¯qi−1) > 0, and T BVTHINC
+i,min
+< T BV MUSCL
+i,min
+˜qi(x)MUSCL
+otherwise
+.
+(25)
+where the minimum value of total boundary variation (TBV) T BVP
+i,min, for reconstruction function P = THINC or MUSCL,
+is deﬁned as
+T BVP
+i,min = min(|qL,MUSCL
+i−1/2
+−qR,P
+i−1/2| + |qL,P
+i+1/2 −qR,MUSCL
+i+1/2
+|, |qL,THINC
+i−1/2
+−qR,P
+i−1/2| + |qL,P
+i+1/2 −qR,THINC
+i+1/2
+|,
+|qL,MUSCL
+i−1/2
+−qR,P
+i−1/2| + |qL,P
+i+1/2 −qR,THINC
+i+1/2
+|, |qL,THINC
+i−1/2
+−qR,P
+i−1/2| + |qL,P
+i+1/2 −qR,MUSCL
+i+1/2
+|).
+(26)
+Thus, THINC reconstruction function will be employed in the targeted cell if the minimum TBV value of THINC
+is smaller than that of MUSCL. In Fig. 1, we illustrate one possible situation corresponding to |qL,MUSCL
+i−1/2
+−qR,THINC
+i−1/2
+|+
+|qL,THINC
+i+1/2
+−qR,MUSCL
+i+1/2
+| when evaluating T BVTHINC
+i,min
+. As stated in [32], the BVD algorithm will realize the polynomial
+interpolation for smooth solution while for discontinuous solution a step like function will be preferred.
+As shown in numerical tests in this paper, discontinuities including material interface can be resolved by the
+MUSCL-THINC-BVD scheme with substantially reduced numerical dissipation in comparison with other existing
+methods. The material interface can be captured sharply and any extra step, like anti-diﬀusion or other artiﬁcial
+interface sharpening techniques used in the existing works [23, 29, 26, 28], is not needed here. More importantly,
+10
+
+Figure 1: Illustration of one possible situation corresponding to |qL,MUSCL
+i−1/2
+−qR,THINC
+i−1/2
+| + |qL,THINC
+i+1/2
+−qR,MUSCL
+i+1/2
+| when calculating T BVTHINC
+i,min
+.
+the MUSCL-THINC-BVD scheme is applied not only the volume fraction but also to other all physical variables,
+which automatically leads to the consistent reconstructions among the physical ﬁelds. As observed in our numerical
+results, no suprious numerical oscillation is generated in vicinity of material interfaces. It is usualy not trival to
+other anti-diﬀusion or artiﬁcial compression methods aforementioned. For example, in [27, 28, 29] anti-diﬀusion
+post-processing steps are required to adjust other state variables across interfaces to get around the oscillations.
+As discussed in [52, 53, 21, 22], when high-order reconstructions, such as MUSCL or WENO shemes, are applied,
+special attention must be paid to decide which physical variables should be reconstructed. It is concluded that one
+should implement high-order reconstructions to primitive variables or characteristic variables to prevent numerical
+oscillations in velocity and pressure across material interfaces. However, reconstructing conservative variables or ﬂux
+functions may cause numerical oscillations. We show in the rest part of this section that THINC reconstruction ensures
+the consistency among the reconstructed variables across material interface even if the reconstruction is conducted for
+the conservative variables.
+We consider one-dimensional interface only problem where initial condition consists of constant velocity u = u0,
+uniform pressure p = p0 and constant phasic densities ρ1 = ρ10 and ρ2 = ρ20. Across a material interface, other
+variables, such as mixture densities ρ, mass fraction α1ρ1 and volume fraction α1 have jumps. Without loss of
+11
+
+generality, a positive velocity u = u0 > 0 is considered here. Then the ﬂuctuations for cell Ci can be calculated as
+A−∆qi+1/2 = 0,
+A+∆qi−1/2 = u0
+
+qR
+i−1/2 −qL
+i−1/2
+
+,
+A∆qi = u0
+
+qL
+i+1/2 −qR
+i−1/2
+
+.
+(27)
+By using Eq. (11) and Euler one-step forward time scheme, the cell average ¯qn
+i can be updated by
+¯qn+1
+i
+= ¯qn
+i −∆t
+∆xu0
+
+qL
+i+1/2 −qL
+i−1/2
+
+,
+(28)
+or a component form,
+
+α1ρ1
+α2ρ2
+ρu
+E
+α1
+
+n+1
+i
+=
+
+α1ρ1
+α2ρ2
+ρu
+E
+α1
+
+n
+i
+−∆t
+∆xu0
+
+(α1ρ1)L
+i+1/2 −(α1ρ1)L
+i−1/2
+(α2ρ2)L
+i+1/2 −(α2ρ2)L
+i−1/2
+u0
+
+ρL
+i+1/2 −ρL
+i−1/2
+
+EL
+i+1/2 −EL
+i−1/2
+(α1)L
+i+1/2 −(α1)L
+i−1/2
+
+.
+(29)
+We denote the reconstruction operator to compute qL
+i+1/2 by Di+ 1
+2 (q)L.
+As shown below, when we implement the reconstructions to the conservative variables, spurious oscillations may
+be generated in velocity u. To facilitate discussions, we address the consistency in velocity u by
+Deﬁnition 1. The reconstruction is u-consistent if the numerical results from (29) satisfy un+1 = un for isolated
+material interface where velocity u and pressure p are uniform.
+In the present model, in order to calculate velocity un+1
+i
+, we ﬁrst compute density from the two conservation
+equations for phasic densities,
+ρn+1
+i
+= ρn
+i −∆t
+∆xu0
+
+(Di+ 1
+2 (α1ρ1)L + Di+ 1
+2 (α2ρ2)L) −(Di−1
+2 (α1ρ1)L + Di−1
+2 (α2ρ2)L)
+
+.
+(30)
+From the momentum equation, we have
+(ρu)n+1
+i
+= (ρu)n
+i −∆t
+∆xu0
+
+Di+ 1
+2 (ρu)L −Di−1
+2 (ρu)L
+= ρn
+i u0 −∆t
+∆xu0u0
+
+Di+ 1
+2 (ρ)L −Di−1
+2 (ρ)L
+,
+(31)
+where we assume the operator should satisfy D j(mX) = mD j(X) in which X represents the reconstructed variable, m
+is constant, then the velocity un+1 is retrieved by
+un+1
+i
+= u0
+ρn
+i −∆t
+∆xu0
+
+Di+ 1
+2 (ρ)L −Di−1
+2 (ρ)L
+ρn
+i −∆t
+∆xu0
+
+(Di+ 1
+2 (α1ρ1)L + Di+ 1
+2 (α2ρ2)L) −(Di−1
+2 (α1ρ1)L + Di−1
+2 (α2ρ2)L)
+.
+(32)
+12
+
+It is clear that the u-consistent condition requires
+Di± 1
+2 (ρ)L = (Di± 1
+2 (α1ρ1)L + Di± 1
+2 (α2ρ2)L)
+(33)
+to maintain un+1
+i
+= u0. I.e. the reconstruction operator Di± 1
+2 (ρ)L should be consistent with Di± 1
+2 (α1ρ1)L and Di± 1
+2 (α2ρ2)L
+at cell faces i ± 1
+2 to ensure ρL
+i± 1
+2 = (α1ρ1)L
+i± 1
+2 + (α2ρ2)L
+i± 1
+2 .
+Concerning u-consistent property, we have
+Proposition 1. All schemes satisfy u-consistent condition if reconstruction are conducted in terms of primitive
+variables.
+Proof. It is straightforward that un+1 = un since the reconstruction is conducted with u, which has also been
+discussed in [14, 22]. □
+Proposition 2. Piecewise constant reconstruction scheme for conservative variables satisfy u-consistent condi-
+tion.
+Proof.
+For piecewise constant reconstruction, it is obvious that above condition (33) can be satisﬁed, as ρL
+i−1
+2 = ρi−1 =
+(α1ρ1)i−1 + (α2ρ2)i−1 = (α1ρ1)L
+i−1
+2 + (α2ρ2)L
+i−1
+2 and ρL
+i+ 1
+2 = ρi = (α1ρ1)i + (α2ρ2)i = (α1ρ1)L
+i+ 1
+2 + (α2ρ2)L
+i+ 1
+2 .□
+Proposition 3. All linear reconstruction schemes for conservative variables satisfy u-consistent condition.
+Proof.
+For general linear schemes, the reconstructed values at cell boundaries can be expressed as linear combinations of
+the cell average values, ¯ql, on the stencils, Cl, l = i −l′, · · · , i + l′′. That is
+Di+ 1
+2 (q)L =
+X
+l
+χl ¯ql,
+(34)
+where the coeﬃcients χl are the same for ρ, α1ρ1 and α2ρ2. With the conclusion in proposition 2 given above for
+piecewise constant reconstruction, we know that Di+ 1
+2 (ρ)L = (Di+ 1
+2 (α1ρ1)L + Di+ 1
+2 (α2ρ2)L), which leads to un+1
+i
+= u0
+from Eq. (32). □
+Proposition 4. Non-linear schemes for conservative variables may not satisfy u-consistent condition.
+Proof. Taking 5th order WENO scheme as an example, the reconstructed values at cell faces are a combination of
+three third order linear schemes through nonlinear weights. The reconstructed value can be expressed as
+qL
+i+1/2 =
+3
+X
+k=1
+w(k)
+i+ 1
+2 (q)LD(k)
+i+ 1
+2 (q)L,
+(35)
+where D(1)
+i+ 1
+2 (q)L is the third order approximation on stencil {Ci−2, Ci−1, Ci}, D(2)
+i+ 1
+2 (q)L on {Ci−1, Ci, Ci+1} and D(3)
+i+ 1
+2 (q)L
+on {Ci,Ci+1,Ci+2}. w(k)
+i+ 1
+2 (q)L is the nonlinear weight corresponding to the D(k)
+i+ 1
+2 (q)L. To satisfy u-consistent condition,
+13
+
+it is necessary that
+w(k)
+i+ 1
+2 (α1ρ1)L = w(k)
+i+ 1
+2 (α2ρ2)L = w(k)
+i+ 1
+2 (ρu)L.
+(36)
+Because the nonlinear weights are separately determined according the smoothness of the reconstructed variables,
+there is no guarantee that Eq. (36) always holds. Thus, WENO scheme is not u-consistent when applied to conservative
+variables, which has also been reported in [52, 53]. This observation applies to all high-resolution schemes using
+nonlinear weights to suppress numerical oscillations. □
+Proposition 5. THINC reconstruction satisﬁes u-consistent condition.
+Proof. We consider a material interface in cell Ci with volume fraction (α1)i = λ(α1)i−1 +(1−λ)(α1)i+1, 0 < λ < 1,
+which divides the cell into two regions sharing uniform physical properties with the neighboring cells respectively.
+Then, we have (ρu)i = λ(ρu)i−1 + (1 −λ)(ρu)i+1. Without loss of generality, we assume (α1)i−1 > (α1)i+1 and ρ1 > ρ2,
+the reconstructed values of phasic densities at cell face i + 1
+2 are
+(α1ρ1)L
+i+1/2 = (α1ρ1)i+1 + (α1ρ1)i−1 −(α1ρ1)i+1
+2
+ 
+1 −
+tanh(β) + A1
+1 + A1 tanh(β)
+!
+;
+(α2ρ2)L
+i+1/2 = (α2ρ2)i−1 + (α2ρ2)i+1 −(α2ρ2)i−1
+2
+ 
+1 +
+tanh(β) + A2
+1 + A2 tanh(β)
+!
+.
+(37)
+Recall (23), we get C1 = λ and C2 = (1 −λ), which leads to B1 = exp(β(1 −2λ)) = B2 and A1 = A2 = A.
+From the momentum equation, we have
+ρL
+i+1/2 = ρi+1 + ρi−1 −ρi+1
+2
+ 
+1 −
+tanh(β) + A3
+1 + A3 tanh(β)
+!
+,
+(38)
+Again we can ﬁnd A3 = A. Then, we ﬁnally get
+ρL
+i+1/2 = (α1ρ1)L
+i+1/2 + (α2ρ2)L
+i+1/2.
+(39)
+Thus, u-consistent condition is satisﬁed. □
+We remark that the conclusion of proposition 4 applies to any reconstruction function if it is used in exactly the
+same form to diﬀerent reconstructed ﬁelds. Being an extreme case, when β is large enough, the THINC reconstruction
+build up two piecewise-constant states in the cell where discontinuities exist. It might be of physical importance in
+applications.
+To verify that THINC scheme satisﬁes u-consistent condition even used to reconstruct the conservative variables,
+we present the numerical results to the isolated interface problem similar to [22, 54, 55], where the initial condition is
+set as follows
+(α1ρ1, α2ρ2, u0, p0, α1, γ) =
+
+
+10, 0, 0.5,
+1
+1.4, 1, 1.6
+
+for 0.3 ≤x < 0.7
+
+0, 0.5, 0.5,
+1
+1.4, 0, 1.4
+
+else
+.
+(40)
+14
+
+(a) p
+(b) u
+Figure 2: Comparative numerical results between WENO and THINC for conservative ones
+The computational domain is [0, 1]. We computed the same test with MUSCL[19], WENO[20] and THINC scheme
+respectively for comparison. Reconstruction is conducted in terms of the conservative variables. Figure 2 shows the
+numerical results of WENO and THINC at time t = 0.1 using a 200-cell mesh with the Courant-Friedrichs-Lewy
+(CFL) condition CFL = 0.5. From the results, we can see WENO scheme produces numerical oscillations due to its
+non-linear property. We also compare the results computed from MUSCL and THINC in Figure ??. MUSCL scheme
+also produces numerical oscillations when reconstructing with conservative variables. The numerical oscillations
+generated from the MUSCL reconstruction are much smaller than that from the WENO scheme.
+Previous works suggested the use of primitive variables or characteristic variables for reconstruction, such as
+[14, 43] for MUSCL and [21, 22] for WENO. The THINC reconstruction provides consistent reconstruction for all
+types of variables, which indicates more possibility in applications.
+4. Numerical results
+Comparative tests in one- and two- dimensions are conducted in this section with WENO scheme and the proposed
+MUSCL-THINC-BVD scheme. Here we use the WENO scheme in [20] which is one of representative high order
+shock-capturing schemes. We denote it as WENO-JS in our tests. In order to reduce the numerical oscillations, the
+WENO reconstruction should be implemented for characteristic ﬁelds as [21].
+The one dimension tests were conducted with a single CPU (Intel(R) Xeon(R) CPU E5-2687W, 3.10GHZ), while
+two dimensional tests were conducted with a NVIDIA GTX980ti GPU.
+15
+
+(a) p
+(b) u
+Figure 3: Same as Figure 2, but comparison between MUSCL and THINC
+4.1. Passive advection of a square liquid column
+To evaluate the ability of the proposed scheme to capture interface as well as to maintain the equilibrium of velocity
+and pressure ﬁelds, a simple interface-only problem in one dimension is considered in this test. The problem consists
+of a square liquid column in gas transported with a uniform velocity u = u0 = 102 m/s under equilibrium pressure
+p = p0 = 105 Pa in a shock tube of one meter. For initial condition, liquid is set in the region of x ∈[0.4, 0.6]m and
+gas is ﬁlled elsewhere. We set initially the volume fraction of liquid α1 = 1 −ϵ for the liquid region and α1 = ϵ in the
+gas region, and the volume fraction of gas is then α2 = 1 −α1. The small positive ϵ is set 10−8 in numerical tests in
+this paper. The densities for the liquid and gas phases are ρ1 = 103kg/m3 and ρ2 = 1kg/m3, respectively.
+To model the thermodynamic behavior of liquid and gas, we use the stiﬀened gas equation of state where the
+material-dependent functions appeared in (2) are
+Γk = γk −1,
+p∞,k = γkBk,
+e∞,k = 0,
+with the parameter values taken in turn to be γ1 = 4.4, B1 = 6 × 108Pa, and γ2 = 1.4, B2 = 0 for the liquid and gas
+phases.
+The computations using WENO-JS and MUSCL-THINC-BVD are carried out respectively. Periodic boundary
+condition is used on the left and right boundaries during the computations. Figure 4 shows numerical results of partial
+density and pressure ﬁelds at time t = 10ms using a 200-cell mesh with CFL = 0.5. It is obvious that MUSCl-
+BVD can solve the sharp interface within only two cells while WENO scheme, in spite of high-order accuracy,
+16
+
+(a) α1ρ1
+(b) p
+Figure 4: Numerical results for a passive advection of a square liquid column at time t = 10ms. The solid line is the exact solution and the points
+shows the computed solution with 200 mesh points obtained using diﬀerent methods. We denote the numerical result from MUSCl-THINC-BVD
+by MUSCL-BVD and that from [20] by WENO-JS.
+Table 1: Comparison between WENO and MUSCL-THINC-BVD regarding to the elapse time for one dimensional tests
+Test 4.1
+Test 4.2
+Test 4.3
+WENO-JS
+9.90s
+3.02s
+8.90s
+MUSCL-THINC-BVD
+4.23s
+1.74s
+3.72s
+excessively diﬀuses the interface due to the intrinsic numerical dissipation as other conventional shock capturing
+schemes. Meanwhile, MUSCL-THINC-BVD can retain the correct pressure equilibrium and particle velocity without
+introducing spurious oscillations across the interfaces. We have not conducted any extra procedures to sharpen the
+interface, which are used in other existing works to keep the steepness of the jump in volume fraction ﬁeld to identify
+the interface. The MUSCL-THINC-BVD reconstruction is implemented to all state variables, which remains the
+thermo-dynamical consistency among the physical ﬁelds. We also compare the computational cost in Table 1. Since it
+is not necessary to cast state variables to characteristic ﬁelds, the computation cost of MUSCL-THINC-BVD is about
+half of the WENO scheme.
+4.2. Two-material impact problem
+Following [56, 57], we computed the two-phase impact benchmark problem. At the beginning, there is a right-
+moving copper (phase 1) plate with the speed u1 = 1500 m/s interacting with a solid explosive (phase 2) at rest
+on the right of the plate under the uniform atmospheric condition which has pressure p0 = 105 Pa and temperature
+T0 = 300K throughout the domain. The material properties of the copper and (solid) explosive are modeled by the
+17
+
+Table 2: Material quantities for copper (k = 1) and explosive (k = 2) in Cochran-Chan equation of state (41).
+k
+ρ0k(kg/m3)
+B1k(GPa)
+B2k(GPa)
+E1k
+E2k
+γk
+Cvk
+1
+8900
+145.67
+147.75
+2.99
+1.99
+3
+393J/kg·K
+2
+1840
+12.87
+13.42
+4.1
+3.1
+1.93
+1087J/kg·K
+Cochran-Chan equation of state where in (2) we set the same Γk as in the stiﬀened gas case, but with p∞,k, e∞,k deﬁned
+by
+p∞,k(ρk) = B1k
+ ρ0k
+ρk
+!−E1k
+−B2k
+ ρ0k
+ρk
+!−E2k
+,
+e∞,k(ρk) =
+−B1k
+ρ0k (1 −E1k)
+
+ ρ0k
+ρk
+!1−E1k
+−1
++
+B2k
+ρ0k (1 −E2k)
+
+ ρ0k
+ρk
+!1−E2k
+−1
+−CvkT0.
+(41)
+Here γk, B1k, B2k, E1k, E2k, Cvk, and ρ0k are material-dependent quantities, see Table 2 for a typical set of numerical
+values for copper and explosive considered.
+The solution of this test is characterized by a left-moving shock wave to the copper, a right-moving shock waves
+to the inert explosive, and a material interface lying in between that separates these two diﬀerent materials. We run
+this problem with a 200-cell grid and CFL = 0.5 up to t = 85µs. Figure 5 shows the results for the partial densities,
+velocity, and the copper volume fraction of both WENO and MUSCL-THINC-BVD for comparison. Again, MUSCL-
+THINC-BVD can keep sharp interface without spurious numerical oscillation in velocity ﬁelds. It should be noted that
+due to complicated state equations, characteristic decomposition is conducted as in [23] when implementing WENO
+scheme. In previous work [29], there is a slight overshoot on the partial density α1ρ1 on the left of the interface when
+using THINC method for the volume fraction. This oscillation is not observed in present study due to the global
+consistency in MUSCL-THINC-BVD reconstructions for all physical ﬁelds.
+4.3. Shock interface interaction problem
+The interaction between a strong shock wave in helium and an air/helium interface has been studied. Typically,
+such problem is very challenging for some interface tracking methods. For example, the schemes which are not
+conservative on discrete level may miscalculate the position and speed of the waves resulted from the interaction [58].
+The initial problem is set the same as [21], where a Mach 8.96 shock wave is traveling in helium toward a material
+18
+
+(a) α1
+(b) α1ρ1
+(c) α2ρ2
+(d) u
+Figure 5: Numerical results for a two-phase (solid explosive-copper) impact problem at time t = 85µs. The solid line is the ﬁne grid solution
+computed on a mesh of 5000 cells by MUSCL, and the points show the solution with 200 meshes.
+19
+
+interface with air which is moving toward the shock wave simultaneously. The detail initial conﬁguration is given by
+(α1ρ1, α2ρ2, u0, p0, α1) =
+
+(0.386, 0, 26.59, 100, 1) for −1 ≤x < −0.8
+(0.1, 0, −0.5, 1, 1)
+for −0.8 ≤x < −0.2
+(0, 1, −0.5, 1, 0)
+for −0.2 ≤x < 1
+.
+(42)
+The calculation domain is [−1, 1] which is divided by 200 uniform mesh cells. The solutions at t=0.07 were computed
+with the CFL number of 0.1. The comparisons of numerical results between MUSCL-THINC-BVD and WENO
+schemes are presented in Figure 6. The results from MUSCL-THINC-BVD show much superior solution quality
+in resolving material interface without obvious numerical oscillations, while some oscillations are observed in the
+pressure and velocity ﬁelds by in the results of WENO scheme in the region of the reﬂected shock wave even although
+eﬀorts have been made to implement reconstructions to characteristic variables [21].
+4.4. Shock-bubble interaction
+In this widely used benchmark test [59, 60, 61, 30, 62, 63], we investigate the interactions between a shock and a
+bubble which involves a shock wave of Mach 1.22 in air impacting a cylindrical bubble of refrigerant-22 (R22) gas.
+The experimental results can be referred in [64]. A planar rightward-moving Mach 1.22 shock wave in air impacts a
+stationary R22 gas bubble with radius r0 = 25mm. The numerical test, both the air and R22 are modeled as perfect
+gases. Inside the R22 gas bubble, the state variables are
+(ρ1, ρ2, u, v, p, α1) = (3.863 kg/m3, 1.225 kg/m3, 0, 0, 1.01325 × 105 Pa, 1 −ε),
+while outside the bubble the corresponding parameters are
+(ρ1, ρ2, u, v, p, α1) = (3.863 kg/m3, 1.225 kg/m3, 0, 0, 1.01325 × 105 Pa, ε)
+and
+(ρ1, ρ2, u, v, p, α1) = (3.863 kg/m3, 1.686 kg/m3, 113.5 m/s, 0, 1.59 × 105 Pa, ε)
+in the pre- and post- shock regions, respectively, where ε = 10−8. The mesh size is ∆x = ∆y = 1
+8mm which corre-
+sponds to a grid-resolution of 400 cells across the bubble diameter. Zero-gradient boundary conditions are imposed
+at the left and right boundaries while symmetric boundaries are imposed at the top and bottom boundaries. Schlieren-
+type images of density gradient, |∇ρ|, at diﬀerent time instants are presented in Figs.7-8, in which comparisons are
+made among WENO, MUSCL and MUSCL-THINC-BVD schemes. The MUSCL-THINC-BVD scheme maintains
+much better the compact thickness of the material interfaces and gives large-scale ﬂow structures similar to the results
+computed from WENO and MUSCL schemes. Moreover, MUSCL-THINC-BVD scheme is able to reproduce ﬁner
+20
+
+(a) α1
+(b) α2ρ2
+(c) p
+(d) u
+Figure 6: Comparisons of numerical results of shock/interface interaction problem between MUSCL-THINC-BVD and WENO schemes at t=0.07.
+21
+
+ﬂow structures due to largely reduced numerical dissipation. For example, the instability develops along the interface,
+which then rolls up and produces small ﬁlaments as shown in Figure 7. These ﬁne structures in ﬂow and interface tend
+to be smeared out by numerical schemes with excessive numerical dissipation [30] unless high-resolution meshes are
+used. Not only the well-resolved material interface, we can also observe that the reﬂected shock waves and transmitted
+shock waves can be captured more clearly compared with the original MUSCL schemes and competitive to WENO
+shock-capturing scheme. The resolution quality has been improved remarkably by MUSCL-THINC-BVD scheme to
+reproduce the complex ﬂow features which are easily diﬀused out by conventional shock capturing schemes.
+We make comparisons further with published works which were computed on much ﬁner grid. Shown in Fig. 9
+and 10 we plot our results on a coarse mesh where the diameter uses 400 cells to compare with the results computed
+by anti-diﬀusion interface sharpening technique [30] and multi-scale sharp interface [63] on a ﬁner grid where 1150
+cell were used for the bubble diameter. From Fig. 10, it can be observed that similar small-scale structures have been
+recovered by the MUSCl-THINC-BVD scheme with much fewer cells.
+5. Conclusion remarks
+In this work, we implement MUSCL-THINC-BVD scheme to simulate compressible multiphase ﬂows by solving
+the ﬁve-equation model. This scheme can resolve discontinuous solutions with much less numerical dissipation. By
+treating interface as another contact discontinuity rather than implementing interface-sharping techniques explicitly,
+the new scheme can realize thermodynamical-consistent reconstruction straightforwardly. The results of test cases
+show a remarkable improvement in the solution quality to the problems of interest. Compared with the high-order
+shock-capturing schemes, the new scheme shows competitive or even better numerical results but with less compu-
+tational cost. This work provides an eﬀective but simple approach to simulate compressible interfacial multiphase
+ﬂows.
+Acknowledgment
+This work was supported in part by JSPS KAKENHI Grant Numbers 15H03916 and 15J09915.
+22
+
+(a) t=210 µs
+(b) t=210 µs
+(c) t=264 µs
+(d) t=264 µs
+(e) t=296 µs
+(f) t=296 µs
+Figure 7: Numerical results for a planar Mach 1.22 shock wave in air interacting with a circular R22 gas bubble. Comparisons are made among
+MUSCL-THINC-BVD, WENO-JS and MUSCL schemes regarding to Schlieren-type images of density at diﬀerent times
+23
+
+(a) t=372 µs
+(b) t=372 µs
+Figure 8: (continued)
+(a) t=187 µs
+(b) t=247 µs
+(c) t=318 µs
+(d) t=417 µs
+Figure 9: Comparisons with published work [30] about the Schlieren-type images with the same grid number. The top half is the result calculated
+by anti-diﬀusion interface sharpening technique while the bottom half is from the MUSCL-THINC-BVD scheme
+24
+
+(a) t=187 µs
+(b) t=247 µs
+(c) t=318 µs
+(d) t=417 µs
+Figure 10: Comparisons with published work [63] about the Schlieren-type images. The top half is the result calculated by multi-scale sharp
+interface modeling with 1150 cells distributed along the bubble diameter while the bottom half is from the MUSCL-THINC-BVD scheme with 400
+cells along the bubble diameter.
+25
+
+References
+[1] Tryggvason, Gr´etar, Ruben Scardovelli, and St´ephane Zaleski. Direct numerical simulations of gas-liquid multiphase ﬂows. Cambridge
+University Press, 2011.
+[2] Brouillette, Martin. “The richtmyer-meshkov instability.” Annual Review of Fluid Mechanics 34.1 (2002): 445-468.
+[3] Hirt, Cyril W., and Billy D. Nichols. “Volume of ﬂuid (VOF) method for the dynamics of free boundaries.” Journal of computational physics
+39.1 (1981): 201-225.
+[4] Gueyﬃer, Denis, Jie Li, Ali Nadim, Ruben Scardovelli, and St´ephane Zaleski. “Volume-of-ﬂuid interface tracking with smoothed surface
+stress methods for three-dimensional ﬂows.” Journal of Computational physics 152, no. 2 (1999): 423-456.
+[5] Scardovelli, Ruben, and St´ephane Zaleski. “Direct numerical simulation of free-surface and interfacial ﬂow.” Annual review of ﬂuid mechan-
+ics 31.1 (1999): 567-603.
+[6] Osher, Stanley, and James A. Sethian. “Fronts propagating with curvature-dependent speed: algorithms based on Hamilton-Jacobi formula-
+tions.” Journal of computational physics 79.1 (1988): 12-49.
+[7] Sussman, Mark, Peter Smereka, and Stanley Osher. “A level set approach for computing solutions to incompressible two-phase ﬂow.” Journal
+of Computational physics 114.1 (1994): 146-159.
+[8] Sethian, James Albert. Level set methods and fast marching methods: evolving interfaces in computational geometry, ﬂuid mechanics,
+computer vision, and materials science. Vol. 3. Cambridge university press, 1999.
+[9] T. Yabe., and Xiao, F. “Description of complex and sharp interface during shock wave interaction with liquid drop.” Journal of the Physical
+Society of Japan 62, no. 8 (1993): 2537-2540.
+[10] Yabe, Takashi, Feng Xiao, and Takayuki Utsumi. “The constrained interpolation proﬁle method for multiphase analysis.” Journal of Compu-
+tational physics 169.2 (2001): 556-593.
+[11] Xiao, F., and T. Yabe. “A method to trace sharp interface of two ﬂuids in calculations involving shocks.” Shock Waves 4.2 (1994): 101-107.
+[12] Larrouturou, Bernard. “How to preserve the mass fractions positivity when computing compressible multi-component ﬂows.” Journal of
+Computational Physics 95.1 (1991): 59-84.
+[13] Karni, Smadar. “Multicomponent Flow Calculations by a Consistent Primitive Algorithm.” Journal of Computational Physics 112.1 (1994):
+31-43.
+[14] Abgrall, R´emi. “How to prevent pressure oscillations in multicomponent ﬂow calculations: a quasi conservative approach.” Journal of Com-
+putational Physics 125.1 (1996): 150-160.
+[15] Saurel, Richard, and R´emi Abgrall. “A multiphase Godunov method for compressible multiﬂuid and multiphase ﬂows.” Journal of Computa-
+tional Physics 150.2 (1999): 425-467.
+[16] Shyue, Keh-Ming. “An eﬃcient shock-capturing algorithm for compressible multicomponent problems.” Journal of Computational Physics
+142.1 (1998): 208-242.
+[17] Saurel, Richard, and R´emi Abgrall. “A multiphase Godunov method for compressible multiﬂuid and multiphase ﬂows.” Journal of Computa-
+tional Physics 150.2 (1999): 425-467.
+[18] Abgrall, R´emi, and Smadar Karni. “Computations of compressible multiﬂuids.” Journal of computational physics 169.2 (2001): 594-623.
+[19] Van Leer, Bram. “Towards the ultimate conservative diﬀerence scheme. V. A second-order sequel to Godunov’s method.” Journal of compu-
+tational Physics 32.1 (1979): 101-136.
+[20] Jiang, Guang-Shan, and Chi-Wang Shu. “Eﬃcient implementation of weighted ENO schemes.” Journal of computational physics 126.1
+(1996): 202-228.
+[21] Coralic, Vedran, and Tim Colonius. “Finite-volume WENO scheme for viscous compressible multicomponent ﬂows.” Journal of computa-
+tional physics 274 (2014): 95-121.
+[22] Johnsen, Eric, and Tim Colonius. “Implementation of WENO schemes in compressible multicomponent ﬂow problems.” Journal of Compu-
+tational Physics 219.2 (2006): 715-732.
+[23] He, Zhiwei, Baolin Tian, Yousheng Zhang, and Fujie Gao. “Characteristic-based and interface-sharpening algorithm for high-order simula-
+tions of immiscible compressible multi-material ﬂows.” Journal of Computational Physics 333 (2017): 247-268.
+[24] He, Zhiwei, Yousheng Zhang, Fujie Gao, Xinliang Li, and Baolin Tian. “An improved accurate monotonicity-preserving scheme for the Euler
+equations.” Computers & Fluids 140 (2016): 1-10.
+[25] Garrick, Daniel P., Mark Owkes, and Jonathan D. Regele. “A ﬁnite-volume HLLC-based scheme for compressible interfacial ﬂows with
+surface tension.” Journal of Computational Physics 339 (2017): 46-67.
+[26] Shukla, Ratnesh K. “Nonlinear preconditioning for eﬃcient and accurate interface capturing in simulation of multicomponent compressible
+ﬂows.” Journal of Computational Physics 276 (2014): 508-540.
+[27] Tiwari, Arpit, Jonathan B. Freund, and Carlos Pantano. “A diﬀuse interface model with immiscibility preservation.” Journal of computational
+physics 252 (2013): 290-309.
+[28] Shukla, Ratnesh K., Carlos Pantano, and Jonathan B. Freund. “An interface capturing method for the simulation of multi-phase compressible
+ﬂows.” Journal of Computational Physics 229.19 (2010): 7411-7439.
+[29] Shyue, Keh-Ming, and Feng Xiao. “An Eulerian interface sharpening algorithm for compressible two-phase ﬂow: The algebraic THINC
+approach.” Journal of Computational Physics 268 (2014): 326-354.
+[30] So, K. K., X. Y. Hu, and N. A. Adams. “Anti-diﬀusion interface sharpening technique for two-phase compressible ﬂow simulations.” Journal
+of Computational Physics 231.11 (2012): 4304-4323.
+[31] Xiao, Feng, Satoshi Ii, and Chungang Chen. “Revisit to the THINC scheme: a simple algebraic VOF algorithm.” Journal of Computational
+Physics 230.19 (2011): 7086-7092.
+[32] Sun, Ziyao, Satoshi Inaba, and Feng Xiao. “Boundary Variation Diminishing (BVD) reconstruction: A new approach to improve Godunov
+schemes.” Journal of Computational Physics 322 (2016): 309-325.
+[33] Xie, Bin, Xi Deng, Ziyao Sun, and Feng Xiao. “A hybrid pressure?density-based Mach uniform algorithm for 2D Euler equations on unstruc-
+tured grids by using multi-moment ﬁnite volume method.” Journal of Computational Physics 335 (2017): 637-663.
+26
+
+[34] Ketcheson, David I., Matteo Parsani, and Randall J. LeVeque. “High-order wave propagation algorithms for hyperbolic systems.” SIAM
+Journal on Scientiﬁc Computing 35.1 (2013): A351-A377.
+[35] Luo, Hong, Joseph D. Baum, and Rainald L¨oner. “On the computation of multi-material ﬂows using ALE formulation.” Journal of Computa-
+tional Physics 194.1 (2004): 304-328.
+[36] Daude, F., P. Galon, Z. Gao, and E. Blaud. “Numerical experiments using a HLLC-type scheme with ALE formulation for compressible
+two-phase ﬂows ﬁve-equation models with phase transition.” Computers & Fluids 94 (2014): 112-138.
+[37] Ball, G. J., B. P. Howell, T. G. Leighton, and M. J. Schoﬁeld. “Shock-induced collapse of a cylindrical air cavity in water: a free-Lagrange
+simulation.” Shock Waves 10. 4 (2000): 265-276.
+[38] Terashima, Hiroshi, and Gr´etar Tryggvason. “A front-tracking/ghost-ﬂuid method for ﬂuid interfaces in compressible ﬂows.” Journal of
+Computational Physics 228.11 (2009): 4012-4037.
+[39] Hu, Xiang Yu, and Boo Cheong Khoo. “An interface interaction method for compressible multiﬂuids.” Journal of Computational Physics
+198.1 (2004): 35-64.
+[40] Hu, X. Y., B. C. Khoo, Nikolaus A. Adams, and F. L. Huang. “A conservative interface method for compressible ﬂows.” Journal of Compu-
+tational Physics 219, no. 2 (2006): 553-578.
+[41] Liu, T. G., B. C. Khoo, and C. W. Wang. “The ghost ﬂuid method for compressible gas-water simulation.” Journal of Computational Physics
+204.1 (2005): 193-221.
+[42] Nourgaliev, Robert R., and Theo G. Theofanous. “High-ﬁdelity interface tracking in compressible ﬂows: Unlimited anchored adaptive level
+set.” Journal of Computational Physics 224.2 (2007): 836-866.
+[43] Allaire, Gr´egoire, S´ebastien Clerc, and Samuel Kokh. “A ﬁve-equation model for the simulation of interfaces between compressible ﬂuids.”
+Journal of Computational Physics 181.2 (2002): 577-616.
+[44] Marsh, Stanley P. LASL shock Hugoniot data. Vol. 5. Univ of California Press, 1980.
+[45] Shyue, Keh-Ming. “A ﬂuid-mixture type algorithm for compressible multicomponent ﬂow with Mie-Gr¨ueisen equation of state.” Journal of
+Computational Physics 171.2 (2001): 678-707.
+[46] Shyue, Keh-Ming. “A ﬂuid-mixture type algorithm for compressible multicomponent ﬂow with van der Waals equation of state.” Journal of
+Computational Physics 156.1 (1999): 43-88.
+[47] Hollis, Brian R., and Salvatore Borrelli. “Aerothermodynamics of blunt body entry vehicles.” Progress in Aerospace Sciences 48 (2012):
+42-56.
+[48] Toro, Eleuterio F. Riemann solvers and numerical methods for ﬂuid dynamics: a practical introduction. Springer Science & Business Media,
+2013.
+[49] Gottlieb, Sigal, Chi-Wang Shu, and Eitan Tadmor. “Strong stability-preserving high-order time discretization methods.” SIAM review 43.1
+(2001): 89-112.
+[50] LeVeque, Randall J. Finite volume methods for hyperbolic problems. Vol. 31. Cambridge university press, 2002.
+[51] Xiao, F., Y. Honma, and T. Kono. “A simple algebraic interface capturing scheme using hyperbolic tangent function.” International Journal
+for Numerical Methods in Fluids 48.9 (2005): 1023-1040.
+[52] Johnsen, Eric. “On the treatment of contact discontinuities using WENO schemes.” Journal of Computational Physics 230 (2012): 8665.
+[53] Johnsen, Eric, and Frank Ham. “Preventing numerical errors generated by interface-capturing schemes in compressible multi-material ﬂows.”
+Journal of Computational Physics 231.17 (2012): 5705-5717.
+[54] Nonomura, Taku, Seiichiro Morizawa, Hiroshi Terashima, Shigeru Obayashi, and Kozo Fujii. “Numerical (error) issues on compressible
+multicomponent ﬂows using a high-order diﬀerencing scheme: Weighted compact nonlinear scheme.” Journal of Computational Physics 231,
+no. 8 (2012): 3181-3210.
+[55] Kawai, Soshi, and Hiroshi Terashima. “A high-resolution scheme for compressible multicomponent ﬂows with shock waves.” International
+Journal for Numerical Methods in Fluids 66.10 (2011): 1207-1225.
+[56] Saurel, Richard, and R´emi Abgrall. “A multiphase Godunov method for compressible multiﬂuid and multiphase ﬂows.” Journal of Computa-
+tional Physics 150.2 (1999): 425-467.
+[57] Shyue, Keh-Ming. “A ﬂuid-mixture type algorithm for compressible multicomponent ﬂow with Mie-Gr¨ueisen equation of state.” Journal of
+Computational Physics 171.2 (2001): 678-707.
+[58] Liu, T. G., B. C. Khoo, and K. S. Yeo. “Ghost ﬂuid method for strong shock impacting on material interface.” Journal of Computational
+Physics 190.2 (2003): 651-681.
+[59] Kokh, Samuel, and Fr´ed´eric Lagoutiere. “An anti-diﬀusive numerical scheme for the simulation of interfaces between compressible ﬂuids by
+means of a ﬁve-equation model.” Journal of Computational Physics 229.8 (2010): 2773-2809.
+[60] Marquina, Antonio, and Pep Mulet. “A ﬂux-split algorithm applied to conservative models for multicomponent compressible ﬂows.” Journal
+of Computational Physics 185.1 (2003): 120-138.
+[61] Shyue, Keh-Ming. “A wave-propagation based volume tracking method for compressible multicomponent ﬂow in two space dimensions.”
+Journal of Computational Physics 215.1 (2006): 219-244.
+[62] Han, L. H., X. Y. Hu, and N. A. Adams. “Adaptive multi-resolution method for compressible multi-phase ﬂows with sharp interface model
+and pyramid data structure.” Journal of Computational Physics 262 (2014): 131-152.
+[63] Luo, Jun, X. Y. Hu, and N. A. Adams. “Eﬃcient formulation of scale separation for multi-scale modeling of interfacial ﬂows.” Journal of
+Computational Physics 308 (2016): 411-420.
+[64] Haas, J-F., and Bradford Sturtevant. “Interaction of weak shock waves with cylindrical and spherical gas inhomogeneities.” Journal of Fluid
+Mechanics 181 (1987): 41-76.
+27

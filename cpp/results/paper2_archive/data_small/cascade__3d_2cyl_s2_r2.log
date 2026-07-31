@@ -1,0 +1,6 @@
+[21:03:40] START 2cyl s2 rep2 loadavg=22.41 21.74 21.86
+CMD: taskset -c 24-46:2 env BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 BVD_BETA_L=1.4 BVD_BETA_S=0.8 E3D_PROF=1 N3_FLUX=1 LANG_CASE=vortex N3_MESH=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh CFD_MAXSTEP=100 ./langseth3d_unstr_bench
+E3D_PROF: 300 RHS calls, summed 376396ms  ||  prim 657ms(0.2%)  RECON 243737ms(64.8%)  ppfloor 0ms(0.0%)  FLUX 9495ms(2.5%)  MOOD 118175ms(31.4%)  visc 0ms(0.0%)  asm 4332ms(1.2%)
+E3D_PROF (euler3d) RECON breakdown (summed 203786ms): o2-LSQ 70115ms(34.4%)  cell-D-Newton 31104ms(15.3%, avg 0.00 Newton iters/solve over 0 solves)  face-quad+BVD 102567ms(50.3%)
+LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1000,2.2563] p_min=0.9996 finite=1 enstrophy=2.3064 steps=100 t=0.0177 wall=390.5s
+[21:10:30] END   2cyl s2 rep2 loadavg=25.48 25.22 23.46

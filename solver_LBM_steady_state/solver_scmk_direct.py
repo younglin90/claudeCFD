@@ -89,7 +89,7 @@ def solve_scmk_direct(case, max_outer=80, tol=1e-7, kinetic_substeps=15,
             # Solve dF gamma = F_new in least squares
             gamma, *_ = np.linalg.lstsq(dF, F_new.ravel(), rcond=None)
             # Anderson step
-            f_and = g_f - (dX + anderson_beta * dF) @ gamma
+            f_and = g_f.ravel() - (dX + anderson_beta * dF) @ gamma
             f_and = f_and.reshape(case.shape)
             # safeguard : accept Anderson only if residual decreases
             R_and = f_and - case.lbe_step(f_and)

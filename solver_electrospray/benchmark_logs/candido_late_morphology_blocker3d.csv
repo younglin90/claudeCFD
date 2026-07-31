@@ -1,0 +1,3 @@
+reference_time_ms,paper_reported_error_percent,status,blocker,required_input
+0.8,-0.395,BLOCKED_DIGITIZED_GEOMETRY_REQUIRED,Candido PDF text reports only relative error and rendered pages do not expose extractable experimental contour coordinates,external digitized Fig3b contour or numerical/experimental morphology volume at 0.8 ms
+0.9,-0.948,BLOCKED_DIGITIZED_GEOMETRY_REQUIRED,Candido PDF text reports only relative error and rendered pages do not expose extractable experimental contour coordinates,external digitized Fig3b contour or numerical/experimental morphology volume at 0.9 ms

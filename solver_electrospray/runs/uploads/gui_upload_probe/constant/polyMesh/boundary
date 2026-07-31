@@ -1,0 +1,40 @@
+FoamFile { version 2.0; format ascii; class polyBoundaryMesh; object boundary; }
+6
+(
+xmin
+{
+ type wall;
+ nFaces 1;
+ startFace 1;
+}
+xmax
+{
+ type patch;
+ nFaces 1;
+ startFace 2;
+}
+ymin
+{
+ type wall;
+ nFaces 2;
+ startFace 3;
+}
+ymax
+{
+ type wall;
+ nFaces 2;
+ startFace 5;
+}
+zmin
+{
+ type symmetryPlane;
+ nFaces 2;
+ startFace 7;
+}
+zmax
+{
+ type symmetryPlane;
+ nFaces 2;
+ startFace 9;
+}
+)

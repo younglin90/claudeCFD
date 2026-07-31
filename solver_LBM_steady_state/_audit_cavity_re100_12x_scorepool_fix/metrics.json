@@ -1,0 +1,312 @@
+{
+  "strict": {
+    "score_mode": "strict_best_of_reference",
+    "all_pass": 0,
+    "case_count": 2,
+    "pass_count": 0,
+    "converged_count": 2,
+    "lbe_win_count": 0,
+    "wall_win_count": 2,
+    "accuracy_win_count": 1,
+    "mean_lbe_speedup_vs_best_fixed": 0.893421130217604,
+    "case_results": [
+      {
+        "case_id": "cavity_re100_n33__1x",
+        "base_case_id": "cavity_re100_n33",
+        "scaling_level": 1,
+        "case_pass": 0,
+        "converged": 1,
+        "lbe_win": 0,
+        "wall_win": 1,
+        "acc_win": 0,
+        "hard_pass": 1,
+        "proposed_lbe": 3449,
+        "best_fixed_lbe": 2930,
+        "proposed_wall": 0.26613773312419653,
+        "best_fixed_wall": 1.0346992670092732,
+        "proposed_rel_l2": 0.01487714101278913,
+        "best_fixed_rel_l2": 0.01420522799484994
+      },
+      {
+        "case_id": "cavity_re100_n33__2x",
+        "base_case_id": "cavity_re100_n33",
+        "scaling_level": 2,
+        "case_pass": 0,
+        "converged": 1,
+        "lbe_win": 0,
+        "wall_win": 1,
+        "acc_win": 1,
+        "hard_pass": 1,
+        "proposed_lbe": 11152,
+        "best_fixed_lbe": 10453,
+        "proposed_wall": 2.53302034502849,
+        "best_fixed_wall": 3.6964836861006916,
+        "proposed_rel_l2": 0.010038379118103277,
+        "best_fixed_rel_l2": 0.011062484246175095
+      }
+    ],
+    "elapsed_wall_seconds": 106.50497711310163,
+    "method_count": 6,
+    "methods": [
+      "picard_lbm",
+      "anderson_lbm",
+      "preconditioned_lbm",
+      "inexact_newton_lbe",
+      "dual_time_mg_lbm",
+      "proposed"
+    ],
+    "levels": [
+      1,
+      2
+    ],
+    "base_cases": [
+      "cavity_re100_n33"
+    ],
+    "output_dir": "_audit_cavity_re100_12x_scorepool_fix",
+    "run_mode": "strict",
+    "canonical_base_cases": [
+      "channel_poiseuille_rect",
+      "couette_n32",
+      "cavity_re100_n33",
+      "cavity_re400_n49",
+      "cavity_re1000_n129",
+      "multi_cylinder_n32",
+      "backward_step_n64",
+      "cylinder_wake_n64",
+      "t_junction_rect"
+    ],
+    "auxiliary_base_cases": [
+      "channel_n32",
+      "t_junction_n64"
+    ],
+    "physics_scaling": {
+      "wall_driven_velocity": "U_scale(level) = U_scale(1) / level",
+      "tolerance": "tol_scale(level) = tol_scale(1) / level",
+      "cavity_refinement": "N_level = 1 + level * (N_1x - 1)",
+      "max_steps": "scaled by level^2 with safety caps"
+    }
+  },
+  "paper": {
+    "score_mode": "paper_weighted_total_score",
+    "all_pass": 1,
+    "case_count": 2,
+    "pass_count": 2,
+    "best_ref_total_mean": 0.5951662495385113,
+    "mean_total_score": 0.757274818230481,
+    "case_results": [
+      {
+        "case_id": "cavity_re100_n33__1x",
+        "base_case_id": "cavity_re100_n33",
+        "scaling_level": 1,
+        "case_pass": 1,
+        "hard_pass": 1,
+        "converged": 1,
+        "accuracy_pass": 1,
+        "finite_fields": 1,
+        "cache_hash_valid": 1,
+        "residual_pass": 1,
+        "history_wall_monotone": 1,
+        "history_final_consistent": 1,
+        "physical_converged": 1,
+        "proposed_lbe": 3449,
+        "best_fixed_lbe": 2930,
+        "proposed_wall": 0.26613773312419653,
+        "best_fixed_wall": 1.0346992670092732,
+        "speed_pool_size": 2,
+        "speed_best_lbe": 2930,
+        "speed_worst_lbe": 3449.0,
+        "speed_best_wall": 0.26613773312419653,
+        "speed_worst_wall": 1.0346992670092732,
+        "proposed_rel_l2": 0.01487714101278913,
+        "best_fixed_rel_l2": 0.01420522799484994,
+        "wall_score": 1.0,
+        "lbe_score": 0.0,
+        "speed_score": 0.7,
+        "accuracy_score": 0.8111166519383122,
+        "simplicity_score": 0.75,
+        "total_score": 0.749446660775325,
+        "best_ref_total": 0.576646756268272,
+        "total_margin": 0.17279990450705296,
+        "accuracy_detail": [
+          {
+            "name": "ghia_u_centerline_rms",
+            "error": 0.008071121840339172,
+            "tolerance": 0.01,
+            "z": 0.8071121840339172
+          },
+          {
+            "name": "ghia_v_centerline_rms",
+            "error": 0.0016127665215264265,
+            "tolerance": 0.01,
+            "z": 0.16127665215264264
+          },
+          {
+            "name": "cavity_centerline_delta_u_rms",
+            "error": 0.0002465403835030803,
+            "tolerance": 0.005,
+            "z": 0.049308076700616064
+          },
+          {
+            "name": "cavity_centerline_delta_v_rms",
+            "error": 0.00019339202667574695,
+            "tolerance": 0.005,
+            "z": 0.038678405335149386
+          },
+          {
+            "name": "cavity_field_rel_l2_vs_tight_ref",
+            "error": 0.0007174492805722958,
+            "tolerance": 0.004,
+            "z": 0.17936232014307393
+          }
+        ]
+      },
+      {
+        "case_id": "cavity_re100_n33__2x",
+        "base_case_id": "cavity_re100_n33",
+        "scaling_level": 2,
+        "case_pass": 1,
+        "hard_pass": 1,
+        "converged": 1,
+        "accuracy_pass": 1,
+        "finite_fields": 1,
+        "cache_hash_valid": 1,
+        "residual_pass": 1,
+        "history_wall_monotone": 1,
+        "history_final_consistent": 1,
+        "physical_converged": 1,
+        "proposed_lbe": 11152,
+        "best_fixed_lbe": 10453,
+        "proposed_wall": 2.53302034502849,
+        "best_fixed_wall": 3.6964836861006916,
+        "speed_pool_size": 2,
+        "speed_best_lbe": 10453,
+        "speed_worst_lbe": 11152.0,
+        "speed_best_wall": 2.53302034502849,
+        "speed_worst_wall": 3.6964836861006916,
+        "proposed_rel_l2": 0.010038379118103277,
+        "best_fixed_rel_l2": 0.011062484246175095,
+        "wall_score": 1.0,
+        "lbe_score": 0.0,
+        "speed_score": 0.7,
+        "accuracy_score": 0.8502574392140927,
+        "simplicity_score": 0.75,
+        "total_score": 0.7651029756856371,
+        "best_ref_total": 0.6136857428087507,
+        "total_margin": 0.15141723287688647,
+        "accuracy_detail": [
+          {
+            "name": "ghia_u_centerline_rms",
+            "error": 0.0035610891310763355,
+            "tolerance": 0.01,
+            "z": 0.35610891310763354
+          },
+          {
+            "name": "ghia_v_centerline_rms",
+            "error": 0.0016385708937994138,
+            "tolerance": 0.01,
+            "z": 0.16385708937994137
+          },
+          {
+            "name": "cavity_centerline_delta_u_rms",
+            "error": 0.0006292585755765768,
+            "tolerance": 0.005,
+            "z": 0.12585171511531534
+          },
+          {
+            "name": "cavity_centerline_delta_v_rms",
+            "error": 0.0006276779949323033,
+            "tolerance": 0.005,
+            "z": 0.12553559898646066
+          },
+          {
+            "name": "cavity_field_rel_l2_vs_tight_ref",
+            "error": 0.0020521058283404434,
+            "tolerance": 0.004,
+            "z": 0.5130264570851109
+          }
+        ]
+      }
+    ],
+    "elapsed_wall_seconds": 106.50498456717469,
+    "method_count": 6,
+    "methods": [
+      "picard_lbm",
+      "anderson_lbm",
+      "preconditioned_lbm",
+      "inexact_newton_lbe",
+      "dual_time_mg_lbm",
+      "proposed"
+    ],
+    "levels": [
+      1,
+      2
+    ],
+    "base_cases": [
+      "cavity_re100_n33"
+    ],
+    "output_dir": "_audit_cavity_re100_12x_scorepool_fix",
+    "run_mode": "strict",
+    "canonical_base_cases": [
+      "channel_poiseuille_rect",
+      "couette_n32",
+      "cavity_re100_n33",
+      "cavity_re400_n49",
+      "cavity_re1000_n129",
+      "multi_cylinder_n32",
+      "backward_step_n64",
+      "cylinder_wake_n64",
+      "t_junction_rect"
+    ],
+    "auxiliary_base_cases": [
+      "channel_n32",
+      "t_junction_n64"
+    ],
+    "physics_scaling": {
+      "wall_driven_velocity": "U_scale(level) = U_scale(1) / level",
+      "tolerance": "tol_scale(level) = tol_scale(1) / level",
+      "cavity_refinement": "N_level = 1 + level * (N_1x - 1)",
+      "max_steps": "scaled by level^2 with safety caps"
+    }
+  },
+  "elapsed_wall_seconds": 106.50498769315891,
+  "case_count": 2,
+  "method_count": 6,
+  "methods": [
+    "picard_lbm",
+    "anderson_lbm",
+    "preconditioned_lbm",
+    "inexact_newton_lbe",
+    "dual_time_mg_lbm",
+    "proposed"
+  ],
+  "levels": [
+    1,
+    2
+  ],
+  "base_cases": [
+    "cavity_re100_n33"
+  ],
+  "output_dir": "_audit_cavity_re100_12x_scorepool_fix",
+  "run_mode": "strict",
+  "canonical_base_cases": [
+    "channel_poiseuille_rect",
+    "couette_n32",
+    "cavity_re100_n33",
+    "cavity_re400_n49",
+    "cavity_re1000_n129",
+    "multi_cylinder_n32",
+    "backward_step_n64",
+    "cylinder_wake_n64",
+    "t_junction_rect"
+  ],
+  "auxiliary_base_cases": [
+    "channel_n32",
+    "t_junction_n64"
+  ],
+  "physics_scaling": {
+    "wall_driven_velocity": "U_scale(level) = U_scale(1) / level",
+    "tolerance": "tol_scale(level) = tol_scale(1) / level",
+    "cavity_refinement": "N_level = 1 + level * (N_1x - 1)",
+    "max_steps": "scaled by level^2 with safety caps"
+  }
+}

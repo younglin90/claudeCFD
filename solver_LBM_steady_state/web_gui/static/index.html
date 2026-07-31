@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steady LBM Solver GUI</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --line: #d8dee9;
+      --accent: #0f766e;
+      --accent-2: #2563eb;
+      --danger: #b91c1c;
+      --code: #111827;
+      --soft: #eef6f5;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    header {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    h1 { font-size: 18px; margin: 0; font-weight: 700; }
+    h2 { font-size: 15px; margin: 0 0 12px; }
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(360px, 440px) minmax(560px, 1fr);
+      gap: 14px;
+      padding: 14px;
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .full { grid-column: 1 / -1; }
+    label { display: block; font-weight: 650; margin-bottom: 5px; }
+    select, input, textarea {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px 9px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+    }
+    textarea { min-height: 132px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .hint { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 5px; }
+    .checks {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+      max-height: 240px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+    }
+    .check { display: flex; gap: 8px; align-items: flex-start; }
+    .check input { width: 16px; min-height: 16px; margin-top: 2px; }
+    button {
+      min-height: 36px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: #fff;
+      background: var(--accent);
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+    button.danger { background: var(--danger); }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .env-grid {
+      display: grid;
+      grid-template-columns: 1fr 110px;
+      gap: 8px;
+      align-items: center;
+    }
+    details {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 8px;
+      background: #fff;
+    }
+    summary { cursor: pointer; font-weight: 700; }
+    .script-options {
+      max-height: 95px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 7px;
+      background: #f9fafb;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .env-grid .name { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: var(--soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .jobs {
+      display: grid;
+      gap: 8px;
+      max-height: 260px;
+      overflow: auto;
+    }
+    .job {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px;
+      cursor: pointer;
+      background: #fff;
+    }
+    .job.active { border-color: var(--accent-2); box-shadow: inset 3px 0 0 var(--accent-2); }
+    .job-title { display: flex; justify-content: space-between; gap: 8px; }
+    .files {
+      display: grid;
+      gap: 6px;
+      max-height: 260px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #fff;
+    }
+    .file {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      border-bottom: 1px solid #eef2f7;
+      padding-bottom: 5px;
+    }
+    .file:last-child { border-bottom: 0; padding-bottom: 0; }
+    .file a {
+      color: var(--accent-2);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+    }
+    pre {
+      margin: 0;
+      min-height: 480px;
+      max-height: calc(100vh - 235px);
+      overflow: auto;
+      border: 1px solid #0b1220;
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--code);
+      color: #d1d5db;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .metric {
+      background: #f9fafb;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+    }
+    .metric strong { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .meta { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Steady-State LBM Local GUI</h1>
+    <span class="badge" id="serverStatus">loading</span>
+  </header>
+
+  <main class="layout">
+    <div>
+      <section>
+        <h2>Run Setup</h2>
+        <div class="grid">
+          <div>
+            <label for="mode">Runner</label>
+            <select id="mode"></select>
+          </div>
+          <div>
+            <label for="levels">Mesh levels</label>
+            <select id="levels" multiple size="3">
+              <option value="1" selected>1x</option>
+              <option value="2">2x</option>
+              <option value="3">3x</option>
+            </select>
+          </div>
+          <div class="full">
+            <label>Cases / Mesh Families</label>
+            <div class="checks" id="cases"></div>
+          </div>
+          <div class="full" id="methodWrap">
+            <label>Methods</label>
+            <div class="checks" id="methods"></div>
+          </div>
+          <div class="full" id="customScriptWrap">
+            <label for="script">Custom project script</label>
+            <select id="script"></select>
+            <div class="hint">Use this for scripts with direct mesh controls such as --Nx, --Ny, --N, --D, --Re, --tol, --max-steps.</div>
+            <div class="script-options" id="scriptOptions"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="benchmarkOptions">
+        <h2>Benchmark Options</h2>
+        <div class="grid">
+          <div>
+            <label for="methodTolScale">Method tol scale</label>
+            <input id="methodTolScale" type="number" step="0.1" value="1.0">
+          </div>
+          <div>
+            <label for="picardRefTolScale">Picard ref tol scale</label>
+            <input id="picardRefTolScale" type="number" step="0.1" placeholder="script default">
+          </div>
+          <div>
+            <label for="runMode">Run mode label</label>
+            <select id="runMode">
+              <option value="">script default</option>
+              <option value="auto">auto</option>
+              <option value="strict">strict</option>
+              <option value="relaxed">relaxed</option>
+            </select>
+          </div>
+          <div>
+            <label for="maxSteps">Max steps override</label>
+            <input id="maxSteps" type="number" min="1" placeholder="empty = script default">
+          </div>
+          <label class="check"><input id="overwrite" type="checkbox" checked> overwrite/recompute selected outputs</label>
+          <label class="check"><input id="exactMethods" type="checkbox" checked> run exactly selected methods</label>
+          <label class="check"><input id="noVtk" type="checkbox" checked> skip VTK output</label>
+          <label class="check"><input id="noCache" type="checkbox"> disable cache</label>
+          <label class="check"><input id="noResume" type="checkbox"> disable resume</label>
+          <label class="check"><input id="suppressReferenceRow" type="checkbox"> suppress reference summary row</label>
+        </div>
+        <div class="hint">Mesh formulas are inherited from the project runner: cavity uses odd refinement, channel/T-junction use rectangular scaling, masked cases use N*level.</div>
+      </section>
+
+      <section>
+        <h2>Solver / Runtime Parameters</h2>
+        <div class="env-grid" id="envGrid"></div>
+        <div class="hint">These become environment variables for the run. Empty numeric fields are omitted so the project default is used.</div>
+      </section>
+
+      <section>
+        <h2>Advanced Execution</h2>
+        <label for="extraArgs">Additional CLI arguments</label>
+        <input id="extraArgs" placeholder='example: --Nx 312 --Ny 168 --D 12 --tol 1e-7'>
+        <div class="hint">Appended after the GUI-generated command. For custom scripts, this is where script-specific mesh and solver inputs go.</div>
+        <label for="extraEnv" style="margin-top:10px">Additional environment variables</label>
+        <textarea id="extraEnv" spellcheck="false" placeholder='{"MY_VAR": "value"}'></textarea>
+        <div class="hint">Use JSON object format. These variables are passed in addition to the discovered SAFE_NN controls.</div>
+        <label for="jsonPreview" style="margin-top:10px">Final JSON payload</label>
+        <textarea id="jsonPreview" spellcheck="false"></textarea>
+        <div class="hint">You can edit this JSON before starting. It is the exact payload sent to the local API.</div>
+        <div class="actions" style="margin-top:10px">
+          <button id="refreshPayload" class="secondary">Refresh JSON</button>
+          <button id="startRun">Start Run</button>
+        </div>
+      </section>
+    </div>
+
+    <div>
+      <section>
+        <h2>Jobs</h2>
+        <div class="jobs" id="jobs"></div>
+      </section>
+
+      <section>
+        <h2>Selected Job</h2>
+        <div class="meta">
+          <div class="metric"><strong>Status</strong><span id="jobStatus">none</span></div>
+          <div class="metric"><strong>Output</strong><span id="jobOutput">none</span></div>
+          <div class="metric"><strong>Command</strong><span id="jobCommand">none</span></div>
+        </div>
+        <div class="actions" style="margin-bottom:10px">
+          <button id="refreshJobs" class="secondary">Refresh</button>
+          <button id="cancelJob" class="danger" disabled>Cancel Selected</button>
+        </div>
+        <pre id="log">No job selected.</pre>
+      </section>
+
+      <section>
+        <h2>Output Files</h2>
+        <div class="files" id="files">No job selected.</div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    let schema = null;
+    let selectedJob = null;
+    let extraEnvError = "";
+
+    const $ = (id) => document.getElementById(id);
+    const selectedValues = (select) => Array.from(select.selectedOptions).map(o => o.value);
+
+    function fieldValue(input, spec) {
+      if (spec.type === "bool") return input.checked;
+      if (input.value === "") return "";
+      if (spec.type === "int") return parseInt(input.value, 10);
+      if (spec.type === "float") return Number(input.value);
+      return input.value;
+    }
+
+    async function getJson(url, opts) {
+      const res = await fetch(url, opts);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      return data;
+    }
+
+    function renderSchema() {
+      const mode = $("mode");
+      mode.innerHTML = schema.runModes.map(m => `<option value="${m.id}">${m.label}</option>`).join("");
+      mode.value = "proposed_only";
+
+      $("cases").innerHTML = Object.entries(schema.cases).map(([id, c], i) => `
+        <label class="check">
+          <input type="checkbox" value="${id}" ${i < 1 ? "checked" : ""}>
+          <span><b>${id}</b><br><span class="hint">${c.label} · ${JSON.stringify(c.mesh)}</span></span>
+        </label>`).join("");
+
+      $("methods").innerHTML = schema.methods.map(m => `
+        <label class="check">
+          <input type="checkbox" value="${m.id}" ${m.id === "proposed" ? "checked" : ""}>
+          <span>${m.label}</span>
+        </label>`).join("");
+
+      $("script").innerHTML = schema.scripts.map(s => `<option value="${s.path}">${s.path}</option>`).join("");
+      $("script").value = schema.scripts.find(s => s.path === "paper_60case_benchmark_no_force_scaling.py")?.path || schema.scripts[0]?.path || "";
+      updateScriptOptions();
+
+      const groups = {};
+      for (const p of schema.envParams) (groups[p.group || "other"] ||= []).push(p);
+      $("envGrid").innerHTML = Object.entries(groups).map(([group, params]) => `
+        <details ${group !== "discovered" ? "open" : ""} class="full">
+          <summary>${group} (${params.length})</summary>
+          <div class="env-grid" style="margin-top:8px">
+            ${params.map(p => {
+              const input = p.type === "bool"
+                ? `<input data-env="${p.name}" type="checkbox" ${p.default ? "checked" : ""}>`
+                : p.type === "str"
+                  ? `<input data-env="${p.name}" value="${p.default ?? ""}" placeholder="default / unset">`
+                  : `<input data-env="${p.name}" type="number" step="any" value="${p.default ?? ""}" placeholder="default">`;
+              return `<div class="name">${p.name}<div class="hint">${p.type}</div></div><div>${input}</div>`;
+            }).join("")}
+          </div>
+        </details>`).join("");
+
+      document.querySelectorAll("input,select").forEach(el => el.addEventListener("change", updatePayload));
+      $("extraEnv").addEventListener("input", updatePayload);
+      $("extraArgs").addEventListener("input", updatePayload);
+      $("script").addEventListener("change", () => {
+        updateScriptOptions();
+        updatePayload();
+      });
+      mode.addEventListener("change", () => {
+        syncModeVisibility();
+        updatePayload();
+      });
+      syncModeVisibility();
+      updatePayload();
+    }
+
+    function syncModeVisibility() {
+      const value = $("mode").value;
+      $("methodWrap").style.display = value === "benchmark" ? "block" : "none";
+      $("customScriptWrap").style.display = value === "custom_script" ? "block" : "none";
+      $("benchmarkOptions").style.display = value === "custom_script" ? "none" : "block";
+    }
+
+    function updateScriptOptions() {
+      const script = schema?.scripts?.find(s => s.path === $("script").value);
+      $("scriptOptions").textContent = script?.options?.length
+        ? script.options.join("  ")
+        : "No argparse options discovered. Use additional CLI arguments if the script accepts positional inputs.";
+    }
+
+    function parseExtraEnv() {
+      const raw = $("extraEnv").value.trim();
+      extraEnvError = "";
+      if (!raw) return {};
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("must be a JSON object");
+        return parsed;
+      } catch (e) {
+        extraEnvError = e.message;
+        return {};
+      }
+    }
+
+    function collectPayload() {
+      const env = {};
+      for (const spec of schema.envParams) {
+        const el = document.querySelector(`[data-env="${spec.name}"]`);
+        const v = fieldValue(el, spec);
+        if (v !== "") env[spec.name] = v;
+      }
+      if ($("maxSteps").value) env.SAFE_NN_BENCHMARK_MAX_STEPS_OVERRIDE = parseInt($("maxSteps").value, 10);
+      return {
+        mode: $("mode").value,
+        levels: selectedValues($("levels")).map(Number),
+        cases: Array.from($("cases").querySelectorAll("input:checked")).map(x => x.value),
+        methods: Array.from($("methods").querySelectorAll("input:checked")).map(x => x.value),
+        methodTolScale: $("methodTolScale").value,
+        overwrite: $("overwrite").checked,
+        exactMethods: $("exactMethods").checked,
+        noVtk: $("noVtk").checked,
+        noCache: $("noCache").checked,
+        noResume: $("noResume").checked,
+        runMode: $("runMode").value,
+        picardRefTolScale: $("picardRefTolScale").value,
+        suppressReferenceRow: $("suppressReferenceRow").checked,
+        script: $("script").value,
+        extraArgs: $("extraArgs").value,
+        extraEnv: parseExtraEnv(),
+        extraEnvError,
+        env,
+      };
+    }
+
+    function updatePayload() {
+      $("jsonPreview").value = JSON.stringify(collectPayload(), null, 2);
+    }
+
+    async function startRun() {
+      let payload;
+      try {
+        payload = JSON.parse($("jsonPreview").value);
+      } catch (e) {
+        alert("JSON parse error: " + e.message);
+        return;
+      }
+      if (payload.extraEnvError) {
+        alert("Additional environment JSON error: " + payload.extraEnvError);
+        return;
+      }
+      $("startRun").disabled = true;
+      try {
+        const job = await getJson("/api/start", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload),
+        });
+        selectedJob = job.id;
+        await refreshJobs();
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        $("startRun").disabled = false;
+      }
+    }
+
+    function renderJobs(jobs) {
+      $("jobs").innerHTML = jobs.map(j => `
+        <div class="job ${j.id === selectedJob ? "active" : ""}" data-job="${j.id}">
+          <div class="job-title"><b>${j.id}</b><span>${j.status}</span></div>
+          <div class="hint">${j.outputDir}</div>
+        </div>`).join("") || "<div class='hint'>No jobs yet.</div>";
+      document.querySelectorAll("[data-job]").forEach(el => el.addEventListener("click", async () => {
+        selectedJob = el.dataset.job;
+        await refreshJobs();
+      }));
+    }
+
+    async function refreshJobs() {
+      const jobs = await getJson("/api/jobs");
+      if (!selectedJob && jobs.length) selectedJob = jobs[0].id;
+      renderJobs(jobs);
+      const job = jobs.find(j => j.id === selectedJob);
+      if (!job) return;
+      $("jobStatus").textContent = job.status + (job.returncode === null ? "" : ` (${job.returncode})`);
+      $("jobOutput").textContent = job.outputDir;
+      $("jobCommand").textContent = job.command.join(" ");
+      $("log").textContent = (job.log || []).join("\n");
+      $("log").scrollTop = $("log").scrollHeight;
+      $("cancelJob").disabled = !["queued", "running"].includes(job.status);
+    }
+
+    async function cancelSelected() {
+      if (!selectedJob) return;
+      await getJson(`/api/jobs/${selectedJob}/cancel`, {method: "POST"});
+      await refreshJobs();
+    }
+
+    function formatBytes(n) {
+      if (!Number.isFinite(n)) return "";
+      const units = ["B", "KB", "MB", "GB"];
+      let value = n;
+      let i = 0;
+      while (value >= 1024 && i < units.length - 1) {
+        value /= 1024;
+        i += 1;
+      }
+      return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+    }
+
+    async function refreshFiles(job) {
+      if (!job) {
+        $("files").textContent = "No job selected.";
+        return;
+      }
+      try {
+        const files = await getJson(`/api/jobs/${job.id}/files`);
+        $("files").innerHTML = files.map(f => `
+          <div class="file">
+            <a href="${f.url}" target="_blank" rel="noopener">${f.path}</a>
+            <span class="hint">${f.kind} · ${formatBytes(f.size)}</span>
+          </div>`).join("") || "<div class='hint'>No output files yet.</div>";
+      } catch (e) {
+        $("files").textContent = e.message;
+      }
+    }
+
+    async function init() {
+      schema = await getJson("/api/schema");
+      $("serverStatus").textContent = "ready";
+      renderSchema();
+      await refreshJobs();
+      setInterval(refreshJobs, 2000);
+    }
+
+    $("refreshPayload").addEventListener("click", updatePayload);
+    $("startRun").addEventListener("click", startRun);
+    $("refreshJobs").addEventListener("click", refreshJobs);
+    $("cancelJob").addEventListener("click", cancelSelected);
+    init().catch(e => {
+      $("serverStatus").textContent = "error";
+      $("log").textContent = e.stack || e.message;
+    });
+  </script>
+</body>
+</html>

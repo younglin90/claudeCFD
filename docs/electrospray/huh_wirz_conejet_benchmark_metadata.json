@@ -1,0 +1,231 @@
+{
+  "benchmark_blocks": [
+    {
+      "case_id": "huh_wirz_heptane_moderate_conductivity",
+      "digitization_tasks": [
+        {
+          "independent_variables": [
+            "voltage",
+            "flow_rate",
+            "electrical_conductivity"
+          ],
+          "observable": "droplet_diameter",
+          "source_figure": "Figure 3"
+        }
+      ],
+      "fluid": "heptane",
+      "geometry": {
+        "emitter_extractor_length_m": 0.0298,
+        "extractor_orifice_diameter_m": 0.012,
+        "nozzle_inner_diameter_m": 0.00012,
+        "nozzle_outer_diameter_m": 0.00045
+      },
+      "operating_sweeps": {
+        "flow_rate_range_m3_s": [
+          5e-10,
+          2.5e-09
+        ],
+        "voltage_range_V": [
+          3000.0,
+          5000.0
+        ]
+      },
+      "reference_values": [
+        {
+          "comparison_role": "huh_wirz_model_digitized_reference",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "conductivity_S_m": 6.26e-06,
+            "liquid": "heptane",
+            "voltage_V": 4000.0
+          },
+          "observable": "droplet_diameter",
+          "source_figure": "Figure 3b",
+          "uncertainty": 3.5e-06,
+          "unit": "m",
+          "value": 3.5e-05
+        }
+      ],
+      "required_outputs": [
+        "droplet_diameter"
+      ],
+      "status": "partial_numeric_reference"
+    },
+    {
+      "case_id": "huh_wirz_tbp_high_conductivity",
+      "digitization_tasks": [
+        {
+          "independent_variables": [
+            "nondimensional_flow_rate"
+          ],
+          "observable": "droplet_diameter",
+          "source_figure": "Figure 7"
+        },
+        {
+          "independent_variables": [
+            "nondimensional_flow_rate"
+          ],
+          "observable": "total_current",
+          "source_figure": "Figure 7"
+        },
+        {
+          "independent_variables": [
+            "nondimensional_flow_rate"
+          ],
+          "observable": "charge_to_mass_ratio",
+          "source_figure": "Figure 12"
+        },
+        {
+          "independent_variables": [
+            "nondimensional_flow_rate",
+            "axial_location"
+          ],
+          "observable": "jet_diameter",
+          "source_figure": "Figure 8"
+        }
+      ],
+      "fluid": "tributyl phosphate",
+      "geometry": {
+        "emitter_extractor_length_m": 0.0025,
+        "extractor_orifice_diameter_m": 0.0008,
+        "nozzle_inner_diameter_m": 0.00011,
+        "nozzle_outer_diameter_m": 0.00023
+      },
+      "operating_sweeps": {
+        "nondimensional_flow_rate": "extract from source figures"
+      },
+      "reference_values": [
+        {
+          "comparison_role": "huh_wirz_model_digitized_reference",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "conductivity_class": "high",
+            "liquid": "tributyl phosphate",
+            "nondimensional_flow_rate_delta": 47.6
+          },
+          "observable": "droplet_diameter",
+          "source_figure": "Figure 7",
+          "uncertainty": 1.5e-06,
+          "unit": "m",
+          "value": 1e-05
+        },
+        {
+          "comparison_role": "huh_wirz_model_digitized_reference",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "conductivity_class": "high",
+            "liquid": "tributyl phosphate",
+            "nondimensional_flow_rate_delta": 47.6,
+            "radius_trace": "R_downstream_jet_radius_times_two"
+          },
+          "observable": "jet_diameter",
+          "source_figure": "Figure 8a",
+          "uncertainty": 1.2e-06,
+          "unit": "m",
+          "value": 6e-06
+        },
+        {
+          "comparison_role": "huh_wirz_model_digitized_reference",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "conductivity_class": "high",
+            "liquid": "tributyl phosphate",
+            "nondimensional_flow_rate_delta": 47.6
+          },
+          "observable": "total_current",
+          "source_figure": "Figure 7",
+          "uncertainty": 5e-09,
+          "unit": "A",
+          "value": 3e-08
+        },
+        {
+          "comparison_role": "huh_wirz_model_digitized_reference",
+          "digitization_method": "manual_from_pdf_raster",
+          "independent_variables": {
+            "conductivity_class": "high",
+            "liquid": "tributyl phosphate",
+            "nondimensional_flow_rate_delta": 47.6
+          },
+          "observable": "charge_to_mass_ratio",
+          "source_figure": "Figure 12",
+          "uncertainty": 0.05,
+          "unit": "source_plot_units",
+          "value": 0.65
+        }
+      ],
+      "required_outputs": [
+        "droplet_diameter",
+        "jet_diameter",
+        "total_current",
+        "charge_to_mass_ratio"
+      ],
+      "status": "partial_numeric_reference"
+    },
+    {
+      "case_id": "huh_wirz_tbp_minimum_flow_cone_to_jet",
+      "digitization_tasks": [
+        {
+          "independent_variables": [
+            "nondimensional_flow_rate",
+            "charge_density_5_to_95_percent"
+          ],
+          "observable": "cone_to_jet_length",
+          "source_figure": "Figure 8"
+        },
+        {
+          "independent_variables": [
+            "nondimensional_flow_rate"
+          ],
+          "observable": "cone_to_jet_length",
+          "source_figure": "Figure 12"
+        }
+      ],
+      "fluid": "tributyl phosphate",
+      "geometry": {
+        "emitter_extractor_length_m": 0.0025,
+        "extractor_orifice_diameter_m": 0.0008,
+        "nozzle_inner_diameter_m": 0.00011,
+        "nozzle_outer_diameter_m": 0.00023
+      },
+      "operating_sweeps": {
+        "nondimensional_flow_rate": "minimum stable-flow text reference"
+      },
+      "reference_values": [
+        {
+          "comparison_role": "huh_wirz_text_reference",
+          "digitization_method": "text_extracted_reference",
+          "independent_variables": {
+            "conductivity_class": "high",
+            "definition": "charge density changes from 5 to 95 percent of final value",
+            "liquid": "tributyl phosphate",
+            "nondimensional_flow_rate_delta": 18.1
+          },
+          "observable": "cone_to_jet_length",
+          "source_figure": "Figure 8",
+          "source_location": "text discussion of Figure 8 and Figure 12(a)",
+          "uncertainty": 5e-06,
+          "unit": "m",
+          "value": 6.5e-05
+        }
+      ],
+      "required_outputs": [
+        "cone_to_jet_length"
+      ],
+      "status": "partial_numeric_reference",
+      "textual_reference_notes": [
+        "source text reports Lcj = 65 um at the minimum stable flow rate delta = 18.1",
+        "Lcj is defined as the axial distance over which charge density changes from 5 to 95 percent of its final value"
+      ]
+    }
+  ],
+  "completion_gate": "reference_values must contain digitized or tabulated numeric entries before external comparison can pass",
+  "source": {
+    "arxiv": "2111.10383",
+    "authors": [
+      "Henry Huh",
+      "Richard E. Wirz"
+    ],
+    "doi": "10.1063/5.0120737",
+    "title": "Simulation of Electrospray Emission Processes for Highly Conductive Liquids"
+  }
+}

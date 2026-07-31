@@ -13,7 +13,9 @@
 // the result is bit-comparable (rel <= 1e-12) vs tests/5eq_ref/alpha_bvd_ref.txt.
 #pragma once
 #include "cfd/eos.hpp"   // CFD_ROUTINE_SEQ, EOS::max2
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace cfd {
 
@@ -225,6 +227,79 @@ inline void adaptive_bvd_alpha_face(const double* a_ext, int n_ext,
     } else {
         muscl_hancock_alpha_face(a_ext, n_ext, u_face, n_face, dt, dx, kind, out);
     }
+}
+
+inline void stacs_alpha_face(const double* a_ext, int n_ext, const double* u_face, int n_face, double* out) {
+    for(int f=0;f<n_face;++f) out[f]=u_face[f]>=0.?a_ext[f]:a_ext[f+1];
+    for(int f=1;f<n_face-1;++f) {
+        const double far=u_face[f]>=0.?a_ext[f-1]:a_ext[f+2], up=u_face[f]>=0.?a_ext[f]:a_ext[f+1], down=u_face[f]>=0.?a_ext[f+1]:a_ext[f];
+        const double den=down-far; if(std::fabs(den)<=1.e-14) continue; const double pc=(up-far)/den;
+        double pf=pc;
+        if(pc>=0. && pc<=1.) {
+            if(pc<1./3.) pf=2.*pc;
+            else if(pc<.5) pf=.5+.5*pc;
+            else if(pc<2./3.) pf=1.5*pc;
+            else pf=1.;
+        }
+        if(pf>=0. && pf<=1.) out[f]=far+pf*den;
+    }
+    for(int f=0;f<n_face;++f) out[f]=clip01(out[f]);
+}
+
+inline void mstacs_alpha_face(const double* a_ext, int n_ext, const double* u_face, int n_face,
+                              double dt, double dx, double* out) {
+    for(int f=0;f<n_face;++f) out[f]=u_face[f]>=0.?a_ext[f]:a_ext[f+1];
+    const auto val=[&](int f,double far,double up,double down) {
+        const double den=down-far; if(std::fabs(den)<=1.e-14) return up;
+        const double pc=(up-far)/den; if(pc<0.||pc>1.) return up;
+        double co=std::fabs(u_face[f])*dt/dx; if(co<1.e-12)co=1.e-12; if(co>1.)co=1.;
+        const double pf=co<=.33?std::fmin(pc/std::fmax(co,1.e-12),1.):std::fmin(3.*pc,1.);
+        return far+pf*den;
+    };
+    for(int f=1;f<n_face-1;++f) {
+        const double far=u_face[f]>=0.?a_ext[f-1]:a_ext[f+2], up=u_face[f]>=0.?a_ext[f]:a_ext[f+1], down=u_face[f]>=0.?a_ext[f+1]:a_ext[f];
+        const double den=down-far; if(std::fabs(den)>1.e-14) out[f]=val(f,far,up,down);
+    }
+    const bool periodic=n_ext>=4 && np_isclose(a_ext[0],a_ext[n_ext-2]) && np_isclose(a_ext[n_ext-1],a_ext[1]);
+    if(periodic && n_face>=2) { const int f=n_face-1; const double far=u_face[f]>=0.?a_ext[n_ext-3]:a_ext[2], up=u_face[f]>=0.?a_ext[n_ext-2]:a_ext[1], down=u_face[f]>=0.?a_ext[n_ext-1]:a_ext[0];
+        if(std::fabs(down-far)>1.e-14) out[0]=out[n_face-1]=val(f,far,up,down); }
+    for(int f=0;f<n_face;++f) out[f]=clip01(out[f]);
+}
+
+inline void vanleer_alpha_face(const double* a_ext, int n_ext, const double* u_face, int n_face, double* out) {
+    for(int f=0;f<n_face;++f) out[f]=u_face[f]>=0.?a_ext[f]:a_ext[f+1];
+    for(int f=1;f<n_face-1;++f) {
+        const double far=u_face[f]>=0.?a_ext[f-1]:a_ext[f+2], up=u_face[f]>=0.?a_ext[f]:a_ext[f+1], down=u_face[f]>=0.?a_ext[f+1]:a_ext[f];
+        const double den=down-up; if(std::fabs(den)<=1.e-14) continue; const double ratio=(up-far)/den;
+        if(!std::isfinite(ratio)||ratio<=0.) continue; double psi=2.*ratio/(1.+ratio); if(psi<0.)psi=0.;if(psi>2.)psi=2.;
+        double v=up+.5*psi*den,lo=far,hi=far; if(up<lo)lo=up;if(up>hi)hi=up;if(down<lo)lo=down;if(down>hi)hi=down;
+        out[f]=std::clamp(v,lo,hi);
+    }
+    for(int f=0;f<n_face;++f) out[f]=clip01(out[f]);
+}
+
+inline void thinc_alpha_face(const double* a_ext, int n_ext, const double* u_face, int n_face, double* out) {
+    for(int f=0;f<n_face;++f) out[f]=u_face[f]>=0.?a_ext[f]:a_ext[f+1];
+    constexpr double beta=1.6; const double tb=std::tanh(beta), cb=std::cosh(beta);
+    const auto cell=[&](int i,bool right) { const double left=a_ext[i-1], centre=a_ext[i], r=a_ext[i+1], mn=std::fmin(left,r), range=std::fmax(left,r)-mn;
+        if(range<=1.e-14) return centre; const double bar=(centre-mn)/range; if(bar<=1.e-12||bar>=1.-1.e-12)return centre;
+        const double theta=r>=left?1.:-1., b=std::exp(theta*beta*(2.*bar-1.)), aa=(b/cb-1.)/tb;
+        double val=right ? mn+.5*range*(1.+theta*(tb+aa)/std::fmax(1.+aa*tb,1.e-14)) : mn+.5*range*(1.+theta*aa);
+        double lo=left,hi=left;if(centre<lo)lo=centre;if(centre>hi)hi=centre;if(r<lo)lo=r;if(r>hi)hi=r;return std::clamp(val,lo,hi); };
+    for(int f=1;f<n_face-1;++f) out[f]=u_face[f]>=0.?cell(f,true):cell(f+1,false);
+    for(int f=0;f<n_face;++f) out[f]=clip01(out[f]);
+}
+
+inline void thinc_bvd_alpha_face(const double* a_ext, int n_ext, const double* u_face, int n_face,
+                                  double dt, double dx, AlphaTvd kind, double* out) {
+    std::vector<double> smooth(n_face), sharp(n_face);
+    muscl_hancock_alpha_face(a_ext,n_ext,u_face,n_face,dt,dx,kind,smooth.data());
+    thinc_alpha_face(a_ext,n_ext,u_face,n_face,sharp.data());
+    for(int f=0;f<n_face;++f) out[f]=smooth[f];
+    for(int f=1;f<n_face-1;++f) { double co=std::fabs(u_face[f])*dt/EOS::max2(dx,1.e-30); if(co<0.)co=0.;if(co>1.)co=1.; if(co>=1.-1.e-12)continue;
+        const double l=a_ext[f],r=a_ext[f+1],bs=std::fabs(smooth[f]-l)+std::fabs(r-smooth[f]),bt=std::fabs(sharp[f]-l)+std::fabs(r-sharp[f]); if(bt<bs)out[f]=sharp[f]; }
+    const bool periodic=n_ext>=4 && np_isclose(a_ext[0],a_ext[n_ext-2]) && np_isclose(a_ext[n_ext-1],a_ext[1]); if(periodic&&n_face>=2)out[0]=out[n_face-1];
+    for(int f=0;f<n_face;++f) out[f]=clip01(out[f]);
 }
 
 } // namespace cfd

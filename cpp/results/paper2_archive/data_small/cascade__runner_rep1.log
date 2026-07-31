@@ -1,0 +1,74 @@
+==== REP 1 start 2026-07-28T18:58:10+09:00 ====
+[2026-07-28T18:58:10+09:00] --- leveque s1 --- loadavg_before=16.39 15.00 13.19 22/1382 2537689
+[2026-07-28T18:58:54+09:00] done leveque s1 rc=0 loadavg_after=21.48 16.41 13.74 19/1382 2587718
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1  BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./leveque_bench 200
+[WALL] mlp_u1 wall=8.050s steps=500
+[WALL] T-MLP-u-L wall=7.011s steps=500
+[WALL] BVD wall=26.443s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=5.043s  THINC=17.501s (geom=8.295s face=9.205s)  BVD_sel=1.806s  (THINC/MUSCL=3.47x)
+[WALL] TOTAL wall=42.133s
+[2026-07-28T18:58:54+09:00] --- shockmixing s1 --- loadavg_before=21.48 16.41 13.74 19/1382 2587724
+[2026-07-28T19:00:06+09:00] done shockmixing s1 rc=1 loadavg_after=25.30 18.52 14.67 18/1388 2590420
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1  BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./shock_mixing_bench 400 80
+[CHENG3_PROF] recon_calls=1500  MUSCL=30.671s  THINC=34.361s (geom=16.915s face=17.446s)  BVD_sel=1.857s  (THINC/MUSCL=1.12x)
+[2026-07-28T19:00:06+09:00] --- shockvortex s1 --- loadavg_before=25.30 18.52 14.67 18/1388 2590426
+[2026-07-28T19:02:05+09:00] done shockvortex s1 rc=0 loadavg_after=27.42 21.07 16.03 22/1406 2595709
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 VS_ONLY=16 VS_NSCALE=4 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./validation_smoke
+[WALL] shockvortex_2d wall=118.268s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=59.878s  THINC=47.696s (geom=20.496s face=27.200s)  BVD_sel=4.556s  (THINC/MUSCL=0.80x)
+[2026-07-28T19:02:05+09:00] --- mach3 s1 --- loadavg_before=27.42 21.07 16.03 22/1406 2595715
+[2026-07-28T19:05:36+09:00] done mach3 s1 rc=0 loadavg_after=67.55 45.44 27.00 84/1461 2607126
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 M3_MESH=uniform M3_BVD_ONLY=1 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./mach3_bench 480 160 4.0
+[WALL] mlp_u1 wall=107.389s steps=500
+[WALL] BVD wall=101.692s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=56.164s  THINC=27.276s (geom=11.279s face=15.995s)  BVD_sel=7.454s  (THINC/MUSCL=0.49x)
+[WALL] TOTAL wall=209.759s
+[2026-07-28T19:05:36+09:00] --- config3 s1 --- loadavg_before=67.55 45.44 27.00 84/1461 2607138
+[2026-07-28T19:08:44+09:00] done config3 s1 rc=0 loadavg_after=42.64 51.72 33.41 18/1359 2640114
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 C3_FLUX=llf C3_BC=dirichlet C3_SKIP_MLP=1 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./config3_bench 280 0.8
+[WALL] T-MLP-u wall=186.705s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=72.829s  THINC=86.411s (geom=50.778s face=35.631s)  BVD_sel=10.877s  (THINC/MUSCL=1.19x)
+[WALL] TOTAL wall=186.893s
+[2026-07-28T19:08:44+09:00] --- doublemach s1 --- loadavg_before=42.64 51.72 33.41 17/1359 2640120
+[2026-07-28T19:13:33+09:00] done doublemach s1 rc=0 loadavg_after=26.76 33.57 30.29 23/1437 2722361
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 DM_MESH2D=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/dmr_wc_paper.mesh2d DM_SINGLE=1 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./double_mach_bench 240 60 0.2
+[WALL] BVD wall=283.350s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=164.131s  THINC=90.356s (geom=36.728s face=53.627s)  BVD_sel=19.245s  (THINC/MUSCL=0.55x)
+[WALL] TOTAL wall=283.963s
+[2026-07-28T19:13:33+09:00] --- leveque s2 --- loadavg_before=26.76 33.57 30.29 23/1437 2722367
+[2026-07-28T19:14:13+09:00] done leveque s2 rc=0 loadavg_after=27.74 33.00 30.24 13/1385 2722648
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1  BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 ./leveque_bench 200
+[WALL] mlp_u1 wall=7.774s steps=500
+[WALL] T-MLP-u-L wall=7.649s steps=500
+[WALL] BVD wall=22.922s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=5.491s  THINC=12.945s (geom=5.171s face=7.774s)  BVD_sel=2.032s  (THINC/MUSCL=2.36x)
+[WALL] TOTAL wall=38.840s
+[2026-07-28T19:14:13+09:00] --- shockmixing s2 --- loadavg_before=27.74 33.00 30.24 11/1385 2722654
+[2026-07-28T19:15:14+09:00] done shockmixing s2 rc=1 loadavg_after=30.76 32.81 30.34 24/1384 2724355
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1  BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 ./shock_mixing_bench 400 80
+[CHENG3_PROF] recon_calls=1500  MUSCL=33.159s  THINC=18.861s (geom=6.471s face=12.390s)  BVD_sel=2.257s  (THINC/MUSCL=0.57x)
+[2026-07-28T19:15:14+09:00] --- shockvortex s2 --- loadavg_before=30.76 32.81 30.34 23/1384 2724361
+[2026-07-28T19:17:56+09:00] done shockvortex s2 rc=0 loadavg_after=36.71 33.36 30.87 35/1401 2728834
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 VS_ONLY=16 VS_NSCALE=4 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 ./validation_smoke
+[WALL] shockvortex_2d wall=160.698s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=86.146s  THINC=44.078s (geom=15.043s face=29.035s)  BVD_sel=9.826s  (THINC/MUSCL=0.51x)
+[2026-07-28T19:17:56+09:00] --- mach3 s2 --- loadavg_before=36.71 33.36 30.87 24/1401 2728840
+[2026-07-28T19:20:20+09:00] done mach3 s2 rc=0 loadavg_after=33.63 33.61 31.35 33/1393 2732886
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 M3_MESH=uniform M3_BVD_ONLY=1 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 ./mach3_bench 480 160 4.0
+[WALL] mlp_u1 wall=75.238s steps=500
+[WALL] BVD wall=67.618s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=39.081s  THINC=21.310s (geom=7.536s face=13.773s)  BVD_sel=4.052s  (THINC/MUSCL=0.55x)
+[WALL] TOTAL wall=143.241s
+[2026-07-28T19:20:20+09:00] --- config3 s2 --- loadavg_before=33.63 33.61 31.35 33/1393 2732892
+[2026-07-28T19:22:03+09:00] done config3 s2 rc=0 loadavg_after=39.93 35.82 32.39 30/1375 2733466
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 C3_FLUX=llf C3_BC=dirichlet C3_SKIP_MLP=1 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 ./config3_bench 280 0.8
+[WALL] T-MLP-u wall=101.976s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=57.009s  THINC=37.227s (geom=14.176s face=23.051s)  BVD_sel=4.811s  (THINC/MUSCL=0.65x)
+[WALL] TOTAL wall=102.247s
+[2026-07-28T19:22:03+09:00] --- doublemach s2 --- loadavg_before=39.93 35.82 32.39 30/1375 2733472
+[2026-07-28T19:28:49+09:00] done doublemach s2 rc=0 loadavg_after=40.25 38.77 34.90 26/1430 2742700
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 DM_MESH2D=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/dmr_wc_paper.mesh2d DM_SINGLE=1 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 ./double_mach_bench 240 60 0.2
+[WALL] BVD wall=398.188s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=231.253s  THINC=122.619s (geom=47.291s face=75.327s)  BVD_sel=30.915s  (THINC/MUSCL=0.53x)
+[WALL] TOTAL wall=399.062s
+==== REP 1 done 2026-07-28T19:28:49+09:00 ====

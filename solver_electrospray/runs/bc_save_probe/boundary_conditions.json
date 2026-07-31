@@ -1,0 +1,28 @@
+{
+  "inlet": {
+    "alpha": {
+      "type": "fixedValue",
+      "value": 1
+    },
+    "charge": {
+      "type": "zeroGradient",
+      "value": 0
+    },
+    "potential": {
+      "type": "fixedValue",
+      "value": 2180
+    },
+    "pressure": {
+      "type": "zeroGradient",
+      "value": 0
+    },
+    "velocity": {
+      "type": "fixedValue",
+      "value": [
+        0,
+        1,
+        0
+      ]
+    }
+  }
+}

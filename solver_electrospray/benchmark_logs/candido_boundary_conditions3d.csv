@@ -1,0 +1,2 @@
+target_ca_e,faces,boundary_faces,nozzle_electrode_faces,collector_faces,open_side_faces,inlet_candidate_faces,voltage,dimensionless_voltage,contact_angle_deg
+0.25,4580,760,4,140,616,4,2159.88,3.10987,51

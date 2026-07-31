@@ -1,0 +1,87 @@
+{
+  "score_mode": "strict_best_of_reference",
+  "all_pass": 0,
+  "case_count": 2,
+  "pass_count": 0,
+  "converged_count": 2,
+  "lbe_win_count": 0,
+  "wall_win_count": 2,
+  "accuracy_win_count": 1,
+  "mean_lbe_speedup_vs_best_fixed": 0.893421130217604,
+  "case_results": [
+    {
+      "case_id": "cavity_re100_n33__1x",
+      "base_case_id": "cavity_re100_n33",
+      "scaling_level": 1,
+      "case_pass": 0,
+      "converged": 1,
+      "lbe_win": 0,
+      "wall_win": 1,
+      "acc_win": 0,
+      "hard_pass": 1,
+      "proposed_lbe": 3449,
+      "best_fixed_lbe": 2930,
+      "proposed_wall": 0.26172487693838775,
+      "best_fixed_wall": 2.0044832748826593,
+      "proposed_rel_l2": 0.01487714101278913,
+      "best_fixed_rel_l2": 0.01420522799484994
+    },
+    {
+      "case_id": "cavity_re100_n33__2x",
+      "base_case_id": "cavity_re100_n33",
+      "scaling_level": 2,
+      "case_pass": 0,
+      "converged": 1,
+      "lbe_win": 0,
+      "wall_win": 1,
+      "acc_win": 1,
+      "hard_pass": 1,
+      "proposed_lbe": 11152,
+      "best_fixed_lbe": 10453,
+      "proposed_wall": 2.830240041948855,
+      "best_fixed_wall": 4.3286045249551535,
+      "proposed_rel_l2": 0.010038379118103277,
+      "best_fixed_rel_l2": 0.011062484246175095
+    }
+  ],
+  "elapsed_wall_seconds": 151.395448083058,
+  "method_count": 6,
+  "methods": [
+    "picard_lbm",
+    "anderson_lbm",
+    "preconditioned_lbm",
+    "inexact_newton_lbe",
+    "dual_time_mg_lbm",
+    "proposed"
+  ],
+  "levels": [
+    1,
+    2
+  ],
+  "base_cases": [
+    "cavity_re100_n33"
+  ],
+  "output_dir": "_audit_cavity_re100_12x_allmethods_score",
+  "run_mode": "strict",
+  "canonical_base_cases": [
+    "channel_poiseuille_rect",
+    "couette_n32",
+    "cavity_re100_n33",
+    "cavity_re400_n49",
+    "cavity_re1000_n129",
+    "multi_cylinder_n32",
+    "backward_step_n64",
+    "cylinder_wake_n64",
+    "t_junction_rect"
+  ],
+  "auxiliary_base_cases": [
+    "channel_n32",
+    "t_junction_n64"
+  ],
+  "physics_scaling": {
+    "wall_driven_velocity": "U_scale(level) = U_scale(1) / level",
+    "tolerance": "tol_scale(level) = tol_scale(1) / level",
+    "cavity_refinement": "N_level = 1 + level * (N_1x - 1)",
+    "max_steps": "scaled by level^2 with safety caps"
+  }
+}

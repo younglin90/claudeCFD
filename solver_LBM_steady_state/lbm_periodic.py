@@ -139,8 +139,13 @@ class KolmogorovCase:
 #  Spectral Fourier-Moment Schur preconditioner
 # ---------------------------------------------------------------- #
 def build_spectral_schur(N, omega=None, mode="ap"):
+    """Pre-compute square-grid Fourier-moment Schur inverse."""
+    return build_spectral_schur_rect(N, N, omega=omega, mode=mode)
+
+
+def build_spectral_schur_rect(Ny, Nx, omega=None, mode="ap"):
     """Pre-compute 3x3 complex Schur S_U(k) and its inverse for every Fourier
-    mode k = 2 pi (m, n)/N.
+    mode k = (2 pi m/Nx, 2 pi n/Ny).
 
     Linearization around uniform base (rho_bar=1, u_bar=0) :
 
@@ -159,16 +164,18 @@ def build_spectral_schur(N, omega=None, mode="ap"):
 
     Parameters
     ----------
-    N       : grid size
+    Ny, Nx  : grid size
     omega   : collision rate ; required when mode='ap'
     mode    : 'galerkin' or 'ap'
 
     Returns
     -------
-    S_inv : ndarray shape (N, N, 3, 3) complex
+    S_inv : ndarray shape (Ny, Nx, 3, 3) complex
     """
     if mode == "ap" and omega is None:
         raise ValueError("AP mode requires omega")
+    Ny = int(Ny)
+    Nx = int(Nx)
     M_mat = np.zeros((3, 9), dtype=np.float64)
     M_mat[0, :] = 1.0
     M_mat[1, :] = CX
@@ -180,15 +187,15 @@ def build_spectral_schur(N, omega=None, mode="ap"):
         T_mat[i, 1] = 3.0 * W[i] * CX[i]
         T_mat[i, 2] = 3.0 * W[i] * CY[i]
 
-    kx = 2.0 * np.pi * np.fft.fftfreq(N)  # (N,)
-    ky = 2.0 * np.pi * np.fft.fftfreq(N)
+    kx = 2.0 * np.pi * np.fft.fftfreq(Nx)  # (Nx,)
+    ky = 2.0 * np.pi * np.fft.fftfreq(Ny)  # (Ny,)
     KX, KY = np.meshgrid(kx, ky, indexing="xy")  # KX shape (N, N) ; KY shape (N, N)
     # NOTE : in our convention, rows of f are along Y (axis 0), cols along X (axis 1).
     # We want phase[i, j_row, k_col] = exp(-i (KX*c_x + KY*c_y))
     # with j_row indexing rows (y), k_col indexing cols (x). np.meshgrid with
     # indexing='xy' gives KX varying along axis 1, KY along axis 0 -- correct.
 
-    phase = np.empty((9, N, N), dtype=np.complex128)
+    phase = np.empty((9, Ny, Nx), dtype=np.complex128)
     for i in range(9):
         phase[i] = np.exp(-1j * (KX * CX[i] + KY * CY[i]))
 
@@ -241,12 +248,12 @@ def apply_spectral_schur(case, R_f, S_inv, k_low_cutoff=None):
     R_U_hat = np.fft.fft2(R_U, axes=(1, 2))       # (3, N, N) complex
 
     if k_low_cutoff is not None:
-        N = R_U.shape[-1]
+        Ny, Nx = R_U.shape[-2], R_U.shape[-1]
         # |k| normalized to Nyquist = N/2
-        kxv = np.fft.fftfreq(N) * N
-        kyv = np.fft.fftfreq(N) * N
+        kxv = np.fft.fftfreq(Nx) * Nx
+        kyv = np.fft.fftfreq(Ny) * Ny
         KX, KY = np.meshgrid(kxv, kyv, indexing="xy")
-        kmag = np.sqrt(KX * KX + KY * KY) / (0.5 * N)  # [0, ~sqrt(2)]
+        kmag = np.sqrt((KX / max(0.5 * Nx, 1.0)) ** 2 + (KY / max(0.5 * Ny, 1.0)) ** 2)
         mask = kmag >= k_low_cutoff
         R_U_hat = R_U_hat * mask[None, :, :]
 

@@ -1,0 +1,11 @@
+### case=shockvortex scheme=s1 rep=2
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1 VS_ONLY=16 VS_NSCALE=4 BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./validation_smoke
+### loadavg_before: 30.50 32.85 33.32 10/1364 2847408
+### date_start: 2026-07-28T19:36:33+09:00
+case               grid      status  wall(s)  diagnostics
+shockvortex_2d     100x50     DIVERGE    125.0  rho_min=9.15e-01 p_min=8.84e-01 steps=500 t=0.096/0.350
+[WALL] shockvortex_2d wall=125.035s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=60.230s  THINC=52.876s (geom=22.636s face=30.239s)  BVD_sel=5.518s  (THINC/MUSCL=0.88x)
+### rc=0
+### loadavg_after: 26.15 29.97 32.16 21/1387 2897054
+### date_end: 2026-07-28T19:38:39+09:00

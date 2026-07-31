@@ -1,0 +1,17 @@
+[  0%] Building CXX object CMakeFiles/deform3d_unstr_bench.dir/apps/deform3d_unstr_bench.cpp.o
+In file included from /home/younglin90/work/claude_code/claudeCFD/cpp/apps/deform3d_unstr_bench.cpp:6:
+/home/younglin90/work/claude_code/claudeCFD/cpp/include/cfd/mesh_unstructured3d.hpp: In function ‘bool cfd::read_umsh(const std::string&, std::vector<std::array<double, 3> >&, std::vector<std::vector<int> >&, std::vector<std::vector<std::vector<int> > >*)’:
+/home/younglin90/work/claude_code/claudeCFD/cpp/include/cfd/mesh_unstructured3d.hpp:51:68: warning: ignoring return value of ‘int fscanf(FILE*, const char*, ...)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+   51 |             cells[i].resize(nn); for (int k=0;k<nn;++k) std::fscanf(f, "%d", &cells[i][k]);
+      |                                                         ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~
+/home/younglin90/work/claude_code/claudeCFD/cpp/include/cfd/mesh_unstructured3d.hpp:54:58: warning: ignoring return value of ‘int fscanf(FILE*, const char*, ...)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+   54 |             for (int e=0;e<nf;++e){ int fv=0; std::fscanf(f, "%d", &fv); faces[e].resize(fv);
+      |                                               ~~~~~~~~~~~^~~~~~~~~~~~~~
+/home/younglin90/work/claude_code/claudeCFD/cpp/include/cfd/mesh_unstructured3d.hpp:55:51: warning: ignoring return value of ‘int fscanf(FILE*, const char*, ...)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+   55 |                 for (int k=0;k<fv;++k) std::fscanf(f, "%d", &faces[e][k]); }
+      |                                        ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~
+/home/younglin90/work/claude_code/claudeCFD/cpp/include/cfd/mesh_unstructured3d.hpp:59:74: warning: ignoring return value of ‘int fscanf(FILE*, const char*, ...)’ declared with attribute ‘warn_unused_result’ [-Wunused-result]
+   59 |             cells[i].resize(nv); for (int k = 0; k < nv; ++k) std::fscanf(f, "%d", &cells[i][k]);
+      |                                                               ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~
+[100%] Linking CXX executable deform3d_unstr_bench
+[100%] Built target deform3d_unstr_bench

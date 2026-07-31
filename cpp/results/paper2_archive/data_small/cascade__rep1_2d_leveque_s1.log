@@ -1,0 +1,23 @@
+### case=leveque scheme=s1 rep=1
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1  BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./leveque_bench 200
+### loadavg_before: 16.39 15.00 13.19 20/1380 2537694
+### date_start: 2026-07-28T18:58:10+09:00
+LeVeque-Zalesak rotation: N=200 cells=160000, 1 revolution
+  mlp_u1 (BJ-vertex):
+[WALL] mlp_u1 wall=8.050s steps=500
+    (n_steps=500)
+  T-MLP-u-L (IDW p=2):
+[WALL] T-MLP-u-L wall=7.011s steps=500
+    (n_steps=500)
+  BVD (smooth BJ / sharp O2):
+[WALL] BVD wall=26.443s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=5.043s  THINC=17.501s (geom=8.295s face=9.205s)  BVD_sel=1.806s  (THINC/MUSCL=3.47x)
+    (n_steps=500)
+  mlp_u1     L1=8.9236e-02 cone=1.5707e-02 hump=8.6203e-03 slot=4.1497e-02 | cone_pk=0.962 slot_fill=1.000 range[-0.000,1.000]
+  T-MLP-u-L  L1=8.9237e-02 cone=1.5707e-02 hump=8.6197e-03 slot=4.1497e-02 | cone_pk=0.963 slot_fill=1.000 range[-0.000,1.000]
+  BVD        L1=8.9319e-02 cone=1.5708e-02 hump=8.6069e-03 slot=4.1582e-02 | cone_pk=0.969 slot_fill=1.000 range[-0.000,1.000]
+  BVD vs mlp_u1: L1 ratio 1.0009, cone_pk 0.969 vs 0.962, slot_fill 1.000 vs 1.000
+[WALL] TOTAL wall=42.133s
+### rc=0
+### loadavg_after: 21.48 16.41 13.74 19/1380 2587713
+### date_end: 2026-07-28T18:58:54+09:00

@@ -1,0 +1,3 @@
+789feea77af3b06501b0f734f496ea2f  ./build/deform3d_unstr_bench
+env=DEF_RECON=bvd MLP_U2=0.001 BVD_BETA_L=1.4 BVD_BETA_S=0.8 ADV_NOMOOD=1 DEF_T=1.5 DEF_PERIOD=3.0 THINCQQ_TANH=1 N3_MESH=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh N3_VTK=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_deform_T2/out.vtk N3_CSV=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_deform_T2/out.csv
+mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh

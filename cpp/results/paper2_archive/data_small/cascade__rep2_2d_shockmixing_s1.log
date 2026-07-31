@@ -1,0 +1,14 @@
+### case=shockmixing scheme=s1 rep=2
+### cmd: taskset -c 0-22:2 env OMP_NUM_THREADS=12 OMP_PROC_BIND=close OMP_PLACES=cores CFD_MAXSTEP=500 CHENG3_PROF=1  BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_TANH=1 ./shock_mixing_bench 400 80
+### loadavg_before: 34.27 33.75 33.62 26/1395 2828465
+### date_start: 2026-07-28T19:35:09+09:00
+Oblique shock (upper stream M1=u1/c1=3.6001, deflection theta=12 deg):
+  weak shock angle beta_s = 25.7503 deg
+  post-shock (rho2,u2,v2,p2) = (1.97116, 2.72102, -0.57837, 1.33293)
+Shock-mixing layer: cells=64000 grid=400x80  h=(0.500,0.500)  t_end=120.000  flux=2 recon=BVD cfl=0.40
+  status=INCOMPLETE  wall=83.9s steps=500 t=8.9231/120.0000  rho[0.9559,1.9697] p[0.4657,1.3346]
+[CHENG3_PROF] recon_calls=1500  MUSCL=33.905s  THINC=40.861s (geom=20.640s face=20.219s)  BVD_sel=2.481s  (THINC/MUSCL=1.21x)
+  dumped pressure -> shock_mixing.txt
+### rc=1
+### loadavg_after: 30.50 32.85 33.32 8/1364 2847388
+### date_end: 2026-07-28T19:36:33+09:00

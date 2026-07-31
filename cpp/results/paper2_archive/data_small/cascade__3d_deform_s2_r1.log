@@ -1,0 +1,5 @@
+[19:15:56] START deform s2 rep1 loadavg=32.49 32.85 30.45
+CMD: taskset -c 24-46:2 env BVD_CHENG3=1 MLP_U2=0.001 HLLC_HLLBLEND=0 HLLC_PVRS=1 THINCQQ_GAUSS=1 BVD_BETA_L=1.4 BVD_BETA_S=0.8 E3D_PROF=1 DEF_RECON=bvd N3_MESH=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh CFD_MAXSTEP=100 ./deform3d_unstr_bench
+E3D_PROF (advect3d) RECON breakdown (summed 114577ms): o2-LSQ 74743ms(65.2%)  cell-D-Newton 8970ms(7.8%, avg 0.00 Newton iters/solve over 0 solves)  face-quad+BVD 30864ms(26.9%)
+DeformUnstr recon=bvd+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh cells=2633856 E1=1.167458e-02 volRatio=1.000000 g_range=[-0.0002,1.0009] steps=100 t=0.0777 wall=202.4s
+[19:19:46] END   deform s2 rep1 loadavg=34.32 33.73 31.31

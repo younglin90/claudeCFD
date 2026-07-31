@@ -1,0 +1,10 @@
+LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1000,2.9592] p_min=0.6273 finite=1 enstrophy=18.4470 steps=571 t=0.1000 wall=1666.3s
+VTK saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_2cyl/out_t0.1000.vtk
+LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1251,2.8257] p_min=0.9995 finite=1 enstrophy=61.9395 steps=1618 t=0.3000 wall=6697.7s
+VTK saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_2cyl/out_t0.3000.vtk
+LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1384,2.7015] p_min=0.9384 finite=1 enstrophy=87.9470 steps=2605 t=0.5000 wall=13373.1s
+VTK saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_2cyl/out_t0.5000.vtk
+LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.1610,2.6707] p_min=0.8511 finite=1 enstrophy=142.7720 steps=3596 t=0.7000 wall=20875.3s
+VTK saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_2cyl/out_t0.7000.vtk
+CSV saved: /home/younglin90/work/claude_code/claudeCFD/cpp/results/paper2_3d_final/s1_2cyl/out.csv (y~0 slab)
+your 131072x1 screen size is bogus. expect trouble

@@ -1,0 +1,9 @@
+[case] cavity_re400_n49__1x: Lid-driven cavity Re=400 N=49 (N=49, 1x)
+  anderson_lbm           lbe=   27696 wall=  14.583 res=7.810e-07 rel=5.165e-02 conv=1
+  preconditioned_lbm     lbe=  100501 wall= 110.149 res=5.073e-07 rel=6.030e-02 conv=1
+  inexact_newton_lbe     lbe=    5665 wall=   2.940 res=4.938e-07 rel=1.291e-01 conv=1
+  dual_time_mg_lbm       lbe=   10441 wall=   8.908 res=4.993e-07 rel=7.393e-02 conv=1
+  proposed               lbe=    5462 wall=   2.607 res=1.517e-06 rel=1.156e-01 conv=1
+[saved] paper_revision_data/no_force_scaling_benchmark/summary.csv
+[saved] paper_revision_data/no_force_scaling_benchmark/metrics.json
+{"accuracy_win_count": 0, "all_pass": 0, "base_cases": ["cavity_re400_n49"], "case_count": 1, "case_results": [{"acc_win": 0, "base_case_id": "cavity_re400_n49", "best_fixed_lbe": 5665, "best_fixed_rel_l2": 0.05165241144490979, "best_fixed_wall": 2.4623939329758286, "case_id": "cavity_re400_n49__1x", "case_pass": 0, "converged": 1, "lbe_win": 1, "proposed_lbe": 5462, "proposed_rel_l2": 0.11557323620489932, "proposed_wall": 2.606703858124092, "scaling_level": 1, "wall_win": 0}], "converged_count": 1, "elapsed_wall_seconds": 141.71943061403, "lbe_win_count": 1, "levels": [1], "mean_lbe_speedup_vs_best_fixed": 1.0371658733064812, "method_count": 6, "methods": ["picard_lbm", "anderson_lbm", "preconditioned_lbm", "inexact_newton_lbe", "dual_time_mg_lbm", "proposed"], "output_dir": "paper_revision_data/no_force_scaling_benchmark", "pass_count": 0, "physics_scaling": {"cavity_refinement": "N_level = 1 + level * (N_1x - 1)", "max_steps": "scaled by level^2 with safety caps", "tolerance": "tol_scale(level) = tol_scale(1) / level", "wall_driven_velocity": "U_scale(level) = U_scale(1) / level"}, "wall_win_count": 0}

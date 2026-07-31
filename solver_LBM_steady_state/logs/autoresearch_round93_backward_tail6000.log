@@ -1,0 +1,9 @@
+[case] backward_step_n64__1x: Backward-facing step (N=64, 1x)
+  anderson_lbm           lbe=   34809 wall=  39.941 res=7.726e-07 rel=1.232e-07 conv=0
+  preconditioned_lbm     lbe=  100702 wall=  67.632 res=1.178e-06 rel=1.818e-14 conv=0
+  inexact_newton_lbe     lbe=    5729 wall=   6.075 res=6.194e-07 rel=1.841e-03 conv=0
+  dual_time_mg_lbm       lbe=   78463 wall=  79.646 res=1.362e-03 rel=8.872e-01 conv=0
+  proposed               lbe=   12484 wall=   9.081 res=7.846e-07 rel=5.826e-06 conv=0
+[saved] paper_revision_data/no_force_scaling_benchmark/summary.csv
+[saved] paper_revision_data/no_force_scaling_benchmark/metrics.json
+{"accuracy_win_count": 0, "all_pass": 0, "base_cases": ["backward_step_n64"], "case_count": 1, "case_results": [{"acc_win": 0, "base_case_id": "backward_step_n64", "best_fixed_lbe": 5729, "best_fixed_rel_l2": 1.8179150899385896e-14, "best_fixed_wall": 6.075182433007285, "case_id": "backward_step_n64__1x", "case_pass": 0, "converged": 0, "lbe_win": 0, "proposed_lbe": 12484, "proposed_rel_l2": 5.8263494001585435e-06, "proposed_wall": 9.080822376068681, "scaling_level": 1, "wall_win": 0}], "converged_count": 0, "elapsed_wall_seconds": 271.3930025019217, "lbe_win_count": 0, "levels": [1], "mean_lbe_speedup_vs_best_fixed": 0.4589074014738866, "method_count": 6, "methods": ["picard_lbm", "anderson_lbm", "preconditioned_lbm", "inexact_newton_lbe", "dual_time_mg_lbm", "proposed"], "output_dir": "paper_revision_data/no_force_scaling_benchmark", "pass_count": 0, "physics_scaling": {"cavity_refinement": "N_level = 1 + level * (N_1x - 1)", "max_steps": "scaled by level^2 with safety caps", "tolerance": "tol_scale(level) = tol_scale(1) / level", "wall_driven_velocity": "U_scale(level) = U_scale(1) / level"}, "wall_win_count": 0}

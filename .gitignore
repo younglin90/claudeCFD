@@ -1,5 +1,94 @@
+# ---- caches / bytecode -------------------------------------------------------
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- build trees -------------------------------------------------------------
+build/
+build-*/
+build_*/
+*.o
+*.so
+*.a
+
+# ---- simulation output -------------------------------------------------------
+# Field dumps and meshes are large and regenerable from the recorded recipes, so they
+# live in the results tree on disk, not in git.
 output/
-results/
+*.vtk
+*.vtu
+*.umsh
+*.mesh2d
+*.npz
+*.bin
+
+# Results trees. NOTE: git cannot re-include anything under an EXCLUDED directory, so
+# cpp/results is excluded by its CONTENTS (`/*`) rather than as a directory. That keeps
+# the paper2 archive negation below working.
+/results/
+solver_tmlpu/results/
+solver_denner/results*/
+solver_5eq/results/
+solver_LBM_steady_state/results/
+cpp/results/*
+!cpp/results/paper2_archive/
+
+# Raw field dumps a bench writes into its cwd when run from cpp/.
+cpp/*.txt
+
+# ---- bulk experiment directories ---------------------------------------------
+autoresearch/
+autoresearch-*/
+autoresearch-results/
+autoresearch-results.*/
+codex-autoresearch/
+.codex-loop/
+solver_LBM_steady_state/papers_data*/
+solver_LBM_steady_state/paper_channel_*/
+solver_LBM_steady_state/paper_nonchannel_*/
+_coord_round*/
+_coord_probe*/
+_coord_png*/
+_smoke*/
+*.jsonl
+
+# ---- large binaries ----------------------------------------------------------
+# Papers are read locally, not versioned: 533 MB of them already bloat the history.
+*.pdf
+*.opju
+*.opj
+
+# Figures: only the curated paper sets are versioned, not the thousands of
+# intermediate run plots.
+*.png
+!cpp/results/paper2_archive/figures/**
+!papers_draft/**/*.png
+!docs/**/*.png
+!**/README*.png
+
+# ---- agent / tooling scratch -------------------------------------------------
+.omx/
+.omx-runs/
+.gstack/
+.claude/worktrees/
+.tmp/
+.tmp_*
+.agents/**/.venv/
+
+.codex/*
+!.codex/agents/
+!.codex/agents/**
+!.codex/skills/
+!.codex/skills/**
+.codex/skills/.system/**
+!.codex/prompts/
+!.codex/prompts/**
+
+# ---- artefacts of the WSL path-mangling bug ----------------------------------
+# A Windows path once became a literal directory name; never commit those.
+Microsoft.PowerShell*
+**/C:/

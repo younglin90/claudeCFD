@@ -1,0 +1,4 @@
+observable,coarse_n,mid_n,fine_n,coarse_value,mid_value,fine_value,coarse_to_mid_relative_change,mid_to_fine_relative_change,status
+final_midplane_jet_radius,10,12,14,0.00050357,0.000117289,0.000146717,2.63283,0.200575,PASS_CONVERGING
+max_electric_force,10,12,14,11.856,40.2623,93.0955,0.30513,0.567516,DOWNGRADED_NONCONVERGENT
+max_csf_force,10,12,14,5.85548,13.4063,18.6372,0.405147,0.280671,PASS_CONVERGING

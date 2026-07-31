@@ -1,0 +1,1 @@
+/home/younglin90/work/claude_code/claudeCFD/solver_LBM_steady_state/papers_data_ap_schur_only_final_20260610_100954

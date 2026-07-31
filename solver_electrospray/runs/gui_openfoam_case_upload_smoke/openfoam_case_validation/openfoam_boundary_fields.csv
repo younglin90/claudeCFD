@@ -1,0 +1,31 @@
+field,patch,type,has_value,value
+U,xmax,zeroGradient,0,(0 0 0)
+U,xmin,fixedValue,1,(0 1 0)
+U,ymax,noSlip,0,(0 0 0)
+U,ymin,noSlip,0,(0 0 0)
+U,zmax,symmetryPlane,0,(0 0 0)
+U,zmin,symmetryPlane,0,(0 0 0)
+p,xmax,fixedValue,1,0
+p,xmin,fixedValue,1,0
+p,ymax,zeroGradient,0,0
+p,ymin,zeroGradient,0,0
+p,zmax,symmetryPlane,0,0
+p,zmin,symmetryPlane,0,0
+alpha,xmax,fixedValue,1,0
+alpha,xmin,fixedValue,1,1
+alpha,ymax,zeroGradient,0,0
+alpha,ymin,zeroGradient,0,0
+alpha,zmax,symmetryPlane,0,0
+alpha,zmin,symmetryPlane,0,0
+phi,xmax,fixedValue,1,0
+phi,xmin,fixedValue,1,2180
+phi,ymax,zeroGradient,0,0
+phi,ymin,zeroGradient,0,0
+phi,zmax,symmetryPlane,0,0
+phi,zmin,symmetryPlane,0,0
+rhoE,xmax,fixedValue,1,0
+rhoE,xmin,fixedValue,1,0
+rhoE,ymax,zeroGradient,0,0
+rhoE,ymin,zeroGradient,0,0
+rhoE,zmax,symmetryPlane,0,0
+rhoE,zmin,symmetryPlane,0,0

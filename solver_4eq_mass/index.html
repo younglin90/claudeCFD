@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Denner 1D C++ 4-eq Solver — Validation</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, Helvetica, sans-serif; background: #f6f7f9; color: #17191c; }
+    body { margin: 0; padding: 32px; }
+    main { max-width: 1120px; margin: 0 auto; }
+    h1 { margin: 0 0 6px; font-size: 28px; line-height: 1.2; }
+    .meta { margin: 0 0 18px; color: #5b626e; font-size: 14px; }
+    .legend { margin: 0 0 24px; font-size: 13px; color: #444; }
+    .legend b.ref { color: #1e50c8; }
+    .legend b.got { color: #dc3232; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; font-weight:bold; }
+    .pass { background:#dcf5e3; color:#137a3a; }
+    .fail { background:#fde2e2; color:#b42318; }
+    section { margin: 0 0 28px; padding: 18px; background: #fff; border: 1px solid #d9dde4; border-radius: 8px; }
+    section.focus { border: 2px solid #dc3232; }
+    h2 { margin: 0 0 6px; font-size: 20px; line-height: 1.2; }
+    p.cap { margin: 0 0 12px; font-size: 13px; color: #5b626e; }
+    img { display: block; width: 100%; height: auto; border: 1px solid #e1e4ea; background: #fff; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Denner 1D — C++ 4-equation solver validation</h1>
+    <p class="meta">Conservative HLLC + W=[p,u,T,&alpha;] (Collis IEC) + SSP-RK2, spec-faithful gates. Strict result: <b>9 / 10 PASS</b> (failure_count = 1; only case25). Each plot: <b>top = pressure</b>, <b>middle = velocity</b>, <b>bottom = density</b>.</p>
+    <p class="legend"><b class="ref">&#9474; blue = exact / reference</b> &nbsp;&nbsp; <b class="got">&#9474; red = C++ solver</b></p>
+
+    <section class="focus">
+      <h2>Case 25 &mdash; Mach-10 air shock / water interface <span class="badge fail">FAIL (interface velocity)</span></h2>
+      <p class="cap">수중충격. 파동 구조·위치는 정확(reflected 9.7 / contact 0.5 / transmitted 1.5 cells 이내, corr_p=0.95). 유일 실패 = 계면 속도 <code>interface_u_linf=39.9 m/s</code> vs 허용 1.5. 정량 분해: ① contact spike 39.9 (4-eq <b>단일온도</b>가 초고온 공기 &amp; 저온 물을 계면서 강제 열평형 → Abgrall; 5/6-eq 상별에너지 필요) ② 순수공기 반사shock ringing 17.0 (slowly-moving-shock, 표준 보존스킴에 구조적). <b>두 독립 fix 필요 — 어느 하나도 단독 불충분</b>. spec는 5-equation 모델 기준(line 13). reference는 정확함(검증 완료).</p>
+      <img src="web-results/case25_diff_vs_reference.png" alt="Case 25 solver vs exact NASG Riemann reference">
+    </section>
+
+    <section>
+      <h2>Case 24 &mdash; homogeneous air-water mixture Mach-10 shock <span class="badge pass">PASS</span></h2>
+      <p class="cap">균질 혼합물 강충격. reference를 spec대로 Wood-Vs mass-fraction 보존 single-T Hugoniot로 교정. spec 실제 기준(L2&le;0.20, corr&ge;0.92, <b>밀도 plateau 단조성</b>) 충족: corr_p=0.99, l2_rho=0.003, plateau dip=0.006. (압력 shock-전면 spike는 혼합 EOS 볼록성의 불가피한 구조 — spec는 "수치적 번짐 허용", 밀도가 단조성 기준.)</p>
+      <img src="web-results/case24_diff_vs_reference.png" alt="Case 24 solver vs Wood-Vs mixture Hugoniot reference">
+    </section>
+
+    <section>
+      <h2>Case 07 &mdash; air-water acoustic reflection/transmission <span class="badge pass">PASS</span></h2>
+      <p class="cap">계면 음향 반사·투과. &kappa;=1/3 reconstruction으로 분산 저감 후 통과.</p>
+      <img src="web-results/case07_diff_vs_reference.png" alt="Case 07 solver vs analytic acoustic reference">
+    </section>
+
+    <section>
+      <h2>Case 13 &mdash; HP-air / LP-water shock tube <span class="badge pass">PASS</span></h2>
+      <p class="cap">강충격관. NASG exact Riemann과 일치 (corr_p=0.999).</p>
+      <img src="web-results/case13_diff_vs_reference.png" alt="Case 13 solver vs NASG exact Riemann reference">
+    </section>
+  </main>
+</body>
+</html>

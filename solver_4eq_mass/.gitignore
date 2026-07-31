@@ -1,0 +1,10 @@
+build-cpp/
+results_cpp/
+mplconfig/
+logs/
+downloads/
+web-results/
+autoresearch-results/
+__pycache__/
+*.docx
+*.tar.gz

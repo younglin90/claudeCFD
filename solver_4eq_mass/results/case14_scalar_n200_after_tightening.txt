@@ -1,0 +1,7 @@
+START none
+JSON {"complete": true, "div": false, "gap": 1.4611753076276452, "hf": true, "p_hf": true, "pass_": false, "peak_env": 0.010133408576275576, "peak_ok": true, "peak_turns": 2, "peak_tv": 0.670990980730878, "plat_env": 0.21942307014874565, "plat_linf": 1.2194230701487456, "plat_ok": false, "plat_tv": 0.5799194177426057, "rho_hf": true, "scalar": "none", "shock": 2.0694457518341203, "u_hf": true, "wall": 81.61550450325012}
+START superbee
+JSON {"complete": true, "div": false, "gap": 1.8264691345345483, "hf": true, "p_hf": true, "pass_": false, "peak_env": 0.03069608558325372, "peak_ok": false, "peak_turns": 3, "peak_tv": 0.7229910899163207, "plat_env": 0.16586473135718743, "plat_linf": 1.1658647313571875, "plat_ok": false, "plat_tv": 0.6501872925720839, "rho_hf": true, "scalar": "superbee", "shock": 4.069445751834078, "u_hf": true, "wall": 122.10607504844666}
+START sweby15
+JSON {"complete": true, "div": false, "gap": 1.8264691345345483, "hf": false, "p_hf": true, "pass_": false, "peak_env": 0.02506816856155514, "peak_ok": false, "peak_turns": 3, "peak_tv": 0.725836930380506, "plat_env": 0.2094947975205208, "plat_linf": 1.2094947975205208, "plat_ok": false, "plat_tv": 0.757770037873954, "rho_hf": true, "scalar": "sweby15", "shock": 4.069445751834078, "u_hf": false, "wall": 134.1480791568756}
+START mc

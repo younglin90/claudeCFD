@@ -915,3 +915,123 @@ bash scripts/yadv_r3_ab.sh       # OFF + ON validate sweeps
 python3 scripts/yadv_verify.py   # byte-identity vs published binary
 python3 scripts/yadv_rhcheck.py  # section 14.3 RH residual table
 ```
+
+---
+---
+
+# ROUND 4
+
+## 15. Task (b) — `alpha` inside the Newton, phase 1. Mixed: cures case15's convergence defect, regresses the analytic-Jacobian default. Gated OFF.
+
+### 15.1 What was implemented
+
+`cpp/denner_1d/src/acid.cpp`, inside `compute_R` (the residual lambda called every Newton
+iteration, every Jacobian probe, every line-search trial, every TR-BDF2 stage): as the FIRST
+statement, re-derive `s.alpha[i]` from the transported `Yv[i]` at the CURRENT trial `(s.p[i],
+s.T[i])`, instead of leaving it frozen at the pre-Newton `(p_o,T_o)` value rounds 1-3 used. This
+makes `alpha = alpha(Y,p,T)` an implicit function of the Newton unknowns by RE-EVALUATION —
+leaning on the defect-correction principle already load-bearing elsewhere in this solver
+(`.claude/rules/denner-pitfalls.md`: an approximate/frozen Jacobian changes only iteration count,
+never the converged solution, provided Newton converges) — rather than by deriving explicit
+`d(alpha)/dp`, `d(alpha)/dT` analytic Jacobian rows. On the first `compute_R` call each step
+`s.p`/`s.T` still equal `p_o`/`T_o`, so this reproduces the existing pre-Newton recovery exactly;
+no discontinuity at start. The pre-Newton recovery loop and the `rho_o`/`hstat_o`/`Htot_o`
+old-level transient baseline (unchanged since round 1) are untouched — they still use the
+pre-Newton alpha, as required.
+
+**Gated behind a NEW flag, `ACID_YADV_ALPHA_IMPLICIT` (default OFF), separate from `ACID_YADV`.**
+Measured (below): this is a net REGRESSION under the default analytic Jacobian and only partially
+positive even with the FD Jacobian forced. Plain `ACID_YADV=1` therefore continues to reproduce
+the already-committed, already-documented round-3 behaviour (`pass_count=15`) unchanged —
+re-verified bit-for-bit after adding the gate. `cases.cpp`/`validation.cpp` untouched; no new
+per-case branch; OFF path re-verified 19/19, 9/9 byte-identical against the published binary.
+
+### 15.2 Measurements (independently reproduced, not just the implementer's numbers)
+
+```
+OFF                                   : 19/19, 9/9 byte-identical (unchanged)
+ON  (ACID_YADV=1)                     : 15/19  -- unchanged from round 3
+ON  + ACID_YADV_ALPHA_IMPLICIT=1      : 12/19  -- fails 13, 14, 15, 24, 25, 33, 34
+ON  + ALPHA_IMPLICIT + ACID_NO_AJAC=1 : 12/19  -- fails 14(NaN), 15, 24, 27, 28(NaN), 33(NaN), 34(NaN)
+```
+
+The `ACID_NO_AJAC=1` (FD Jacobian) comparison is **not a neutral diagnostic on this solver** and
+must be read against its own control: forcing the FD Jacobian on the *default alpha path* (no
+`ACID_YADV` at all) drops it from 19/19 to **13/19** (fails 15, 24, 27, 28-NaN, 33-NaN, 34) —
+the FD path itself costs 6 cases here, unrelated to Y-transport. Corrected comparison, same
+Jacobian both sides:
+
+| Jacobian | OFF (alpha) | ON, frozen alpha (round 3) | ON, implicit alpha (round 4) |
+|---|---|---|---|
+| analytic (default) | 19/19 | 15/19 | **12/19** (new fails: 13,14,25) |
+| FD (`ACID_NO_AJAC=1`) | 13/19 | 13/19 | 12/19 (new fail vs FD baseline: 14 only) |
+
+### 15.3 The core hypothesis of §7.2/§11.6 IS confirmed — case15
+
+| config | `amp_ratio_p` | `l2_p` | `corr_p` | `corr_rho` |
+|---|---|---|---|---|
+| round 3 (frozen alpha), analytic | 0.330034 | 0.166533 | 0.98554 | 0.98451 |
+| round 3 (frozen alpha), FD | 0.353989 | 0.162352 | 0.98723 | 0.98626 |
+| round 4 (implicit alpha), analytic | 1.23223 | 0.230851 | 0.09937 | 0.51520 |
+| **round 4 (implicit alpha), FD** | **1.00041** | **0.014393** | **0.99929** | **0.99673** |
+
+Neither half alone fixes it — FD alone barely moves `amp_ratio_p` (0.330→0.354); implicit-alpha
+alone overshoots catastrophically (`corr_p` collapses to 0.099). **Together**, the grid-refinement
+amplitude-loss failure §7.2 diagnosed is gone: case15 satisfies every quantitative gate criterion
+(`corr_p≥0.93`, `corr_u≥0.998`, `corr_rho≥0.99`, `l2_p≤0.18`, `l2_u≤0.06`, `l2_rho≤0.05`). It
+still reports `pass:false`, but now only on the spec's velocity-smoothness/TV-oscillation guards
+(`peak_delta_u=321`, a materially different and narrower failure than non-convergence).
+
+### 15.4 The analytic Jacobian's blind spot is now load-bearing — cases 13/14/25
+
+Implicit alpha under the DEFAULT (analytic) Jacobian breaks three cases that round 3 passed:
+case13 (`l2_p` 0.0207→0.0383, `u_shock_delta_cells` 1→5), case14 (`corr_u` 0.982→0.955, `l2_u`
+0.084→0.132), case25 (`corr_p` 0.994→**-0.123**, catastrophic). Under the FD Jacobian, 13 and 25
+both PASS (case13 `l2_p=0.01722`, essentially restoring round-1 v1's `linf_p=0.169`; case25
+`corr_p=0.991`). This is a textbook bad-search-direction symptom, not a residual/physics failure:
+per defect-correction, the converged answer should be Jacobian-independent, so an analytic-only
+regression means Newton is not converging there — exactly the risk flagged before this experiment
+ran. **Case14 is the exception**: it degrades under the analytic Jacobian and goes fully NaN under
+FD — worse either way, not explained by the Jacobian-accuracy story, not investigated further.
+
+### 15.5 Cases 24/33/34 — not recovered, no worse under analytic, worse under FD
+
+Case24: analytic `l2_p=0.837→0.837` (no change), `corr_p=0.166→0.167` (no change) — essentially
+untouched by this experiment either way. Case33/34: unchanged under analytic, but go fully NaN
+under FD (round 3 + FD already NaNs 33/34 too, so this is not new to round 4 — see the OFF/round-3
+FD control above). No wall-clock blowup: implicit-alpha costs nothing under the analytic Jacobian
+(actually slightly faster, partly from earlier aborts on the newly-failing cases); the FD Jacobian
+costs its usual ~1.7-1.9x regardless of Y-transport.
+
+### 15.6 Verdict
+
+1. **Phase 1's core hypothesis is confirmed for case15**: freezing `alpha` through the Newton was
+   exactly the mechanism §7.2 diagnosed, and re-deriving it at the current iterate — with no
+   analytic Jacobian surgery at all — cures the grid-convergence failure, PROVIDED the Jacobian is
+   accurate enough (FD) to find the right search direction.
+2. **The analytic Jacobian's `d(alpha)/dp`/`d(alpha)/dT` blind spot, predicted as a risk before
+   this ran, is now measured and load-bearing**: three previously-passing cases (13/14/25) regress
+   under it. Phase 2 — the actual `d(alpha)/dp`, `d(alpha)/dT` analytic Jacobian rows §12 named —
+   is no longer an optional refinement; it is required before implicit alpha can be the default
+   for `ACID_YADV=1` at all.
+3. **24/33/34 remain unrecovered under either Jacobian.** Implicit alpha alone does not close
+   their conservation defect (§11.6) the way it closes case15's amplitude defect — a different
+   failure mode within the same "frozen alpha" root cause, still open.
+4. **`ACID_YADV_ALPHA_IMPLICIT` stays default OFF, `ACID_YADV=1` alone is unaffected** (re-verified
+   bit-identical to round 3, 15/19). Recommendation: the next experiment is the analytic
+   `d(alpha)/dp`/`d(alpha)/dT` Jacobian contribution itself (Phase 2) — the FD-Jacobian result
+   here is existence proof that an accurate-enough Jacobian recovers 13/15/25 without touching the
+   physics, so Phase 2 is worth attempting before concluding task (b) is a dead end.
+
+### 15.7 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+bash scripts/yadv_r3_build.sh
+DENNER_ACID=1 ./build-cpp/cpp/denner_1d/denner1d_validate                                   # OFF: 19/19
+DENNER_ACID=1 ACID_YADV=1 ./build-cpp/cpp/denner_1d/denner1d_validate                       # ON: 15/19 (round 3, unchanged)
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ./build-cpp/cpp/denner_1d/denner1d_validate                  # 12/19
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_NO_AJAC=1 ./build-cpp/cpp/denner_1d/denner1d_validate   # 12/19, different failure set
+DENNER_ACID=1 ACID_NO_AJAC=1 ./build-cpp/cpp/denner_1d/denner1d_validate                                          # FD control on the default alpha path: 13/19
+python3 scripts/yadv_verify.py
+```

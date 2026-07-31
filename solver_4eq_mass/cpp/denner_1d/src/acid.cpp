@@ -554,6 +554,15 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // conservative-transport block below -- this form breaks the pure-cell property and is kept
     // solely so the measurement in docs/YADV_RESEARCH.md can be reproduced.
     const bool yadv_rhoold = std::getenv("ACID_YADV_RHOOLD") != nullptr;
+    // ACID_YADV_ALPHA_IMPLICIT (round 4, task (b), RESEARCH-ONLY, default OFF): re-derive alpha
+    // from Y at the CURRENT Newton iterate's (p,T) inside compute_R instead of freezing it at the
+    // pre-Newton (p_o,T_o) value. Gated separately from `yadv` because it is a MEASURED NET
+    // REGRESSION under the default analytic Jacobian (15/19 -> 12/19, newly breaks 13/14/25) and
+    // only partially positive even with the FD Jacobian forced (fixes case15's convergence, still
+    // breaks 24/33/34, newly NaNs case14) -- see docs/YADV_RESEARCH.md round 4. Plain ACID_YADV=1
+    // must keep reproducing the already-documented, already-committed round-3 behaviour (15/19);
+    // this flag exists only so the round-4 measurement remains reproducible.
+    const bool alpha_implicit = std::getenv("ACID_YADV_ALPHA_IMPLICIT") != nullptr;
     const bool thinc_dbg = std::getenv("ACID_THINC_DBG") != nullptr;
     long thinc_hits = 0;  // debug: how many faces ever activated THINC (nonzero => case activates)
     long thinc_rej = 0;   // debug: THINC candidates rejected by the rho-monotonicity BVD guard
@@ -984,6 +993,33 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // 5 fresh vectors -- removes ~5 malloc/free per residual eval (millions over a run).
         Vec g_pe(n + 4), g_ue(n + 4), g_re(n + 4), g_Te(n + 4), g_ae(n + 4);
         auto compute_R = [&]() {
+            // --- ACID_YADV (round 4, task (b)): alpha as an IMPLICIT function of the Newton
+            //     unknowns. On this path alpha is DERIVED from the transported Y at the current
+            //     (p,T); rounds 1-3 froze it at the pre-Newton (p_o,T_o) value, which made the
+            //     alpha<->p coupling an explicit lagged loop across the stiffest state dependence
+            //     in the problem (docs/YADV_RESEARCH.md 7.2 / 11.6). Re-deriving it here -- the
+            //     FIRST thing every residual evaluation does, so every Newton iterate, every FD
+            //     probe, every line-search trial and every TR-BDF2 stage sees it -- makes
+            //     alpha = alpha(Y, p, T) implicit by RE-EVALUATION rather than by an explicit
+            //     d(alpha)/dp, d(alpha)/dT Jacobian row (defect-correction: compute_R is the
+            //     single source of truth, an approximate Jacobian changes only iteration count).
+            //     On the first call of a step s.p/s.T still equal p_o/T_o, so this reproduces the
+            //     pre-Newton recovery value exactly -- no discontinuity at the start.
+            //     In `coupled` mode alpha needs T while T_from_hstat needs alpha: resolved as an
+            //     OUTER PICARD lag (alpha from the previous call's T, then T re-solved with it),
+            //     which vanishes at convergence when s stops moving.
+            //     RESEARCH-ONLY, gated by ACID_YADV_ALPHA_IMPLICIT (default OFF, see the flag's
+            //     declaration above) -- a measured net regression under the default analytic
+            //     Jacobian, so plain ACID_YADV=1 must NOT pick this up implicitly.
+            if (yadv && alpha_implicit) {
+                for (int i = 0; i < n; ++i) {
+                    const double pu = std::max(s.p[i], 1.0), Tu = std::max(s.T[i], 1e-6);
+                    s.alpha[i] = std::clamp(alpha_from_mass_fraction(Yv[i],
+                                                                     phase_props(pu, Tu, A).rho,
+                                                                     phase_props(pu, Tu, B).rho),
+                                            0.0, 1.0);
+                }
+            }
             // --- ACID_COUPLED: derive T from the coupled total enthalpy h BEFORE eval_thermo,
             //     so rho/hstat are consistent with h every iteration (THIS fixes the segregated
             //     rho-mismatch that drove the case25 blowup). ---

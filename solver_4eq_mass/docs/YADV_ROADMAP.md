@@ -6,36 +6,48 @@ document — round counter, stop conditions, next-task pointer, one-line-per-rou
 put derivations or measurement tables here; put them in `YADV_RESEARCH.md` (or a per-round plan
 doc) and link to them.
 
-## Current goal
+## Current goal — ACHIEVED, loop idle
 
-Complete Phase 2 (`docs/YADV_PHASE2_PLAN.md`, Stages 0-4): add analytic `d(alpha)/dp`,
-`d(alpha)/dT` Jacobian contributions so `ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1` converges under
-the default analytic Jacobian at least as well as round 4's FD-Jacobian result.
+Phase 2 (`docs/YADV_PHASE2_PLAN.md`, Stages 0-4) is COMPLETE as of round 9. Re-scoped goal
+(`pass_count >= 14` under `ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1` with the default analytic
+Jacobian, cases 13 and 25 durably recovered) was met at round 6 and re-verified at rounds 7, 8 and
+9 with zero drift. Stage 4's consolidation, timing measurement and promotion decision are in
+`YADV_RESEARCH.md` §19: `ACID_YADV_ALPHA_IMPLICIT` does NOT fold into `ACID_YADV` (it would cost
+case14, which plain `ACID_YADV=1` passes); both stay default OFF.
 
-**Re-scoped after round 7** (`YADV_RESEARCH.md` §17): the original target was "recover
-13/15/25, `pass_count >= 15`". Round 6 recovered 13 and 25 (`pass_count` 12->14). Round 7 measured
-that case15's actual blocker -- computed exactly from `validation.cpp`'s own `smooth_ok` formula
-against a fresh dump -- is a central-jump/concentration failure at the domain's stagnation point
-(x=0.5, u=0 by symmetry for this symmetric double-rarefaction case), NOT the amplitude/convergence
-defect §7.2 originally diagnosed and NOT something `d(alpha)/dp` or `d(alpha)/dT` Jacobian
-accuracy can reach by construction. **case15 is no longer a target of this plan.** Revised goal:
-`pass_count >= 14` (already met) with cases 13/25 durably recovered; Stage 3 (T-pathway) remains
-worth attempting because it targets case14 specifically (a separate, genuinely T-related `hsT<0`
-lead from round 5), not because it might reach case15.
+`done: true` — the loop is idle pending a human decision on whether to open a Phase 3. Two named,
+scoped candidates, both DIFFERENT defect classes from Phase 2's Jacobian work:
 
-When Phase 2's Stage 4 (consolidation) is done, the round that completes it must explicitly
-re-evaluate this "Current goal" section: either mark `done: true` (if the loop should idle / hand
-back to a human) or replace it with the next concrete goal (e.g. the cases-24/33/34 conservation
-defect, §11.6/§15.5, or a fresh investigation into case15's central-jump defect as its own
-question, unrelated to `ACID_YADV`) and reset `consecutive_failures`.
+- **(P3a) The cases-24/33/34 conservation defect — NOW WITH A CONCRETE, PROMISING LEAD (round 9,
+  §19.4).** Round 3's conservative `rho*Y` transport brought 24/34 to 1e-13 RH closure but all
+  three still fail their validation gates. Round 9's post-merge RH re-check under
+  `ACID_YADV_ALPHA_IMPLICIT=1` (predicted by the round's own plan to show "no movement" — that
+  prediction was WRONG) found: **case33's Rankine-Hugoniot jump closes to machine precision**
+  (momentum residual 88% → 8.4e-13) — Stage 1's Jacobian fix repairs its conservation
+  self-consistency even though it still disagrees with the alpha-held validation reference (a
+  different, also-legitimate closure choice per §11.3, not a "solver defect" in the §11.6 sense).
+  case24/34 instead show their shocks exiting the domain before `t_end` under the same flag —
+  not yet understood whether this is the same phenomenon further along (a faster, still-admissible
+  shock) or a different problem specific to those two. This is a materially better starting point
+  than "three rounds of Jacobian work moved nothing," which is what rounds 4-8 (measuring only
+  validation-gate metrics, never the RH self-consistency under implicit alpha) implied. Decisive
+  instrument already exists and needs no new code: `scripts/yadv_rhcheck.py` /
+  `ACID_YADV_ALPHA_IMPLICIT=1 python3 scripts/yadv_rhcheck.py`.
+- **(P3b) case15's central-jump defect** (§17.4). `cj=30.02` vs threshold `8.0` at the
+  stagnation point, oscillation side clean. A collocated-scheme/MWI question. Narrower and
+  better localized than P3a, but it would not change `ACID_YADV`'s status.
+
+To re-arm the loop: set `done: false`, write the chosen goal here (P3a is the Advisor's
+recommendation given the round-9 finding above), set `next_task` to a new plan document, and
+reset `consecutive_failures: 0`.
 
 ## Control state
 
 ```
-round_counter: 8
+round_counter: 9
 consecutive_failures: 0
-done: false
-next_task: docs/YADV_PHASE2_PLAN.md Stage 4 (consolidation) -- Stages 0-3 all measured, see history
+done: true
+next_task: (none -- loop idle, see "Current goal" above for P3a/P3b candidates)
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -135,9 +147,25 @@ not start a new round.
   (residual-level fix) for now -- its case is performance/robustness, not a case14 fix, and it
   flips the FD-invariance gate for no currently-open target. All hard gates held.
   → `YADV_RESEARCH.md` §18, `docs/YADV_ROUND_8_PLAN.md`, commit `3446bc5`.
-- Round 9+: not yet run. `next_task` above (Phase 2 Stage 4, consolidation -- full sweep tables
-  across Stages 0-3, wall-clock/iteration summary, and the promotion-consideration decision for
-  `ACID_YADV_ALPHA_IMPLICIT` — NOT `ACID_YADV` itself, which stays default OFF regardless).
+- Round 9: Phase 2 Stage 4 (consolidation). Zero solver code changed -- measurement/reporting only
+  via a new `scripts/yadv_r9_sweep.py`. Full six-configuration sweep reproduced every prior round's
+  numbers exactly, from one build, in one sitting (found and fixed a live parsing bug along the
+  way: lowercase `nan`/`-nan` broke Python's `json.loads`, silently undercounting failure sets --
+  `pass_count` itself, computed by the C++ binary, was never wrong). First direct wall-clock
+  measurement in the whole investigation: `+ALPHA_IMPLICIT` costs 7.1% more than plain
+  `ACID_YADV=1` on cases both configs solve (vs Phase-2's own <5% prediction); FD Jacobian costs
+  54.7% more than analytic on the same config (consistent with round 4's qualitative ~1.7-1.9x).
+  Promotion decision: does NOT fold `ACID_YADV_ALPHA_IMPLICIT` into `ACID_YADV` -- case14 is the
+  ONLY case whose pass/fail flips between the two (plain ON passes it, +IMPLICIT fails it),
+  confirmed fresh from this round's own sweep. **Post-merge follow-up (commit `6f1538d`) found a
+  genuinely new, unpredicted result**: the deferred RH residual re-check
+  (`scripts/yadv_rhcheck.py`) under `ACID_YADV_ALPHA_IMPLICIT=1` shows case33's Rankine-Hugoniot
+  jump closing to machine precision (88% -> 8.4e-13) -- contradicting the standing "Stages 1/2/3a
+  moved 24/33/34 by nothing" belief, which was only ever true of the validation-gate metrics.
+  case24/34 instead show their shocks exiting the domain early under the same flag, unexplained.
+  Phase 2 (Stages 0-4) declared complete; roadmap re-scoped to `done: true` with this new finding
+  named as the sharpest lead for a future Phase 3 (P3a). All hard gates held throughout.
+  → `YADV_RESEARCH.md` §19, `docs/YADV_ROUND_9_PLAN.md`, commits `51e2497`, `6f1538d`.
 
 ## Setup reference
 

@@ -581,6 +581,27 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // not in the derivative formula.
     const bool alpha_implicit_t = std::getenv("ACID_YADV_ALPHA_IMPLICIT_T") != nullptr;
     const bool thinc_dbg = std::getenv("ACID_THINC_DBG") != nullptr;
+    // ACID_TEND_SCALE (round 11, Phase 3a Stage 2, DIAGNOSTIC ONLY, default 1.0 = byte-identical
+    // when unset): multiplies THIS SOLVER's stop time only. It is an OBSERVATION WINDOW, not a
+    // physical or tuning parameter -- the standard shock-tube verification convention is to sample
+    // before a wave reaches a boundary, and cases.cpp's fixed t_end = 0.7/Vs_ref breaks that
+    // convention whenever the COMPUTED shock speed differs from Vs_ref (cases 24/34 under
+    // ACID_YADV_ALPHA_IMPLICIT: the shock has left the 800-cell domain by t_end, so there is no
+    // clean post-shock plateau to sample -- YADV_RESEARCH.md sect.20.2).
+    // WARNING, by design and not fixable here: cases.cpp builds the reference solution at the
+    // UNSCALED c.config.final_time (cases.cpp:760) and denner1d_dump calls it independently, so
+    // with scale != 1 the dump's *_ref columns and EVERY denner1d_validate metric are meaningless.
+    // NEVER set this for a gate/validation run. Only the solver columns (p,u,rho) are valid.
+    const double tend_scale = []{
+        const char* e = std::getenv("ACID_TEND_SCALE");
+        if (!e) return 1.0;
+        const double v = std::atof(e);
+        if (!(v > 0.0) || !std::isfinite(v)) {
+            std::fprintf(stderr, "ACID_TEND_SCALE=%s invalid (need finite > 0) -> ignored, using 1.0\n", e);
+            return 1.0;
+        }
+        return v;
+    }();
     long thinc_hits = 0;  // debug: how many faces ever activated THINC (nonzero => case activates)
     long thinc_rej = 0;   // debug: THINC candidates rejected by the rho-monotonicity BVD guard
     // previous-time advecting face velocity (transient MWI): initialise from the initial
@@ -612,7 +633,16 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // divergence and abort immediately (the caller's validate then fails the case cleanly).
     double dt0_cfl = -1.0;
     bool diverged = false;
-    while (t < c.config.final_time && step < c.config.max_steps) {
+    // Stage 2: the effective stop time. The `== 1.0` early-out makes the unset path textually
+    // identical to the pre-change code (multiplying by 1.0 is exact in IEEE-754 anyway, but this
+    // makes byte-identity inspectable by reading rather than by FP reasoning).
+    const double t_end = (tend_scale == 1.0) ? c.config.final_time
+                                             : c.config.final_time * tend_scale;
+    if (tend_scale != 1.0)
+        std::fprintf(stderr, "TEND_SCALE: case=%s scale=%.6g -> t_end=%.9e (reference is still at "
+                     "%.9e -- *_ref columns and all validate metrics are INVALID for this run)\n",
+                     c.id.c_str(), tend_scale, t_end, c.config.final_time);
+    while (t < t_end && step < c.config.max_steps) {
         // acoustic-CFL dt
         double lam = 1e-300;
         int imax = 0;
@@ -650,7 +680,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             break;
         }
         double dt = (cfl_ramp ? cfl_scale : 1.0) * dt_full;  // ramp-scaled actual dt
-        dt = std::min(dt, c.config.final_time - t);
+        dt = std::min(dt, t_end - t);
         if (!(dt > 0.0)) break;
 
         // ---- adaptive dt with retry: if the implicit step diverges (non-finite, or a cell
@@ -2134,7 +2164,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             std::fprintf(stderr,
                 "STALLED: case=%s no admissible step at dt=%.3e after %d retries, step %d, "
                 "t=%.3e of %.3e -> stop (state returned as-is, NOT marked diverged)\n",
-                c.id.c_str(), stall_dt, stall_retry + 1, step, t, c.config.final_time);
+                c.id.c_str(), stall_dt, stall_retry + 1, step, t, t_end);
             if (dbg)
                 std::fprintf(stderr,
                     "STALLED-DETAIL: reason=%s cell=%d x=%.5f p=%.4e u=%.4e rho=%.4e alpha=%.5f "
@@ -2179,7 +2209,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // inferring it from the last periodically-printed "ACID step" line (every 200 steps).
     if (dbg)
         std::fprintf(stderr, "ACID done case=%s step=%d t=%.9e of %.9e\n",
-                     c.id.c_str(), step, t, c.config.final_time);
+                     c.id.c_str(), step, t, t_end);
 
     if (thinc_dbg)
         std::fprintf(stderr, "THINC case=%s activations=%ld rho_guard_rejects=%ld\n",

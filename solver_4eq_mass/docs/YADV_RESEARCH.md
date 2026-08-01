@@ -2259,3 +2259,132 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RINIT=1 ACID_BLK_STEP=
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_HREINIT=1 ACID_DBG=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
     2>&1 >/dev/null | grep STALLED                                # sect.23.2's refutation
 ```
+
+---
+---
+
+# ROUND 14 (Phase 3a Stage 3c)
+
+## 24. Retry-exhaustion give-up is now marked `diverged` -- a correctness/reporting fix, not a
+##     numerical result. `pass_count` unchanged in all four hard gates; the point of the change is
+##     that three previously-finite garbage rows now correctly read NaN.
+
+### 24.1 The decision and the change
+
+Rounds 11, 12, and 13 each identified but deferred the same gap: `acid.cpp`'s retry-exhaustion
+give-up (all 14 dt-halvings fail, and -- since round 12 -- `ACID_STALL_ACCEPT`'s own accept budget
+is also exhausted or disabled) prints `STALLED:` (round 11) but leaves `diverged == false`, so
+`validate`/`dump` still score the returned finite-but-garbage state as a normal completed run. This
+is the exact mechanism that produced two retracted findings (§20). Each round noted that flipping
+this requires "an explicit Advisor decision against the 'plain ON byte-identical' rule" because it
+changes what `pass_count`'s per-case JSON reports (though not `pass_count` itself, since the
+affected cases already fail) for cases 24/33/34. **The Advisor made that decision this round**:
+implement it.
+
+The change is one executable statement, `diverged = true;`, inside the existing `if (!stepped) {
+... }` give-up block, plus an updated comment and a reworded (not renamed) `STALLED:` message tail.
+No other file changed.
+
+**The accept/give-up boundary needed no new logic** -- the control flow already draws it correctly.
+The give-up block sits AFTER `ACID_STALL_ACCEPT`'s own accept attempt; a step that accept
+successfully adopts sets `stepped = true` and never reaches the give-up block at all. So a run that
+accepted some non-converged steps and then continued to `t_end` (cases 24/34 under
+`ACID_STALL_ACCEPT=1`, §22) is correctly NOT marked diverged -- its own `STALL-ACCEPT-TOTAL` line
+remains its honest, separate disclosure. Only "neither a clean step nor an accepted step was
+possible" is now marked diverged: `ACID_STALL_ACCEPT` unset/disabled, or its own budget exhausted
+(case33 `+IMPLICIT` under `ACID_STALL_ACCEPT`, §22.4: 104-251 steps, budget hit, still stalls --
+correctly diverges now).
+
+**Correction to how this was framed going in**: this block is NOT `ACID_YADV`-gated -- it sits in
+the common time loop the OFF path also runs. OFF-path safety is therefore evidence-based (round 11
+§21.1 measured `STALLED` firing on exactly the three known configs and nowhere else, including OFF),
+not structural, so it was re-verified empirically this round (§24.2 G1), not merely inspected.
+
+### 24.2 Gates -- all predictions confirmed exactly
+
+| gate | result |
+|---|---|
+| G0 build + unit | pass |
+| G1(a) OFF vs published `solver_denner` | 19/19, byte-identical |
+| G1(b) STALLED/DIVERGED count on OFF (empirical, all 19 cases) | **0** |
+| G1(c) OFF `denner1d_validate` stdout pre vs post | byte-identical |
+| G2 plain-ON | 15/19 unchanged; **only case24/34 lines differ** (`finite: true->false`, `pass` stays `false` both times); every other case's line byte-identical |
+| G3 `+ALPHA_IMPLICIT` | 14/19 unchanged; **only case33's line differs**; case24/34's lines confirmed byte-identical (they genuinely complete under this flag and must not be touched -- verified, not just asserted) |
+| G4 FD-invariance | `ACID_YADV=1 ACID_NO_AJAC=1` = 13/19 and `ACID_NO_AJAC=1` alone = 13/19 -- **resolves round 12/13's ambiguous prior figure** (12/19 was stale, corrected already in round 11 §21.1 for the D config; this round confirms E independently at the same 13/19). **Zero cases changed** in either FD config -- none of the FD-invariance failure set's already-failing cases were reading a finite garbage stall value; whatever makes them fail is unrelated to this defect class. |
+| G5 `ACID_STALL_ACCEPT` isolation | case24 dump **byte-identical** to round 12's; case34 dump **byte-identical** to round 12's (after redoing a shell-timeout-truncated first attempt -- a tooling artifact, not a code issue); case33 `+IMPLICIT +STALL_ACCEPT=1` now correctly shows an all-NaN dump, still prints both `STALL-ACCEPT-TOTAL` (4 accepts) and exactly one `STALLED:` line |
+| G6 published scripts | `scripts/yadv_rh2.py` still classifies all three known-stalled configs as `NULL RUN` and both completing configs unchanged -- the `frac<0.9` clause alone carries the classification now that `IC-match` cosmetically reads `0.00`/`nan` instead of `0.89` (predicted; the second guard clause is now permanently dead for diverged runs, but the first still covers every known case) |
+
+**Exactly the three predicted (case, config) pairs changed and nothing else: 24/plain, 34/plain,
+33/+IMPLICIT.** No other case, in any of the five configurations tested, moved at all.
+
+G7 (the `max_steps`-exhaustion sibling-defect sweep) was not run this round -- informational only,
+deferred to whichever future round takes up that separate question (§24.4).
+
+### 24.3 Historical-artifact audit -- corrective annotations, history left in place
+
+Per this project's convention (§20's own retraction: "left in place above, annotated, not
+deleted"), the following prior sections read a finite value from what is now understood (since §20)
+to have been a stalled run, and now read NaN instead. No historical number is edited; this is the
+annotation.
+
+- **§14.3 table 1**, rows `24`/`34` (v3 column, plain `ACID_YADV=1`): those `l2_p`/`corr_rho`/etc.
+  values came from case24/34's silently-stalled state (~0.27%/0.45% of `t_end`). §20 already
+  retracted the accompanying RH-closure claim (bullet 2); this note extends that to the raw
+  validate-metric row itself, which §20 did not touch. As of this round these rows read NaN.
+- **§19.2's consolidated table**: exactly three cells -- `B` column's case24/case34 rows and `C`
+  column's case33 row -- came from the same stalled reads. Every other cell in that table (case33's
+  `B` column; case24/34's `C` column) comes from genuinely-completing runs and is unaffected. All
+  PASS/FAIL verdicts in the table were already FAIL and remain FAIL.
+- **§20.3's `NULL RUN` table**: `IC-match=0.89` -> `IC-match=0.00`, `min_p`/`min_rho` now read
+  `nan` (confirmed, §24.2 G6). Classification unchanged.
+- **§19.3's wall-clock table**, case24 timing described as "an early divergence exit": the
+  description is now literally accurate (it always should have been, per §20); no number moves.
+
+Already superseded, no new action: §14.3 table 2 and §19.4 (both retracted by §20.1/§20.4); §5/§6/
+§10.2 (superseded code versions, not reproducible from current HEAD under any config).
+
+Confirmed **unaffected**: §21.3/§22.5's RH-residual tables (every row from a genuinely-completing
+run -- `+ALPHA_IMPLICIT`, or plain + `ACID_STALL_ACCEPT`), including round 12's headline first-ever
+controlled A/B, which survives intact; §21.1/§21.2; §21.4 (stderr-parsed via a regex matching only
+the unchanged message prefix); §22.4's step/accept-count table; §23.1's `RINIT`/`RMISM` numbers and
+§23.2's refutation table (all stderr instrumentation, unrelated to the dump's `p`/`u`/`rho` columns).
+
+Latent (not live) breakage, documented not fixed: `scripts/yadv_table.py`/`yadv_table3.py` lack the
+lowercase-`nan`-in-JSON fix `scripts/yadv_r9_sweep.py` carries, and are already non-runnable
+(hardcoded stale `/tmp/yadv_*.txt` paths from rounds 1/3). Any future script parsing `validate`
+JSON output must copy that fix; noted here so a future round does not rediscover it.
+
+### 24.4 Verdict for round 14
+
+1. **This round is a correctness/reporting fix, not a numerical result.** `pass_count` is unchanged
+   in all four hard gates. The point of the change: three previously-finite garbage dump rows
+   (case24-plain, case34-plain, case33-`+ALPHA_IMPLICIT`) now correctly read NaN with
+   `finite=false`, closing the exact silent-stall gap that produced two retracted findings in §20.
+2. Every prediction in `docs/YADV_ROUND_14_PLAN.md` §2 was confirmed exactly; no case outside the
+   three predicted pairs moved under any of the five tested configurations.
+3. `ACID_STALL_ACCEPT`'s accept-and-continue path is completely unaffected (byte-identical dumps
+   for case24/34), and its give-up path (case33 budget exhaustion) now correctly diverges -- the
+   accept mechanism's own honesty (via `STALL-ACCEPT-TOTAL`) and this round's new correctness fix
+   compose exactly as designed, with no interaction bug.
+4. Historical artifacts audited; four items annotated (§24.3), none edited, none newly discovered
+   to be incorrect beyond what §20 already established.
+5. Two live threads remain open for a future round, un-narrowed by this one: round 13 §23.3's
+   harder simultaneous `(T,rho)`-consistency re-init, and case33's still-unsolved sustained
+   difficulty (§22.4). A third, newly named but explicitly NOT pursued this round: `max_steps`
+   exhaustion is a sibling silent-partial-exit path (`while (t < t_end && step < max_steps)`), but
+   case15 legitimately terminates via that cap and PASSES on the OFF path -- extending `diverged`
+   there without further care would break the 19/19 gate outright. Left for a future round's
+   deliberate design, not attempted here.
+6. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19). All four hard gates
+   hold.
+
+### 24.5 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+DENNER_ACID=1 ACID_YADV=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 2>&1 >/dev/null | grep STALLED
+DENNER_ACID=1 ACID_YADV=1 ACID_STALL_ACCEPT=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
+    > /tmp/c24.out 2>&1 && head -1 /tmp/c24.out   # sect.24.2 G5, still byte-identical to round 12
+```

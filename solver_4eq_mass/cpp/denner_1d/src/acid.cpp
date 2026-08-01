@@ -2323,19 +2323,34 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             stepped = true;
         }
         if (!stepped) {
-            // Round 11 Stage 1 (docs/YADV_PHASE3_PLAN.md): the retry loop exhausting all 14
-            // dt halvings used to exit SILENTLY -- no message, and (deliberately, still) no
-            // `diverged = true`, so solve_case_acid returns a FINITE partial state that
-            // validate/dump score as a normal completed run. That silence is what made
-            // YADV_RESEARCH.md sect.14.3/19.4's RH results measure a pristine initial condition
-            // for two rounds (sect.20, retracted). This message is stderr-only and unconditional;
-            // stdout and every validate metric are unchanged. Whether the state SHOULD be marked
-            // diverged here is Phase 3a Stage 3c -- an explicit Advisor decision, not this change.
+            // Phase 3a Stage 3c (round 14, docs/YADV_ROUND_14_PLAN.md) -- authorised by an
+            // explicit Advisor decision after rounds 11/12/13 each deferred it (sect.21.1,
+            // 22.7 pt.1, 23.4 pt.5). Retry exhaustion with NO admissible step is a FAILURE and
+            // is now reported as one: rounds 3-11 returned a finite partial state here with
+            // diverged==false, which validate/dump scored as a normal completed run -- exactly
+            // what made YADV_RESEARCH.md sect.14.3/19.4 measure a pristine initial condition for
+            // two rounds (sect.20, retracted). Round 11 made this audible; round 14 makes it
+            // COUNTABLE (finite=false in validate, NaN in the dump).
+            //
+            // The accept/give-up boundary is drawn by the control flow above, deliberately, and
+            // needs no extra test here: a step that ACID_STALL_ACCEPT successfully accepted set
+            // `stepped = true` (see the accept block above) and never reaches this block, so an
+            // accept-and-continue run is NOT marked diverged -- its own STALL-ACCEPT-TOTAL line
+            // is its honest disclosure. Only "neither a clean step NOR an accepted step was
+            // possible" lands here: STALL_ACCEPT unset/disabled, or its budget also exhausted
+            // (stall_accept_run >= stall_accept_max), or no retry was reason-1 eligible.
+            //
+            // NOTE this block is NOT ACID_YADV-gated -- it is in the common time loop. The OFF
+            // path is unaffected only because no OFF case stalls (sect.21.1, re-verified in
+            // round 14's gate G1), not by construction. Keep it that way: do not add a `yadv`
+            // condition, and re-run G1 if the OFF path's stepping ever changes.
+            diverged = true;   // -> the p/u NaN fill at the end of solve_case_acid
             static const char* const why[] = {"unknown", "newton-no-progress", "nonfinite-p",
                                               "nonfinite-u", "u>10*uref"};
             std::fprintf(stderr,
                 "STALLED: case=%s no admissible step at dt=%.3e after %d retries, step %d, "
-                "t=%.3e of %.3e -> stop (state returned as-is, NOT marked diverged)\n",
+                "t=%.3e of %.3e -> stop (marked DIVERGED: p,u,rho returned as NaN, "
+                "validate finite=false)\n",
                 c.id.c_str(), stall_dt, stall_retry + 1, step, t, t_end);
             if (dbg)
                 std::fprintf(stderr,
@@ -2397,8 +2412,10 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                      c.id.c_str(), thinc_hits, thinc_rej);
 
     if (diverged) {
-        // mark the result non-finite so the validate counts a collapsed/diverged run as a
-        // clean failure (finite=false), not a misleading partial state at t < final_time.
+        // Two producers: the CFL-collapse early-stop above, and (round 14, Stage 3c) the
+        // retry-exhaustion give-up. Mark the result non-finite so the validate counts a
+        // collapsed/diverged/stalled run as a clean failure (finite=false), not a misleading
+        // partial state at t < final_time.
         std::fill(s.p.begin(), s.p.end(), std::nan(""));
         std::fill(s.u.begin(), s.u.end(), std::nan(""));
     }

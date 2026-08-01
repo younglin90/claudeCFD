@@ -672,6 +672,41 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // (pre-reconciliation-consistent) Htot_o after this already ran -- redundant at best,
     // confounding at worst. docs/YADV_ROUND_21_PLAN.md sect.2-3.
     const bool yrecon = std::getenv("ACID_YADV_RECON") != nullptr;
+    // ACID_RESYNC (round 22, DIAGNOSTIC ONLY, default OFF, stderr only, applies nothing): measures
+    // what ACID_YADV_RESYNC would write to Yv without writing it -- worst |Ynew-Yv[i]| + cell
+    // index, count of bitwise-changed cells, and the phase-A mass drift this step would cost
+    // (dM = sum_i rho_i*(Ynew_i-Yv_i)*dx), running total, and running/initial ratio. Reuses
+    // ACID_BLK_STEP for step selection. docs/YADV_ROUND_22_PLAN.md sect.5 Stage 1a.
+    const bool resync_dbg = std::getenv("ACID_RESYNC") != nullptr;
+    // ACID_YADV_RESYNC (round 22, Phase 3a, RESEARCH-ONLY, default OFF; inert unless ACID_YADV is
+    // also active): the DUAL projection to round 21's ACID_YADV_RECON. Once per step, before the
+    // retry loop, re-derive Yv (and ONLY Yv -- no `s.*` field is ever written) from the CURRENT
+    // (p,T,alpha) via mass_fraction_from_alpha -- the exact expression the once-only IC init above
+    // (Yv(n,0.0) block) uses at step 0. This removes the same alpha-remap lag RECON removes
+    // (docs/YADV_ROUND_21_PLAN.md sect.2.6): after resync, al_o (recovered below at (p_o,T_o) from
+    // the resynced Yv) reproduces s0.alpha to the round-trip conditioning floor, so the Eqs.43-44
+    // rebuild's rho_o/Htot_o differ from the true old level only by this step's own O(dt)
+    // Y-advection, exactly as RECON's own mechanism argument -- applied here from the OTHER side.
+    // UNLIKE RECON, this writes NO state field (p, T, alpha, rho, hstat, h all bit-unchanged) --
+    // round 22 diagnosed RECON's case13/14 regression as a state-level perturbation at the
+    // T-jump-at-constant-p contact (the Abgrall 1996 spurious-pressure-oscillation mechanism,
+    // measured on case14; case13's crossing criterion is shock_location_ok, a different and not
+    // fully attributed symptom -- docs/YADV_RESEARCH.md sect.32.1) that a projection writing no
+    // state field cannot produce BY CONSTRUCTION, independent of which exact mechanism is
+    // responsible. Honest cost: rho*Y is no longer carried exactly across step boundaries (phase-
+    // mass drift, measured by ACID_RESYNC, docs/YADV_ROUND_22_PLAN.md sect.5 Stage 1a) -- the same
+    // class of compromise the published 19/19 OFF path already makes (it transports alpha, also
+    // not a strict material invariant).
+    // Step 0 is a BIT-LEVEL no-op: at step==0, Yv was set by the identical expression at the
+    // identical (p,T,alpha) a few dozen lines above, so Ynew == Yv[i] bitwise there.
+    // Does NOT touch compute_R (same argument as RECON, docs/YADV_ROUND_21_PLAN.md sect.3): runs
+    // once per step, BEFORE the s0 snapshot below, so every retry's `s = s0` restores the resynced
+    // Yv identically; pure function of the current state, no call history.
+    // Must NOT be combined with ACID_YADV_RECON (the two are opposite-direction projections of the
+    // same consistency condition -- applying both is meaningless, not merely redundant) nor with
+    // ACID_YADV_HREINIT (same exclusion rationale as RECON's). Skipped with a one-line stderr
+    // notice if ACID_YADV_RECON is also set. docs/YADV_ROUND_22_PLAN.md sect.3.3.
+    const bool yresync = std::getenv("ACID_YADV_RESYNC") != nullptr;
     // ACID_TEND_SCALE (round 11, Phase 3a Stage 2, DIAGNOSTIC ONLY, default 1.0 = byte-identical
     // when unset): multiplies THIS SOLVER's stop time only. It is an OBSERVATION WINDOW, not a
     // physical or tuning parameter -- the standard shock-tube verification convention is to sample
@@ -828,6 +863,60 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                         c.id.c_str(), step, ncell, nskip, nrej, ntouch,
                         worst_dp, worst_dp_rel, worst_dp_i, worst_dT, worst_dT_rel, worst_dT_i,
                         worst_dal, worst_dal_i);
+            }
+        }
+
+        // ---- Round 22 (ACID_YADV_RESYNC / ACID_RESYNC): the dual projection to RECON above --
+        //      re-derives Yv ONLY (no `s.*` field is written) from the CURRENT (p,T,alpha), via
+        //      the exact expression the once-only IC init (Vec Yv(n,0.0) block, above) uses at
+        //      step 0. See the flag declaration above for the full rationale;
+        //      docs/YADV_ROUND_22_PLAN.md sect.3.3 for the derivation. Runs BEFORE the s0 snapshot
+        //      below, so the whole retry sweep sees (and restores, via Yv=Yv0) the resynced Yv
+        //      identically -- compute_R itself is never touched. Mutually exclusive with
+        //      ACID_YADV_RECON (opposite-direction projections of the same consistency
+        //      condition). ----
+        if (yadv && yrecon && yresync) {
+            static bool warned = false;
+            if (!warned) {
+                std::fprintf(stderr,
+                    "ACID_YADV_RESYNC: skipped -- ACID_YADV_RECON is also set (opposite-direction "
+                    "projections, mutually exclusive, docs/YADV_ROUND_22_PLAN.md sect.5 Stage 1b)\n");
+                warned = true;
+            }
+        } else if (yadv && (yresync || resync_dbg)) {
+            int ncell = 0, ntouch = 0;
+            double worst_dY = 0.0; int worst_dY_i = -1;
+            double dM_step = 0.0;
+            for (int i = 0; i < n; ++i) {
+                ++ncell;
+                const double pu = std::max(s.p[i], 1.0), Tu = std::max(s.T[i], 1e-6);
+                const double Ynew = std::clamp(
+                    mass_fraction_from_alpha(std::clamp(s.alpha[i], 0.0, 1.0),
+                                             phase_props(pu, Tu, A).rho,
+                                             phase_props(pu, Tu, B).rho), 0.0, 1.0);
+                if (!std::isfinite(Ynew)) continue;  // fail-safe: cell left completely untouched
+                const double dY = Ynew - Yv[i];
+                if (dY == 0.0) continue;
+                if (std::abs(dY) > worst_dY) { worst_dY = std::abs(dY); worst_dY_i = i; }
+                dM_step += s.rho[i] * dY * dx;
+                if (yresync) { Yv[i] = Ynew; ++ntouch; }
+            }
+            if (resync_dbg) {
+                static double dM_total = 0.0, M0 = -1.0;
+                if (M0 < 0.0) {
+                    M0 = 0.0;
+                    for (int i = 0; i < n; ++i) M0 += s.rho[i] * Yv[i] * dx;
+                    M0 = std::max(std::abs(M0), 1e-300);
+                }
+                dM_total += dM_step;
+                const char* se = std::getenv("ACID_BLK_STEP");
+                const int rstep = se ? std::atoi(se) : -1;
+                if (rstep < 0 || rstep == step)
+                    std::fprintf(stderr,
+                        "RESYNC case=%s step=%d ncell=%d ntouch=%d worst_dY=%.4e@%d "
+                        "dM_step=%.6e dM_total=%.6e dM_total/M0=%.6e\n",
+                        c.id.c_str(), step, ncell, ntouch, worst_dY, worst_dY_i,
+                        dM_step, dM_total, dM_total / M0);
             }
         }
 

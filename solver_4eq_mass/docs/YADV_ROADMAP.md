@@ -45,33 +45,38 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 21
+round_counter: 22
 consecutive_failures: 0
 done: false
-next_task: Round 21 designed and implemented a (rho,e,Y)-conserving closed-form (p,T,alpha)
-           reconciliation (ACID_YADV_RECON, default OFF) to remove the alpha-remap lag round 13
-           diagnosed (dal_remap). Refuted round 13 sect.23.3's STATED mechanism (compute_R already
-           reconciles T,rho with h before r_init is measured -- Stage 0 Branch A) while confirming
-           its EMPIRICAL finding (HREINIT alone still doesn't fix the stall). Delivered a reusable,
-           unit-tested closed-form NASG p-T-equilibrium solver (eos.hpp:pT_from_v_e_massfrac,
-           worst rel_p=4.7e-11) regardless of the fix's own fate. Case24 gets real progress under
-           B+RECON (stall step 19->399, ~20x further, failure re-types to the correctly-diagnosed
-           T-ceiling-saturated) but cases 13/14 REGRESS from PASS to FAIL (u-field quality
-           collapse) -- S5 (harm) per the plan's own pre-registered stop rule. Flag stays OFF, not
-           promoted, committed as gated-off research infrastructure (round 4/8 precedent).
-           Live threads for round 22, carried forward: (a) the plan's own S2 follow-up target --
-           the rho_star continuity predictor (acid.cpp:999-1002, self-documented O(dt)-inconsistent)
-           and the theta_o MWI memory (stale dt_prev-set quantity) -- untouched, may matter for
-           case34/33's residual floor; (b) a Jacobian-aware variant of RECON (visible to the
-           linearization, not just the residual's starting state) that might avoid the 13/14
-           regression -- undesigned, would need careful staging given round 4's precedent that
-           Jacobian-family mismatches are this project's most reliable failure mode; (c) round 13
-           sect.23.3's harder consistency question is now answered (see above) but case33's own
-           difficulty (round 15/16's T-ceiling-saturation-from-advection channel, unrelated to
-           REMAP) remains fundamentally unsolved; (d) max_steps exhaustion (case15 legitimately
-           uses it and PASSES on OFF -- needs careful design); (e) case29's (excluded) likely-
-           explained blocker -- not pursued, recorded for the record.
-           Grounded in YADV_RESEARCH.md sect.31, docs/YADV_ROUND_21_PLAN.md.
+next_task: Round 22 implemented ACID_YADV_RESYNC (default OFF), the dual projection to round 21's
+           ACID_YADV_RECON -- resyncs Yv from the CURRENT (p,T,alpha) each step instead of moving
+           the state onto the Y-manifold, so it writes NO state field. Stage 0 found round21's
+           13/14 regression was NOT a clean Abgrall-pressure-oscillation story as first modeled:
+           config G (FD Jacobian) + RECON gives a MIXED result -- case14 still fails (Abgrall-type,
+           Jacobian-independent) but case13 now PASSES (traced to Jacobian-approximation
+           sensitivity affecting which discrete admissible shock-location state Newton's bounded
+           sweep converges to -- a narrow counterexample to "approximate Jacobian changes only
+           iteration count" worth a future round's attention). RESYNC recovers BOTH 13 and 14 on
+           the pass/fail gate (B+RESYNC=15/19, matching plain B's fail set exactly) -- but case14's
+           phase-mass drift is 16.1% (ACID_RESYNC meter), firing the plan's own pre-registered
+           1%-non-promotable rule. Case24 gains only 2.6x (step19->50) vs RECON's 20x -- an open
+           question whether RECON's larger case24 gain needs the state WRITE, not just dal_remap
+           removal (both mechanisms collapse dal_remap identically). Verdict: gate-passing but
+           non-promotable on an orthogonal, pre-registered conservation cost -- not literally any
+           of S1-S5, recorded as its own category. Flag stays OFF, committed as gated-off research
+           infrastructure (round 4/8/21 precedent).
+           Live threads for round 23, carried forward: (a) a third projection that avoids both
+           RECON's Abgrall perturbation AND RESYNC's conservation cost (partial/damped resync on a
+           structurally-justified cell subset, not a tuning tolerance) -- undesigned; (b) case13's
+           Jacobian-approximation-sensitivity finding as its own narrower question, independent of
+           RECON/RESYNC; (c) round 21's own carried-forward thread -- rho_star continuity predictor
+           (acid.cpp, self-documented O(dt)-inconsistent) and theta_o MWI memory, untouched, may
+           matter for case34/33's residual floor; (d) case33's own difficulty (round 15/16's
+           T-ceiling-saturation-from-advection channel) remains fundamentally unsolved; (e)
+           max_steps exhaustion (case15 legitimately uses it and PASSES on OFF -- needs careful
+           design); (f) case29's (excluded) likely-explained blocker -- not pursued, recorded for
+           the record.
+           Grounded in YADV_RESEARCH.md sect.32, docs/YADV_ROUND_22_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -422,6 +427,26 @@ not start a new round.
   precedent). All hard gates held (OFF 19/19, flag-unset paths byte-identical, `ALL GATES OK`
   unchanged from round 20).
   → `YADV_RESEARCH.md` §31, `docs/YADV_ROUND_21_PLAN.md`, commit `19de476`.
+- Round 22: implemented `ACID_YADV_RESYNC` (default OFF), the DUAL projection to round 21's
+  `ACID_YADV_RECON` -- resyncs `Yv` from the current `(p,T,alpha)` each step (writes NO state
+  field at all) instead of moving the state onto the Y-manifold. **Stage 0 found round 21's 13/14
+  regression is not a uniform Abgrall-pressure-oscillation story**: `G+RECON` (FD Jacobian) gives a
+  MIXED result -- case14 still fails (Abgrall-type, Jacobian-independent, as predicted) but case13
+  now PASSES (traced to Jacobian-approximation sensitivity affecting which discrete admissible
+  shock-location state a bounded Newton sweep lands near -- a narrow counterexample to
+  "approximate Jacobian changes only iteration count" worth future attention, not pursued this
+  round). **`ACID_YADV_RESYNC` recovers BOTH 13 and 14 on the pass/fail gate**
+  (`B+RESYNC=15/19`, matching plain `B`'s fail set exactly, `dal_remap` collapses to `1.1e-16`) --
+  but **case14's phase-mass drift is 16.1%** (measured via a new `ACID_RESYNC` meter), firing the
+  plan's own pre-registered "1% drift -> non-promotable regardless of pass_count" rule. Case24
+  gains only 2.6x (step 19->50) vs `RECON`'s 20x, despite `dal_remap` collapsing identically under
+  both -- an open question whether RECON's larger case24 gain needs the state WRITE itself, not
+  just `dal_remap` removal. **Verdict: gate-passing but non-promotable on an orthogonal,
+  pre-registered conservation cost** -- not literally any of the round's own S1-S5 outcomes,
+  recorded as its own category. Flag stays OFF, committed as gated-off research infrastructure
+  (round 4/8/21 precedent). `consecutive_failures` NOT incremented. All hard gates held (OFF
+  19/19, `ALL GATES OK` unchanged from round 21).
+  → `YADV_RESEARCH.md` §32, `docs/YADV_ROUND_22_PLAN.md`, commit TBD.
 
 ## Setup reference
 

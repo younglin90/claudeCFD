@@ -27,8 +27,15 @@ REF_ROOT = "/home/younglin90/work/claude_code/claudeCFD/solver_denner"
 REF_DUMP = os.path.join(REF_ROOT, "build-cpp", "cpp", "denner_1d", "denner1d_dump")
 SCRATCH = "/tmp/yadv_r9"
 
+# Round 22 hygiene fix: this list purges known research env vars from the caller's shell before
+# every measurement so a stale exported flag can never silently contaminate a --sweep/--verify
+# number (docs/YADV_ROUND_22_PLAN.md sect.4.0). Extend it whenever a new ACID_* research flag is
+# added -- it was missing every flag added since round 9 until this round.
 ACID_ENV_VARS = ("ACID_YADV", "ACID_YADV_ALPHA_IMPLICIT", "ACID_YADV_ALPHA_IMPLICIT_T",
-                  "ACID_NO_AJAC", "ACID_RHIST", "ACID_BLK_STEP")
+                  "ACID_NO_AJAC", "ACID_RHIST", "ACID_BLK_STEP",
+                  "ACID_YADV_RECON", "ACID_RECON", "ACID_YADV_RESYNC", "ACID_RESYNC",
+                  "ACID_YADV_HREINIT", "ACID_RINIT", "ACID_RCELL",
+                  "ACID_STALL_ACCEPT", "ACID_STALL_ACCEPT_MAX", "ACID_TSAT", "ACID_AJAC_BLK")
 
 CONFIGS = [
     ("A", "OFF", {}),

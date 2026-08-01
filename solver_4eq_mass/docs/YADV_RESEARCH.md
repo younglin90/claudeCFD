@@ -3345,3 +3345,186 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_HREINIT=1 ACID_RINIT=1 ACID_BLK_STEP=28 $D 2
 V=./build-cpp/cpp/denner_1d/denner1d_validate
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 $V --only 13,14,24 2>&1   # sect.31.6, 13/14 pass:false
 ```
+
+## 32. `ACID_YADV_RESYNC` -- the dual projection to RECON recovers cases 13/14 on the pass/fail gate,
+##     but pays a 16% phase-mass conservation cost on case14 -- non-promotable per the plan's own
+##     pre-registered rule
+
+### 32.1 Stage 0 -- the Jacobian is exonerated for case14, but the story for case13 is more complex
+##     than round 21's plan realized, and Abgrall's mechanism is only part of it
+
+Direct code reading (`acid.cpp:1665-1666` residual, `:1821` Jacobian assembly -- INSIDE the
+Newton iteration, AFTER `compute_R()`; `:1876-1885` -- under plain `ACID_YADV=1`,
+`aimp=alpha_implicit` is false so `ap=aT=0`, matching the residual's own frozen-alpha closure
+exactly) confirms the Jacobian cannot be linearized at a stale pre-`ACID_YADV_RECON` alpha, and
+there is no residual/Jacobian family mismatch under config B -- both freeze alpha identically.
+Options "re-evaluate the Jacobian after RECON" and "re-linearize J1/J2 at the post-RECON alpha"
+are both refuted before any measurement: the former is already true, the latter would manufacture
+round 8's own measured failure (giving the Jacobian a `d(alpha)/dp` term the residual doesn't
+evaluate).
+
+**Decisive empirical falsification** (`ACID_NO_AJAC=1`, the FD Jacobian, which differentiates
+`compute_R` exactly): `G+ACID_YADV_RECON` gives a **mixed** result, not the clean confirmation
+either branch predicted -- case14 STILL fails (matching plain `B+RECON`, exonerating the Jacobian
+for this case) but **case13 now PASSES** (differing from `B+RECON`, where it fails). The Jacobian
+is therefore not fully irrelevant to case13, even though the structural argument above shows no
+family mismatch exists.
+
+**Root-caused directly**: case13's crossing criterion under `B+RECON` is `case13_u_shock_delta_cells
+= 4` (gate `<=3`; plain `B` measures `1`) -- i.e. `shock_location_ok`, not the
+high-frequency/contact terms round 22's own plan pre-registered as the expected crossing
+(`hf`/`contact_ok`). This is the falsification condition the plan explicitly named ("would point
+at shock speed/conservation damage instead of interface oscillation") -- **confirmed for case13**.
+Under `G+RECON`, `case13_u_shock_delta_cells` returns to `1`: the analytic Jacobian's own
+approximation quality (not a family mismatch, but its accuracy as a linearization of a genuinely
+nonlinear, shock-containing residual) measurably affects which discrete admissible state Newton's
+finite (150-iteration) sweep converges to after RECON perturbs the starting point -- a real,
+narrow counterexample to reading `denner-pitfalls.md`'s "approximate Jacobian changes only
+iteration count" invariant as unconditional; it holds for the CONVERGED fixed point given enough
+iterations, but a shock-tube residual's discrete admissible set is not obviously unique, and which
+member a bounded Newton sweep lands near can depend on the linearization. Not investigated further
+this round (out of scope; flagged for a future round if it recurs).
+
+**case14's actual gate crossing** (checked against `validation.cpp:670-684`'s 14 terms by hand):
+`amp_ratio_u = 1.11905` vs gate `[0.9,1.1]` -- inside the plan's predicted set (`amp_ratio_*`), and
+consistent with an Abgrall-type velocity/pressure oscillation at the contact. Round 21 §31.6's
+quoted `l2_u`/`corr_u` for case14 are, re-confirmed here, both INSIDE their own gates
+(`l2_u<=0.16`, `corr_u>=0.95`) -- §31.6's stated evidence for "the" regression was never the actual
+crossing criterion; this is a correction to that section's wording, not a retraction of its
+headline finding (case14 does fail, on a different, now correctly identified term).
+
+**Verdict**: the mechanism is genuinely split -- case14's failure is Abgrall-type (state-level
+pressure/velocity perturbation at the T-jump contact, Jacobian-independent, §32.2) as predicted;
+case13's failure is a DIFFERENT, Jacobian-approximation-sensitivity phenomenon, not fully
+attributed this round. The design (`ACID_YADV_RESYNC`, §32.3) remains valid for both regardless of
+which exact mechanism dominates, because it writes no state field at all and therefore cannot
+produce either failure mode by construction -- this is the round's actual argument for the fix,
+strengthened rather than weakened by discovering the mechanism is not uniform across the two cases.
+
+### 32.2 The exactness theorem and the Abgrall reading (for case14)
+
+NASG mixture coefficients (`bbar,qbar,cpbar,Ka,Kb`) are affine in mass fraction `Y` at fixed
+`(p,T)`, so `v(p,T,Y)` and `e(p,T,Y)` are affine in `Y` too. **Theorem**: any mass-weighted convex
+combination of the conserved variables `(rho, rho*Y, rho*e)` for two states sharing `(p,T,u)`
+recovers exactly `(p,T)` under `pT_from_v_e_massfrac`. This explains round 21's case01 `linf_p=0`
+(not luck) and predicts the failure mode: where `T` jumps at constant `p` (a contact
+discontinuity), the mixed cell's `(vbar,ebar)` is NOT a PTE state at `p`, and RECON's inversion
+returns `p* != p`, injecting a genuine pressure perturbation into `s.p` -- the classical Abgrall
+(1996) spurious-pressure-oscillation mechanism, verbatim. Cases 13/14 have no bit-exact pure cells
+in their ICs (`cases.cpp:669-676`, `alpha=1e-6 | 1-1e-6`, never `0.0`/`1.0`), so RECON's exact-skip
+never exempts them -- correcting round 21 §31.5's finding (cases 26/27/28) to a load-bearing case
+for 13/14, not merely a curiosity.
+
+### 32.3 `ACID_YADV_RESYNC` -- the dual projection, as implemented
+
+Instead of moving the STATE `(p,T,alpha)` onto the Y-manifold at fixed `(rho,e,Y)` (RECON), move
+the auxiliary transported variable `Y` onto the state at fixed `(rho,u,e,p,T,alpha)`:
+
+```cpp
+if (yadv && yresync && !yrecon) {
+    for (int i = 0; i < n; ++i) {
+        const double pu = std::max(s.p[i], 1.0), Tu = std::max(s.T[i], 1e-6);
+        const double Ynew = std::clamp(
+            mass_fraction_from_alpha(std::clamp(s.alpha[i], 0.0, 1.0),
+                                     phase_props(pu, Tu, A).rho,
+                                     phase_props(pu, Tu, B).rho), 0.0, 1.0);
+        if (std::isfinite(Ynew)) Yv[i] = Ynew;
+    }
+}
+```
+
+No `eval_thermo`, no `h` refresh, no `s.*` write of any kind -- the exact expression the once-only
+IC init (`acid.cpp:713-719`) uses at step 0, hoisted into the time loop, placed immediately after
+round 21's RECON block and before the `s0` snapshot (mutually exclusive with `ACID_YADV_RECON`,
+enforced with a one-line stderr notice + skip). Same non-touch of `compute_R` as RECON (runs once
+per step, before `s0`, pure function of the current state).
+
+### 32.4 Gate results
+
+| Gate | Result |
+|---|---|
+| G0 `denner1d_unit` | pass (existing tests unaffected; new pure-function tests not needed -- RESYNC reuses `mass_fraction_from_alpha`, already unit-tested) |
+| G1 `--verify` | OFF byte-identical to `solver_denner`, 9/9 spot cases |
+| G2 `--sweep`, flags unset | `ALL GATES OK`, A19/B15/C14/D13/E14/F14/G15 -- unchanged from round 21 |
+| G3 diff hygiene | new code confined to one flag-decl block + one mechanism block in `acid.cpp` (both gated `yadv && (yresync\|\|resync_dbg)` with `yrecon` mutual exclusion), one line in `scripts/yadv_r9_sweep.py`'s `ACID_ENV_VARS` |
+| **G4 (`B+RESYNC` sweep, primary success criterion)** | **15/19, fail=`{15,24,33,34}` -- IDENTICAL to plain `B`'s fail set. Cases 13 AND 14 both PASS.** |
+| G5 (case24 stall step) | `B`: step 19 -> `B+RESYNC`: step **50** (2.6x further, reason re-types to `T-ceiling-saturated`) -- materially less than `B+RECON`'s step 399 (20x) |
+| G6 (`dal_remap` collapse) | confirmed: `1.1102e-16` (literal half-`DBL_EPSILON`) at case24's `B+RESYNC` stall step -- the mechanism fires exactly as derived |
+| G7 (case01, pure/undisturbed cells) | `linf_p=0` exactly |
+| **G8 (phase-mass drift, `ACID_RESYNC` meter, fix applied)** | case13: `dM_total/M0 = 3.77e-04` (0.038%, safe); **case14: `dM_total/M0 = -0.161` (16.1%, FAILS the plan's own 1% decision threshold)**; case26 (pure single-phase): `4.5e-04`; case33 (already-failing, not comparable): `1.39` |
+| G9 (`C+RESYNC` near-identity) | 14/19, IDENTICAL to `C`'s fail set -- confirmed (under `+ALPHA_IMPLICIT` the residual already re-derives alpha at the current `(p,T)` every call, so the step-boundary lag RESYNC removes is already near-zero there) |
+| G10 (diagnostic-only no-op) | `ACID_RESYNC=1` without `ACID_YADV_RESYNC`: `pass_count=15/19`, identical to plain `B` |
+
+### 32.5 The blocking finding -- case14's 16% phase-mass drift
+
+RESYNC recovers case14's PASS/FAIL status by construction-guaranteed avoidance of any state-field
+write, exactly as designed (§32.1's closing argument). But the mechanism that recovers it --
+re-deriving `Y` from `(p,T,alpha)` every step, discarding the conservative `rho*Y` transport's own
+step-to-step memory -- has a real physical cost: **`Y`, not `alpha`, is the true material invariant
+for this no-phase-change mixture** (`YADV_RESEARCH.md` sect.1.3), and RESYNC systematically
+overwrites it toward the alpha-implied value every step. On case14 this drifts the total phase-A
+mass by **16.1%** over the run -- Johnsen & Ham's (2012) standing objection to the classical
+Abgrall/Shyue non-conservative remedy, realized concretely and measured, not asserted. Case13's
+drift (0.038%) is two orders of magnitude smaller -- the two cases the fix was designed to recover
+are NOT symmetric in what it costs them.
+
+Round 22's plan pre-registered the decision rule for exactly this situation (sect.6, prediction 7):
+*"if `|SumdM|/M0 > 1%` on any currently-passing case, RESYNC is reported as
+conservation-breaking and non-promotable regardless of `pass_count`."* Case14's 16.1% triggers this
+unambiguously.
+
+### 32.6 Verdict
+
+1. **`B+RESYNC`'s pass/fail gate result is genuinely a success by the round's primary criterion**
+   (G4: 15/19, 13 AND 14 both pass, no regression elsewhere) -- but this is not, on its own,
+   sufficient for promotion, because the plan explicitly subordinated the pass/fail gate to the
+   conservation-drift decision rule in advance, precisely to prevent a gate-level win from
+   masking a physical cost.
+2. **Case14's 16.1% phase-mass drift fires that rule.** `ACID_YADV_RESYNC` is therefore judged
+   **non-promotable as currently designed**, regardless of its clean gate result -- an outcome the
+   round's own S1/S2/S3/S4/S5 table did not name verbatim (none of S1-S5 anticipated "gate passes
+   cleanly but a pre-registered orthogonal cost threshold fires"), so this is recorded as its own
+   category rather than forced into one of the five.
+3. **Case24's gain is real but falls well short of `RECON`'s** (2.6x vs 20x further before
+   stalling) -- consistent with, but not conclusive proof of, round 21's own open question
+   (whether RECON's case24 gain came from `dal_remap` removal specifically, or from the STATE
+   projection more broadly): `dal_remap` collapses under BOTH mechanisms (G6), yet the two give
+   very different case24 outcomes, suggesting the state-level write RECON performs (and RESYNC
+   deliberately does not) carries additional case24-specific benefit beyond `dal_remap` removal
+   alone -- an open question for a future round, not resolved here.
+4. `ACID_YADV_RECON` (round 21) remains the flag that best serves case24 alone but breaks 13/14;
+   `ACID_YADV_RESYNC` (this round) best serves 13/14 but at case14's conservation cost and with a
+   much smaller case24 gain. **Neither is promoted.** Both stay default OFF, committed as
+   gated-off research infrastructure (round 4/8/21 precedent).
+5. Per round 4/8/13/21's precedent (a correctly-instrumented, mechanistically-explained result --
+   whether the mechanism split turned out simpler or more complex than predicted -- is measured
+   progress, not a failed round): `consecutive_failures` is **not** incremented.
+6. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19). All hard gates held
+   with the new flags unset.
+
+**Live thread for a future round, not pursued here**: whether a THIRD projection exists that
+avoids both `RECON`'s Abgrall-type pressure perturbation on 13/14 AND `RESYNC`'s conservation cost
+on 14 -- e.g. a partial/damped resync restricted to cells where the drift is provably small (a
+non-tuning, structurally-justified restriction, not a tolerance constant), or accepting RESYNC's
+conservation cost but only on the subset of cells RECON would have touched anyway (round 21's
+rejected "THINC-indicator-gated" fallback, now with a concrete drift number to weigh against it).
+Also open: case13's Jacobian-approximation-sensitivity finding (sect.32.1) as its own, narrower
+research question, independent of RECON/RESYNC.
+
+### 32.7 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+V=./build-cpp/cpp/denner_1d/denner1d_validate
+DENNER_ACID=1 ACID_YADV=1 ACID_NO_AJAC=1 ACID_YADV_RECON=1 $V --only 13,14 2>&1
+    # sect.32.1, mixed result: 13 pass:true, 14 pass:false
+
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RESYNC=1 $V --only 13,14,24 2>&1
+    # sect.32.4 G4, both 13/14 pass:true
+
+D=./build-cpp/cpp/denner_1d/denner1d_dump
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RESYNC=1 ACID_RESYNC=1 $D 14 2>&1 >/dev/null | tail -1
+    # sect.32.5, expect dM_total/M0 ~ -0.16
+```

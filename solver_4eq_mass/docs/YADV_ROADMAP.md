@@ -45,26 +45,34 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 17
+round_counter: 18
 consecutive_failures: 0
 done: false
-next_task: Round 17 measured F2 as V-SAFE across the ENTIRE published OFF path (ACID_TSAT: zero
-           cells ever reach the T ceiling in >400,000 residual evaluations across all 19 graded
-           cases, including case28's own transient Newton iterates) -- but found F2 as literally
-           named is the WRONG SHAPE regardless of the measurement: its false branch freezes s.T,
-           making compute_R a function of call history (breaks the four `compute_R(); //
-           restore` sites) and gives dT/dh=0 exactly, the very failure mode round 16 diagnosed.
-           Corrected form F2'' pre-registered (state-pure T_from_hstat, report saturation to the
-           caller as a new stall reason instead, reusing the existing dt-halving retry
-           machinery) -- priority list now F3 > F2'' > F1. F2'' is well-specified and V-SAFE-
-           verified enough for a future round to implement directly. Two other live threads
-           unchanged: round 13 sect.23.3's harder simultaneous (T,rho,h) reconciliation for
-           case24/34 (a DIFFERENT root cause from case33's); and max_steps exhaustion (case15
-           legitimately uses it and PASSES on OFF -- needs careful design). Side finding for the
-           record (not pursued): case29's (excluded) analytic post-shock T=2.93e6K exceeds the
-           solver's own 1e6K clamp by 2.93x, plausibly explaining its long-unexplained
-           cases.cpp:591 blocker comment.
-           Grounded in YADV_RESEARCH.md sect.27, docs/YADV_ROUND_17_PLAN.md.
+next_task: Round 18 implemented F2'' (ACID_TSAT_STALL, default OFF). Confirmed exactly as
+           predicted: OFF/plain-ON/+ALPHA_IMPLICIT all byte-identical with the flag set. NOT
+           predicted, discovered this round: the FD-Jacobian path (ACID_NO_AJAC=1, independent
+           of ACID_YADV) already had substantial silently-accepted T-ceiling saturation on
+           cases 24/27/28/33/34 -- turning the flag on RECOVERS cases 27 and 28 from silent NaN
+           failure to genuine PASS (FD-invariance gates move 13/19->15/19 and 13/19->14/19).
+           No regression found anywhere. ACID_STALL_ACCEPT interaction: case33 fails faster/
+           cleaner as predicted (0 accepts vs 4, step43 vs 104); case24 byte-identical; case34
+           shows a small real (~6th sig fig) non-byte-identical perturbation when BOTH
+           ACID_STALL_ACCEPT and the new flag are set together -- does not affect round 12's
+           published numbers (which use ACID_STALL_ACCEPT alone). Flag stays default OFF --
+           this round establishes safety+benefit when explicitly enabled, not promotion.
+           Live threads for round 19: (a) whether ACID_TSAT_STALL should be promoted toward
+           default given its clean recovery of cases 27/28 on the FD path (would need the
+           analytic-Jacobian path's own behavior re-examined, since Stage 0 found it saturates
+           there too under some conditions -- not yet swept for whether it EVER helps the
+           default/headline config, only that it's a no-op there); (b) the case34+
+           ACID_STALL_ACCEPT perturbation -- understand its exact origin (a transient outside
+           the accept-budget window) before combining the two mechanisms is recommended for any
+           future work; (c) round 13 sect.23.3's harder simultaneous (T,rho,h) reconciliation
+           for case24/34 (a DIFFERENT root cause from case33's); (d) max_steps exhaustion
+           (case15 legitimately uses it and PASSES on OFF -- needs careful design); (e) case29's
+           (excluded) likely-explained blocker (analytic post-shock T=2.93e6K exceeds the 1e6K
+           clamp by 2.93x) -- not pursued, recorded for the record.
+           Grounded in YADV_RESEARCH.md sect.28, docs/YADV_ROUND_18_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -339,6 +347,24 @@ not start a new round.
   than round 16's equivalent -- this flag actually executes on OFF) confirms zero perturbation.
   `ACID_TSAT` stays default OFF. `ACID_YADV` status unchanged (default OFF, 15/19).
   → `YADV_RESEARCH.md` §27, `docs/YADV_ROUND_17_PLAN.md`, commit `d4ac63a`.
+- Round 18: F2'' implemented (`ACID_TSAT_STALL`, default OFF) -- state-pure `T_from_hstat` (no
+  signature change), a saturated retry becomes a new stall reason 5 that displaces reason 1 and is
+  therefore automatically ineligible for `ACID_STALL_ACCEPT`'s capture, no separate code change
+  needed there. **OFF/plain-ON/`+ALPHA_IMPLICIT` all confirmed byte-identical**, exactly as round
+  17 predicted -- the diagnostic instrument's deductive proof held under the real new code path.
+  **Unpredicted, positive result**: Stage 0's first-ever 5-config saturation sweep found the
+  FD-Jacobian path (`ACID_NO_AJAC=1`, independent of `ACID_YADV`) already silently accepting
+  T-ceiling-saturated states as "converged" on cases 24/27/28/33/34 -- turning the flag on
+  **RECOVERS cases 27 and 28 from silent NaN failure to genuine PASS** (FD gates move
+  13/19→15/19 and 13/19→14/19). No regression found in any tested configuration.
+  `ACID_STALL_ACCEPT` interaction: case33 fails faster and cleaner exactly as predicted (0 accepts
+  vs 4, step 43 vs 104, same non-completion); case24 byte-identical; **case34 shows a small, real,
+  honestly-reported non-byte-identical perturbation** (~6th significant figure, same physical end
+  state) when BOTH mechanisms are combined -- does not affect round 12's published numbers (which
+  use `ACID_STALL_ACCEPT` alone). G9's full 20-combination accepted-state invariant sweep: zero
+  violations. Flag stays default OFF (this round establishes safety+benefit when explicitly
+  enabled, not promotion). `ACID_YADV` status unchanged (default OFF, 15/19).
+  → `YADV_RESEARCH.md` §28, `docs/YADV_ROUND_18_PLAN.md`, commit `207874b`.
 
 ## Setup reference
 

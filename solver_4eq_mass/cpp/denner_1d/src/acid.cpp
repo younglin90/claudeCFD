@@ -597,6 +597,24 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // not in the derivative formula.
     const bool alpha_implicit_t = std::getenv("ACID_YADV_ALPHA_IMPLICIT_T") != nullptr;
     const bool thinc_dbg = std::getenv("ACID_THINC_DBG") != nullptr;
+    // ACID_RINIT (round 13, Phase 3a Stage 0, DIAGNOSTIC ONLY, default OFF, stderr only): at
+    // it==0 of every Newton solve, splits rnorm3()'s three components (docs/YADV_ROUND_13_PLAN.md
+    // sect.1 RINIT) and, right after the Eqs.43-44 old-level rebuild, prints the candidate
+    // dt-INDEPENDENT state mismatches the pre-Newton alpha/Y block can inject (RMISM). Reads state
+    // only; adds no FP arithmetic to any path when unset. Optional ACID_BLK_STEP (existing var,
+    // shared with ACID_RHIST/ACID_AJAC_BLK) restricts output to one step.
+    const bool rinit_dbg = std::getenv("ACID_RINIT") != nullptr;
+    // ACID_YADV_HREINIT (round 13, Phase 3a Stage 1, RESEARCH-ONLY, default OFF; inert unless
+    // ACID_YADV and coupled are also active): consistency re-init of the Newton INITIAL GUESS for
+    // the coupled energy unknown. docs/YADV_ROUND_13_PLAN.md sect.0/3: the pre-Newton Y-transport +
+    // alpha recovery re-maps alpha at (p_o,T_o) and rebuilds rho_o/hstat_o/Htot_o from that NEW
+    // alpha, but s.h entering Newton is still the PREVIOUS step's converged value -- a mismatch
+    // that is dt-INDEPENDENT within a retry sweep (set by the previous step's own (p,T) excursion
+    // acting on a frozen Y), so it enters the it==0 transient as Delta*dx/dt and makes r_init grow
+    // as 1/dt (round 12 sect.22.2). Setting s.h to Htot_o makes that it==0 mismatch vanish
+    // identically. This changes ONLY the initial guess -- compute_R is the single source of truth
+    // and the fixed point R=0 is unchanged by it, so no conservation/RH property can move.
+    const bool hreinit = std::getenv("ACID_YADV_HREINIT") != nullptr;
     // ACID_TEND_SCALE (round 11, Phase 3a Stage 2, DIAGNOSTIC ONLY, default 1.0 = byte-identical
     // when unset): multiplies THIS SOLVER's stop time only. It is an OBSERVATION WINDOW, not a
     // physical or tuning parameter -- the standard shock-tube verification convention is to sample
@@ -978,6 +996,55 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             rho_o[i] = std::max(al * pa.rho + (1.0 - al) * pb.rho, 1e-300);
             hstat_o[i] = (al * pa.rho * pa.h + (1.0 - al) * pb.rho * pb.h) / rho_o[i];
             Htot_o[i] = hstat_o[i] + 0.5 * u_o[i] * u_o[i];
+        }
+
+        // RMISM (round 13 Stage 0, docs/YADV_ROUND_13_PLAN.md sect.1): candidate dt-independent
+        // state mismatches, evaluated here (not inside the Newton loop) because nothing between
+        // the retry restart and here writes s.h/s.rho/s.alpha's non-recovery fields -- so these
+        // are exactly the it==0 quantities without waiting for the first compute_R(). REMAP is the
+        // alpha jump caused by the recovery meeting the LAST step's (p_o,T_o) with a frozen Y
+        // (predicted dt-independent); ADVECTION is this retry's own Y-transport (predicted O(dt)).
+        if (rinit_dbg && yadv) {
+            const char* se = std::getenv("ACID_BLK_STEP");
+            const int blkstep = se ? std::atoi(se) : -1;
+            if (blkstep < 0 || step == blkstep) {
+                double dh = 0, drho = 0, dal = 0, dal_remap = 0, dal_adv = 0;
+                int ih = -1, irho = -1, ial = -1, iremap = -1, iadv = -1;
+                for (int i = 0; i < n; ++i) {
+                    const double vh = std::abs(s.h[i] - Htot_o[i]);
+                    const double vrho = std::abs(s.rho[i] - rho_o[i]);
+                    const double vdal = std::abs(s.alpha[i] - s0.alpha[i]);
+                    const double pu = std::max(p_o[i], 1.0), Tu = std::max(T_o[i], 1e-6);
+                    const double al_remap_state = std::clamp(
+                        alpha_from_mass_fraction(Yv0[i], phase_props(pu, Tu, A).rho,
+                                                  phase_props(pu, Tu, B).rho), 0.0, 1.0);
+                    const double vremap = std::abs(al_remap_state - s0.alpha[i]);
+                    const double vadv = std::abs(s.alpha[i] - al_remap_state);
+                    if (vh > dh) { dh = vh; ih = i; }
+                    if (vrho > drho) { drho = vrho; irho = i; }
+                    if (vdal > dal) { dal = vdal; ial = i; }
+                    if (vremap > dal_remap) { dal_remap = vremap; iremap = i; }
+                    if (vadv > dal_adv) { dal_adv = vadv; iadv = i; }
+                }
+                std::fprintf(stderr,
+                    "RMISM case=%s step=%d retry=%d dt=%.6e dh=%.4e@%d drho=%.4e@%d dal=%.4e@%d "
+                    "dal_remap=%.4e@%d dal_adv=%.4e@%d\n",
+                    c.id.c_str(), step, retry, dt, dh, ih, drho, irho, dal, ial,
+                    dal_remap, iremap, dal_adv, iadv);
+            }
+        }
+
+        // Stage 1 (round 13, docs/YADV_ROUND_13_PLAN.md sect.3): consistency re-init of the
+        // Newton INITIAL GUESS. s.h still holds the previous step's converged enthalpy, which is
+        // consistent with the OLD alpha, not the alpha just recovered above -- reset it to the
+        // freshly-rebuilt Htot_o so the it==0 transient this mismatch would otherwise inject
+        // vanishes identically. Only the initial guess changes; compute_R (the fixed point) does
+        // not, so no conservation/RH property can move. h is a Newton unknown only when coupled.
+        if (yadv && hreinit && coupled) {
+            for (int i = 0; i < n; ++i) {
+                const double hfloor = 0.5 * u_o[i] * u_o[i] * 1.0001 + 1.0;  // reuse the existing
+                s.h[i] = std::max(Htot_o[i], hfloor);                       // line-search kinetic
+            }                                                               // floor, no new const
         }
 
         // ---- BDF2 transient coefficients. Active only when bdf2 is set, the o2 store is
@@ -1437,6 +1504,31 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         jac_age = Kmn; backtracked_last = false;
         for (int it = 0; it < (ajac ? 150 : 40); ++it) {
             compute_R();
+            // RINIT (round 13 Stage 0, docs/YADV_ROUND_13_PLAN.md sect.1): component split of
+            // rnorm3() at it==0 -- self-check: `r` here must equal RHIST's `n0` on the same run.
+            if (rinit_dbg && yadv && coupled && it == 0) {
+                const char* se = std::getenv("ACID_BLK_STEP");
+                const int blkstep = se ? std::atoi(se) : -1;
+                if (blkstep < 0 || step == blkstep) {
+                    double mom = 0, con = 0, ene = 0;
+                    int iene = -1; double ene_max = -1.0;
+                    const double escal_l = uref / std::max(href, 1.0);
+                    for (int i = 0; i < n; ++i) {
+                        mom += Rres[i][0] * Rres[i][0];
+                        con += (uref * Rres[i][1]) * (uref * Rres[i][1]);
+                        const double e2 = (escal_l * Rene[i]) * (escal_l * Rene[i]);
+                        ene += e2;
+                        if (e2 > ene_max) { ene_max = e2; iene = i; }
+                    }
+                    mom = std::sqrt(mom); con = std::sqrt(con); ene = std::sqrt(ene);
+                    const double r = std::sqrt(mom * mom + con * con + ene * ene);
+                    std::fprintf(stderr,
+                        "RINIT case=%s step=%d retry=%d dt=%.6e r=%.6e mom=%.6e con=%.6e ene=%.6e "
+                        "fene=%.4f iene=%d\n",
+                        c.id.c_str(), step, retry, dt, r, mom, con, ene,
+                        r > 0 ? (ene * ene) / (r * r) : 0.0, iene);
+                }
+            }
             (void)rnorm;
             // DEEP-DEBUG dense probe: d R_ene[i0]/d{u,p,h}[j] for j=i0-3..i0+3 by SINGLE-CELL FD
             // (no graph colouring) -> tells whether the i+-2 dene/du the colour-FD reports is a

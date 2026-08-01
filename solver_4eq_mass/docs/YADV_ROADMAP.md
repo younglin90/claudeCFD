@@ -20,10 +20,10 @@ reset `consecutive_failures`.
 ## Control state
 
 ```
-round_counter: 5
+round_counter: 6
 consecutive_failures: 0
 done: false
-next_task: docs/YADV_PHASE2_PLAN.md Stage 1
+next_task: docs/YADV_PHASE2_PLAN.md Stage 2
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -91,7 +91,18 @@ not start a new round.
   `worktree.baseRef:"head"`; the Bash safety hook's substring match blocked its own guarded commit
   on a heredoc-quoted mention of what it blocks, fixed with heredoc-body stripping). → commit
   `7cd36ae`, `docs/YADV_ROUND_5_PLAN.md`.
-- Round 6+: not yet run. `next_task` above (Phase 2 Stage 1).
+- Round 6 (first round run under the actual autonomous `/loop`): Phase 2 Stage 1 -- augmented the
+  analytic Jacobian's J1 cell-EOS-chain loop to star `D_p`/`N_p` with the `a_p` product-rule
+  addend (Stage 0's already-derived, already-unit-tested helper). GENUINE SUCCESS:
+  `ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1` under the default analytic Jacobian moved 12/19 -> 14/19.
+  case13 and case25 both fully recovered; case15 moved from non-convergence to passing every
+  quantitative gate criterion (blocked only by the TV/oscillation guard, `peak_delta_u` 321->0).
+  Cases 24/33/34 unmoved as predicted (separate conservation defect); case14 unmoved (separate
+  `hsT<0` lead). All hard gates held (OFF 19/19+9/9, plain ON 15/19, FD-invariance exact same
+  failure set). → `YADV_RESEARCH.md` §16, `docs/YADV_ROUND_6_PLAN.md`, commit `33e006f`.
+- Round 7+: not yet run. `next_task` above (Phase 2 Stage 2 -- the J2 flux-blend diagonal,
+  `alp_p[]` already stored and waiting; plan predicts this is the strongest remaining candidate
+  for closing case15's TV guard).
 
 ## Setup reference
 

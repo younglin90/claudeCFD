@@ -82,6 +82,139 @@ int main() {
             std::cerr << "  round-trip worst err / (8 eps kappa) = " << worst_ratio << "\n";
     }
 
+    // --- Phase 2 Stage 0: d(alpha)/dp, d(alpha)/dT at fixed mass fraction Y ----------------
+    // Four properties, over the SAME (p,T,pair) grid the round-trip test above uses:
+    //   (1) a_p, a_T reproduce a central FD of alpha_from_mass_fraction o phase_props;
+    //   (2) the exact algebraic identity  D_p + (ra-rb)*a_p == rho*(al*za/ra + (1-al)*zb/rb),
+    //       and its zeta->phi twin, to ~1e-12 relative;
+    //   (3) for a b==0 / b==0 phase pair, a_T is zero to within the cancellation floor
+    //       (~2*eps*al(1-al)*|phi/rho|). NOT bitwise zero: phase_props evaluates phi/rho as
+    //       (-ppinf*kv*gm1/A^2)/(ppinf/A), which does not round-trip ppinf and A exactly.
+    //       Measured worst over this grid: 1.39e-17 abs, 1.74*eps relative. See eos.hpp.
+    //   (4) alpha in {0,1} => a_p == a_T == +0.0 EXACTLY (a multiply by 0.0), which is what
+    //       makes these derivatives consistent with the residual's clamp(alpha,0,1).
+    {
+        const auto vapor = denner1d::water_vapor_phase();
+        const double macheps = 2.220446049250313e-16;
+        const denner1d::Phase pairs2[][2] = {{air, water}, {water, air},
+                                             {air, vapor}, {vapor, air}};
+        double worst_fd_p = 0.0, worst_fd_T = 0.0, worst_id = 0.0, worst_bzero = 0.0;
+        for (const auto& pr : pairs2) {
+            const bool both_b_zero = (pr[0].b == 0.0 && pr[1].b == 0.0);
+            for (const double p0 : {1.0e4, 1.0e5, 8.0e6, 1.0e9}) {
+                for (const double T0 : {250.0, 300.0, 360.0, 1200.0}) {
+                    const auto pa = denner1d::phase_props(p0, T0, pr[0]);
+                    const auto pb = denner1d::phase_props(p0, T0, pr[1]);
+                    for (int k = 1; k <= 19; ++k) {
+                        const double al = 0.05 * static_cast<double>(k);   // 0.05 .. 0.95
+                        const double Y = denner1d::mass_fraction_from_alpha(al, pa.rho, pb.rho);
+                        const auto d = denner1d::alpha_derivs_massfrac(
+                            al, pa.zeta, pa.phi, pa.rho, pb.zeta, pb.phi, pb.rho);
+
+                        // (1) central FD in p at fixed (Y, T)
+                        const double hp = 1.0e-6 * p0;
+                        const double ap_fd =
+                            (denner1d::alpha_from_mass_fraction(
+                                 Y, denner1d::phase_props(p0 + hp, T0, pr[0]).rho,
+                                 denner1d::phase_props(p0 + hp, T0, pr[1]).rho)
+                           - denner1d::alpha_from_mass_fraction(
+                                 Y, denner1d::phase_props(p0 - hp, T0, pr[0]).rho,
+                                 denner1d::phase_props(p0 - hp, T0, pr[1]).rho)) / (2.0 * hp);
+                        // central FD in T at fixed (Y, p)
+                        const double hT = 1.0e-6 * T0;
+                        const double aT_fd =
+                            (denner1d::alpha_from_mass_fraction(
+                                 Y, denner1d::phase_props(p0, T0 + hT, pr[0]).rho,
+                                 denner1d::phase_props(p0, T0 + hT, pr[1]).rho)
+                           - denner1d::alpha_from_mass_fraction(
+                                 Y, denner1d::phase_props(p0, T0 - hT, pr[0]).rho,
+                                 denner1d::phase_props(p0, T0 - hT, pr[1]).rho)) / (2.0 * hT);
+                        // Tolerance = max(1e-6 relative, an ABSOLUTE central-difference roundoff
+                        // floor). BUG FOUND LIVE (round 5): the first version multiplied the
+                        // floor by another 1e-6, which is wrong -- the floor already IS the
+                        // achievable comparison precision (central-diff noise ~ eps/h), not a
+                        // quantity to shrink further. This bit for the air|vapor pair, where
+                        // a_p and a_T are ALGEBRAICALLY exactly zero (air and vapor share
+                        // pinf=0, b=0, so zeta/rho = phi/rho are identical between the two
+                        // phases -- see eos.hpp's a_T note) and the FD comparison is pure
+                        // roundoff noise on both sides. Verified against a standalone probe:
+                        // the analytic formula matches FD to full double precision wherever
+                        // there is real signal (every air|water combo); only the near-zero
+                        // air|vapor pair needs the floor, and needs it sized correctly.
+                        const double floor_p = 16.0 * macheps / hp;
+                        const double floor_T = 16.0 * macheps / hT;
+                        const double tol_p = std::max(1.0e-6 * std::abs(d.a_p), floor_p);
+                        const double tol_T = std::max(1.0e-6 * std::abs(d.a_T), floor_T);
+                        worst_fd_p = std::max(worst_fd_p, std::abs(ap_fd - d.a_p) / tol_p);
+                        worst_fd_T = std::max(worst_fd_T, std::abs(aT_fd - d.a_T) / tol_T);
+                        check(std::abs(ap_fd - d.a_p) <= tol_p, "a_p vs central FD");
+                        check(std::abs(aT_fd - d.a_T) <= tol_T, "a_T vs central FD");
+
+                        // (2) the exact mixture-compressibility identity, p and T forms
+                        const double rho = al * pa.rho + (1.0 - al) * pb.rho;
+                        const double D_p = al * pa.zeta + (1.0 - al) * pb.zeta;
+                        const double D_T = al * pa.phi  + (1.0 - al) * pb.phi;
+                        const double lhs_p = D_p + (pa.rho - pb.rho) * d.a_p;
+                        const double rhs_p = rho * (al * pa.zeta / pa.rho
+                                                  + (1.0 - al) * pb.zeta / pb.rho);
+                        const double lhs_T = D_T + (pa.rho - pb.rho) * d.a_T;
+                        const double rhs_T = rho * (al * pa.phi / pa.rho
+                                                  + (1.0 - al) * pb.phi / pb.rho);
+                        worst_id = std::max(worst_id, std::abs(lhs_p - rhs_p) / std::abs(rhs_p));
+                        worst_id = std::max(worst_id, std::abs(lhs_T - rhs_T) / std::abs(rhs_T));
+                        check(std::abs(lhs_p - rhs_p) <= 1.0e-12 * std::abs(rhs_p),
+                              "mixture-compressibility identity (zeta)");
+                        check(std::abs(lhs_T - rhs_T) <= 1.0e-12 * std::abs(rhs_T),
+                              "mixture-compressibility identity (phi)");
+
+                        // (3) b==0 phase pair => a_T zero to the cancellation floor
+                        if (both_b_zero) {
+                            const double sc = al * (1.0 - al)
+                                * std::max(std::abs(pa.phi / pa.rho), std::abs(pb.phi / pb.rho));
+                            worst_bzero = std::max(worst_bzero, std::abs(d.a_T) / (macheps * sc));
+                            check(std::abs(d.a_T) <= 8.0 * macheps * sc,
+                                  "a_T == 0 (to cancellation floor) for b=0 phase pair");
+                        }
+                    }
+                    // (4) endpoints are EXACT zeros (multiply by 0.0)
+                    for (const double al : {0.0, 1.0}) {
+                        const auto d0 = denner1d::alpha_derivs_massfrac(
+                            al, pa.zeta, pa.phi, pa.rho, pb.zeta, pb.phi, pb.rho);
+                        check(d0.a_p == 0.0 && d0.a_T == 0.0, "a_p==a_T==0 exactly at alpha in {0,1}");
+                        check(denner1d::dalpha_dp_massfrac(al, pa.zeta, pa.rho, pb.zeta, pb.rho) == 0.0,
+                              "dalpha_dp_massfrac exact 0 at endpoint");
+                        check(denner1d::dalpha_dT_massfrac(al, pa.phi, pa.rho, pb.phi, pb.rho) == 0.0,
+                              "dalpha_dT_massfrac exact 0 at endpoint");
+                    }
+                }
+            }
+        }
+        std::cerr << "  Stage0 derivs: worst FD rel a_p=" << worst_fd_p
+                  << " a_T=" << worst_fd_T << " ; worst identity rel=" << worst_id
+                  << " ; worst |a_T|/(eps*scale) on b=0 pairs=" << worst_bzero << "\n";
+
+        // --- Stage 0 deliverable 5: verify Phase-2 §1's numeric prediction at case15's state.
+        // Printed, plus a LOOSE physical bound (the Wood-type mixture compressibility of a
+        // bubbly liquid is orders of magnitude above the volume-blend value). Not a tuned
+        // constant: the assertion is ">100x", the prediction is 521.56x.
+        {
+            const double p15 = 1.0e5;
+            // case15 IC (cases.cpp): T = al*T(rho_air=1.3) + (1-al)*T(rho_water=1000)
+            const double T15 = 348.2468430731;      // recompute if the IC ever changes
+            const double al15 = 0.055;
+            const auto pa = denner1d::phase_props(p15, T15, air);
+            const auto pb = denner1d::phase_props(p15, T15, water);
+            const auto d = denner1d::alpha_derivs_massfrac(
+                al15, pa.zeta, pa.phi, pa.rho, pb.zeta, pb.phi, pb.rho);
+            const double D_p = al15 * pa.zeta + (1.0 - al15) * pb.zeta;
+            const double D_p_star = D_p + (pa.rho - pb.rho) * d.a_p;
+            std::cerr << "  Stage0 case15 state: a_p=" << d.a_p << " a_T=" << d.a_T
+                      << " D_p=" << D_p << " D_p*=" << D_p_star
+                      << " ratio=" << D_p_star / D_p << " (Phase-2 sect.1 predicts ~500)\n";
+            check(D_p_star / D_p > 100.0, "case15 continuity-diagonal defect exceeds 100x");
+        }
+    }
+
     std::vector<double> a{1.0, 2.0, 3.0};
     auto g = denner1d::apply_ghost(a, "transmissive", "wall", 2, false);
     check(g.size() == 7, "ghost size");

@@ -61,6 +61,51 @@ inline double alpha_from_mass_fraction(double Y, double rho_a, double rho_b) {
     return den > 0.0 ? num / den : Y;
 }
 
+// ---- derivatives of alpha(Y, rho_a(p,T), rho_b(p,T)) at FIXED mass fraction Y ---------------
+// From alpha = Y*rb / D with D = ra(1-Y) + Y*rb, the two identities alpha = Y*rb/D and
+// 1-alpha = ra(1-Y)/D give
+//     d(alpha)/d(ra) = -Y*rb*(1-Y)/D^2 = -alpha(1-alpha)/ra
+//     d(alpha)/d(rb) = +Y*ra*(1-Y)/D^2 = +alpha(1-alpha)/rb
+// Chaining through rho_k(p,T) with the EXISTING PhaseProps partials zeta = drho/dp|_T and
+// phi = drho/dT|_p:
+//     a_p = d(alpha)/dp|_{T,Y} = alpha(1-alpha) * ( zeta_b/rho_b - zeta_a/rho_a )
+//     a_T = d(alpha)/dT|_{p,Y} = alpha(1-alpha) * ( phi_b /rho_b - phi_a /rho_a )
+// zeta_k/rho_k is phase k's ISOTHERMAL compressibility (= 1/p for an ideal gas), -phi_k/rho_k
+// its thermal expansivity. a_p < 0 for gas-in-liquid: compress -> gas volume fraction falls.
+// The alpha(1-alpha) prefactor vanishes EXACTLY at both pure ends (a multiply by 0.0), so these
+// are automatically consistent with the clamp(alpha,0,1) the residual applies -- no epsilon, no
+// kink handling, no new constant.
+// NOTE on a_T and the NASG covolume b: phi_k/rho_k = -kv_k(gamma_k-1)/A_k with
+// A_k = kv_k(gamma_k-1)T + b_k(p+pinf_k) (eos.cpp), which is exactly -1/T for ANY phase with
+// b_k = 0. So a_T is ALGEBRAICALLY zero whenever both phases have b == 0 (17 of this suite's 19
+// cases -- only cases 14 and 15 use water_liquid_phase, b = 6.61e-4). It is NOT bitwise zero:
+// phase_props evaluates phi/rho as (-ppinf*kv*gm1/A^2)/(ppinf/A), which does not round-trip
+// ppinf and A exactly; the residual is <= ~2*eps*alpha(1-alpha)*|phi/rho| (measured worst
+// 1.4e-17 over a wide (p,T,alpha,phase-pair) grid).
+//
+// Cross-check identity (asserted in denner1d_unit.cpp), exact for BOTH zeta and phi:
+//     D_p + (rho_a - rho_b)*a_p  ==  rho * ( alpha*zeta_a/rho_a + (1-alpha)*zeta_b/rho_b )
+//     where D_p = alpha*zeta_a + (1-alpha)*zeta_b is the FROZEN-alpha value acid.cpp uses today,
+//     and the RHS is the (isothermal) Wood-type mixture compressibility.
+struct AlphaDerivs { double a_p; double a_T; };
+inline AlphaDerivs alpha_derivs_massfrac(double alpha,
+                                         double zeta_a, double phi_a, double rho_a,
+                                         double zeta_b, double phi_b, double rho_b) {
+    const double w = alpha * (1.0 - alpha);
+    AlphaDerivs o;
+    o.a_p = w * (zeta_b / rho_b - zeta_a / rho_a);
+    o.a_T = w * (phi_b  / rho_b - phi_a  / rho_a);
+    return o;
+}
+inline double dalpha_dp_massfrac(double alpha, double zeta_a, double rho_a,
+                                 double zeta_b, double rho_b) {
+    return alpha * (1.0 - alpha) * (zeta_b / rho_b - zeta_a / rho_a);
+}
+inline double dalpha_dT_massfrac(double alpha, double phi_a, double rho_a,
+                                 double phi_b, double rho_b) {
+    return alpha * (1.0 - alpha) * (phi_b / rho_b - phi_a / rho_a);
+}
+
 Phase air_phase();
 Phase water_liquid_phase();
 Phase water_vapor_phase();

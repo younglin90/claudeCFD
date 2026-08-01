@@ -45,26 +45,23 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 13
+round_counter: 14
 consecutive_failures: 0
 done: false
-next_task: Round 13 confirmed the 1/dt mechanism (REMAP term in alpha recovery) to textbook
-           clarity but REFUTED the naive fix (ACID_YADV_HREINIT, resetting s.h alone -- S4,
-           makes case34 worse and needs MORE accepts under STALL_ACCEPT, not fewer). Round
-           13 sect.23.3's own diagnosis of why: s.rho/s.T stay stale (s0-consistent) until
-           the first compute_R() re-derives them from the corrected h, so Newton still isn't
-           handed a genuinely self-consistent starting point. Two open threads for round 14:
-           (a) a MORE complete consistency fix that reconciles (T,rho) simultaneously with h
-           at the new alpha, before Newton's it==0 -- not the same as round 13's single-field
-           reinit; needs its own careful design, don't just retry sect.3's approach with more
-           fields bolted on without re-deriving what "simultaneous" requires; or (b) abandon
-           the fix-the-mismatch angle and accept ACID_STALL_ACCEPT=1 (round 12, still the
-           only working path, its sect.22.5 caveat still standing) as the practical answer,
-           pivoting to case33's still-unsolved sustained difficulty (round 12 sect.22.4,
-           qualitatively different, 221 accepts at budget 20, still only 14.8% of t_end) or
-           to Stage 3c (diverged=true at the stall site, still needs explicit Advisor
-           decision, docs/YADV_ROUND_12_PLAN.md sect.5).
-           Grounded in YADV_RESEARCH.md sect.23, docs/YADV_ROUND_13_PLAN.md.
+next_task: Round 14 closed Stage 3c (diverged=true at the retry-exhaustion give-up site) --
+           pure correctness/reporting fix, pass_count unchanged in all four hard gates,
+           ACID_STALL_ACCEPT's accept-and-continue path confirmed byte-identical. Two live
+           threads remain, neither narrowed by round 14: (a) round 13 sect.23.3's harder
+           simultaneous (T,rho)-consistency re-init (the single-field s.h reinit was REFUTED,
+           S4 -- a real fix needs T and rho reconciled at the same instant as h, not the same
+           approach with more fields bolted on); or (b) case33's still-unsolved, qualitatively
+           different sustained difficulty (round 12 sect.22.4, 221 accepts at budget 20, still
+           only 14.8% of t_end). A third, newly named but deliberately NOT pursued: max_steps
+           exhaustion is a sibling silent-partial-exit path to the one round 14 just fixed, but
+           case15 legitimately terminates via that cap and PASSES on OFF -- extending diverged
+           there needs careful design (would break 19/19 naively), left for a future round's
+           deliberate choice, not an autonomous default.
+           Grounded in YADV_RESEARCH.md sect.24, docs/YADV_ROUND_14_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -266,6 +263,25 @@ not start a new round.
   correctly-instrumented refutation is measured progress -- `consecutive_failures` not
   incremented. All four hard gates held, byte-identical to round 12 with both new vars unset.
   → `YADV_RESEARCH.md` §23, `docs/YADV_ROUND_13_PLAN.md`, commits `aedb1b5`, `dea10ce`.
+- Round 14: Phase 3a Stage 3c (`diverged=true` at the retry-exhaustion give-up), authorized this
+  round by an explicit Advisor decision after rounds 11/12/13 each deferred it. One statement,
+  correctness/reporting fix -- `pass_count` UNCHANGED in all four hard gates (OFF 19/19, plain-ON
+  15/19, `+ALPHA_IMPLICIT` 14/19, FD-invariance 13/19 both configs, resolving the round-12/13
+  ambiguous 12-vs-13/19 figure by direct measurement). Exactly the three predicted `(case,config)`
+  pairs changed and nothing else: 24/plain, 34/plain, 33/`+IMPLICIT` now read `finite=false`/NaN
+  instead of a finite garbage row -- closing the exact silent-stall gap that produced two retracted
+  findings (§20). The accept/give-up boundary needed no new logic: `ACID_STALL_ACCEPT`'s
+  accept-and-continue path is confirmed byte-identical for case24/34 (never reaches the give-up
+  block), while its give-up path (case33's own budget exhaustion) now correctly diverges alongside
+  its unchanged `STALL-ACCEPT-TOTAL` disclosure. OFF-path safety re-verified empirically (zero
+  STALLED/DIVERGED lines across all 19 cases on the post-edit build), not just asserted -- the
+  change is NOT `ACID_YADV`-gated by construction, only by evidence. Four historical-artifact
+  annotations added (§14.3/§19.2/§20.3/§19.3), no history edited. `ACID_YADV` status unchanged
+  (default OFF, 15/19). Two open threads remain (round 13's harder consistency fix, case33's
+  sustained difficulty); a third (max_steps exhaustion, a sibling defect) named but deliberately
+  not pursued -- case15 legitimately uses that cap and PASSES on OFF, so extending `diverged` there
+  needs careful future design, not an autonomous default.
+  → `YADV_RESEARCH.md` §24, `docs/YADV_ROUND_14_PLAN.md`, commit `b67850e`.
 
 ## Setup reference
 

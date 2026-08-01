@@ -519,6 +519,22 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // are bit-identical. Lets case24 run a large target cfl that the smeared shock tolerates.
     const bool cfl_ramp = std::getenv("ACID_NO_CFLRAMP") == nullptr;  // default ON (opt-out)
     double cfl_scale = 1.0;
+    // ACID_STALL_ACCEPT (round 12, Phase 3a Stage 3a, RESEARCH-ONLY, default 0 = OFF): retry-
+    // exhaustion policy. MEASURED (docs/YADV_ROUND_12_PLAN.md sect.1.2): when the retry loop
+    // fails with reason=newton-no-progress, halving dt does not help -- the it==0 residual r_init
+    // is FLAT for the first ~5 halvings and then grows exactly as 1/dt, because the pre-Newton
+    // explicit Y-advection/alpha-recovery block injects a dt-INDEPENDENT state jump whose
+    // transient contribution is Delta_phi*dx/dt. The `bad` gate's stated premise ("that means dt
+    // is too large") is false for this mode. Levels:
+    //   1 = on exhaustion, adopt the best-across-retries eligible state instead of breaking
+    //   2 = 1, plus: a step that succeeded after ONLY reason-1 retries does not collapse cfl_scale
+    // 0/unset is byte-identical to the pre-change build: every added statement is guarded.
+    const int stall_accept_lvl = []{ const char* e = std::getenv("ACID_STALL_ACCEPT");
+                                     return e ? std::max(0, std::atoi(e)) : 0; }();
+    const int stall_accept_max = []{ const char* e = std::getenv("ACID_STALL_ACCEPT_MAX");
+                                     return e ? std::max(0, std::atoi(e)) : 4; }();
+    long n_stall_accept = 0;      // total accepted-unconverged steps this run (reported at the end)
+    int  stall_accept_run = 0;    // CONSECUTIVE accepted-unconverged steps (reset by any clean step)
     // THINC (Xiao/Shyue-Xiao tanh) interface sharpening of the VOF face alpha in the colour-
     // function transport (the alpha loop below). ONLY the face alpha `af[]` of the non-conservative
     // alpha update uses it -- the ACID mass/momentum/energy fluxes use the CELL alpha, so THINC
@@ -699,6 +715,15 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         bool stall_conv_inner = false;  // rbest/r_init/conv_inner are retry-loop-local; captured
         double stall_rbest = 0.0;       // out here so the STALLED-DETAIL report (after the loop
         double stall_rinit = -1.0;      // closes) can still read the last retry's Newton state.
+        // Stage 3a (round 12): best-across-retries accept candidate for THIS step (see sect.3.3
+        // for how it's ranked/updated, sect.3.5 for how it's consumed). Guarded by
+        // stall_accept_lvl > 0 at every use site, so this block costs nothing at the default (0).
+        bool   acc_have  = false;
+        Field  acc_s;
+        Vec    acc_Yv;
+        double acc_dt    = 0.0, acc_ratio = 0.0, acc_rbest = 0.0, acc_rinit = 0.0;
+        int    acc_retry = -1;
+        bool   only_reason1 = true;   // level 2: did EVERY failed retry of this step fail on reason 1?
         for (int retry = 0; retry < 14; ++retry) {
         s = s0;
         Yv = Yv0;
@@ -2137,10 +2162,34 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             // a step that needed `retry` halvings persists that reduced level so the next step
             // starts where it succeeded (no jump back to full cfl -> no re-divergence grind).
             if (cfl_ramp) {
-                if (retry == 0) cfl_scale = std::min(1.0, cfl_scale * 1.5);
-                else            cfl_scale = std::max(1.0e-3, cfl_scale * std::pow(0.5, retry));
+                // Stage 3a-ii (round 12, level 2 only): a step that only ever failed on
+                // newton-no-progress did NOT fail because dt was too large (docs/YADV_ROUND_12_
+                // PLAN.md sect.1.2: halving raises r_init as 1/dt), so collapsing cfl_scale by
+                // 0.5^retry is unjustified for that mode -- and it is what pins cases 24/33/34 on
+                // the 1e-3 floor. Leave the scale UNCHANGED for those; a genuinely clean retry-0
+                // step still ramps up, so the controller can climb back off the floor.
+                const bool r1_only = (stall_accept_lvl >= 2 && retry > 0 && only_reason1);
+                if (retry == 0)    cfl_scale = std::min(1.0, cfl_scale * 1.5);
+                else if (!r1_only) cfl_scale = std::max(1.0e-3, cfl_scale * std::pow(0.5, retry));
             }
+            if (stall_accept_lvl > 0) stall_accept_run = 0;  // a clean step resets the budget
             break;
+        }
+        // Stage 3a (round 12): best-across-retries candidate. A retry is ELIGIBLE if it failed
+        // ONLY on newton-no-progress -- i.e. `bad && stall_reason == 1` AFTER the cell scan above,
+        // which is exactly "finite everywhere and |u| <= 10*uref". Ranked by the DIMENSIONLESS
+        // progress ratio rbest/r_init (rnorm3 is unnormalised and not comparable across cases or
+        // across retries once r_init starts scaling as 1/dt, docs/YADV_ROUND_12_PLAN.md sect.1.2).
+        if (stall_accept_lvl > 0) {
+            if (stall_reason != 1) only_reason1 = false;
+            if (stall_reason == 1 && r_init > 0.0 && std::isfinite(rbest)) {
+                const double ratio = rbest / r_init;
+                if (!acc_have || ratio < acc_ratio) {
+                    acc_have = true; acc_s = s; acc_Yv = Yv;
+                    acc_dt = dt; acc_retry = retry;
+                    acc_ratio = ratio; acc_rbest = rbest; acc_rinit = r_init;
+                }
+            }
         }
         if (dbg) {
             double mxu = 0; for (int i = 0; i < n; ++i) mxu = std::max(mxu, std::abs(s.u[i]));
@@ -2150,6 +2199,37 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         stall_conv_inner = conv_inner; stall_rbest = rbest; stall_rinit = r_init;
         dt *= 0.5;
         }  // retry loop
+        // ---- Stage 3a-i (round 12): retry exhaustion no longer means "no step at all". ----
+        // All 14 halvings failed with reason=newton-no-progress and a finite, speed-bounded state.
+        // Since r_init grows as 1/dt for this mode (docs/YADV_ROUND_12_PLAN.md sect.1.2), the LAST
+        // retry is the worst state the loop produced and the first is the best; adopt the
+        // best-ranked one and take the step at ITS dt. This is the case15 keep-best precedent
+        // (acid.cpp:2093, already unconditional per retry) lifted one loop level. Loud by
+        // construction: every acceptance prints, and the run prints a total, so a "completed" run
+        // that contains accepted-unconverged steps can never be mistaken for a clean one (the
+        // sect.20 retraction failure mode).
+        if (!stepped && stall_accept_lvl > 0 && acc_have && stall_accept_run < stall_accept_max) {
+            s = acc_s; Yv = acc_Yv; dt = acc_dt;
+            // Unlike the !bad path above, the o2 store is NOT populated here: have_o2=false makes
+            // mom_o2/rho_o2/ene_o2 dead (both dt_const's gate at acid.cpp:965 and the rho-guard at
+            // :998 require have_o2==true), so writing them from a non-converged state would be
+            // both pointless and would need rho_o/u_o/Htot_o, which are retry-loop-local and out
+            // of scope here (unlike inside the !bad branch, which runs before the loop closes).
+            have_o2 = false;   // do NOT build a BDF2 level on a non-converged state; next step is BE
+            dt_prev = dt;
+            if (cfl_ramp) {    // rank by acc_retry, not 13: normally 0 -> the ramp climbs, not collapses
+                if (acc_retry == 0) cfl_scale = std::min(1.0, cfl_scale * 1.5);
+                else if (stall_accept_lvl < 2)
+                    cfl_scale = std::max(1.0e-3, cfl_scale * std::pow(0.5, acc_retry));
+            }
+            ++n_stall_accept; ++stall_accept_run;
+            std::fprintf(stderr,
+                "STALL-ACCEPT: case=%s step %d t=%.3e -> accepting non-converged retry %d dt=%.3e "
+                "(rbest=%.4e r_init=%.4e ratio=%.4f) run=%d/%d total=%ld\n",
+                c.id.c_str(), step, t, acc_retry, acc_dt, acc_rbest, acc_rinit, acc_ratio,
+                stall_accept_run, stall_accept_max, n_stall_accept);
+            stepped = true;
+        }
         if (!stepped) {
             // Round 11 Stage 1 (docs/YADV_PHASE3_PLAN.md): the retry loop exhausting all 14
             // dt halvings used to exit SILENTLY -- no message, and (deliberately, still) no
@@ -2203,6 +2283,15 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                          step, t, dt, mxu, mxp, s.p[n / 2]);
         }
     }
+
+    // Stage 3a (round 12): a run that accepted any non-converged step is NOT a clean solve --
+    // say so unconditionally (not ACID_DBG-gated, matching round 11's STALLED: precedent) so it
+    // can never again be mistaken for one (the exact failure mode of the sect.20 retraction).
+    if (n_stall_accept > 0)
+        std::fprintf(stderr,
+            "STALL-ACCEPT-TOTAL: case=%s accepted %ld non-converged step(s) "
+            "(ACID_STALL_ACCEPT=%d max_run=%d) -- this run is NOT a clean solve\n",
+            c.id.c_str(), n_stall_accept, stall_accept_lvl, stall_accept_max);
 
     // Stage 1 sect.3.5 (round 11, ACID_DBG only): the exact end state and effective stop time,
     // needed by Phase 3a Stage 2's window sweep to compute completion robustly instead of

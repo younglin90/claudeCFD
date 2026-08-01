@@ -9,3 +9,5 @@ __pycache__/
 *.docx
 *.tar.gz
 .claude/worktrees/
+.claude/settings.local.json
+.claude/round-loop-active

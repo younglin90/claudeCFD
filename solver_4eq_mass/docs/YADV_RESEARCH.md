@@ -2139,3 +2139,123 @@ DENNER_ACID=1 ACID_YADV=1 ACID_RHIST=1 ACID_BLK_STEP=19 ./build-cpp/cpp/denner_1
 DENNER_ACID=1 ACID_YADV=1 ACID_STALL_ACCEPT=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
     2>&1 >/dev/null | grep "STALL-ACCEPT"      # sect.22.3/22.4
 ```
+
+---
+---
+
+# ROUND 13 (Phase 3a Stage 3, follow-up 7a)
+
+## 23. The `1/dt` mismatch is precisely localized and its mechanism confirmed to textbook clarity --
+##     but the naive fix does NOT solve the stall. A real, durable diagnostic win; a refuted fix.
+
+### 23.1 New instrument (`ACID_RINIT`) -- every prediction confirmed cleanly
+
+Round 12 §22.2 measured `r_init` doubling per dt-halving but did not identify which term carried
+it. `ACID_RINIT` (new, diagnostic-only) splits `rnorm3()`'s components at `it==0` (`RINIT`) and, at
+the point right after the Eqs.43-44 old-level rebuild, the candidate dt-independent state
+mismatches (`RMISM`): `dh=|s.h-Htot_o|`, and the alpha jump `dal` split into a REMAP part (alpha
+recovered at the PREVIOUS step's frozen Y meeting THIS step's `(p_o,T_o)` -- predicted
+dt-independent, since it is set by last step's `dt_prev`, not this step's `dt`) and an ADVECTION
+part (this step's own Y-transport, predicted `O(dt)`).
+
+**Self-check passed**: `RINIT`'s `r` matches `RHIST`'s `n0` to the last printed digit at every
+retry, every run.
+
+**Primary measurement, case24 step 19** (the exact step round 12 §22.2 measured):
+
+| retry | dt | `dal_remap` | `dal_adv` | `ene` (energy component) |
+|---|---|---|---|---|
+| 1 | 2.676e-11 | 5.6763e-02 | 8.680e-04 | 1.4226e+11 |
+| 5 | 1.672e-12 | 5.6763e-02 | 5.686e-05 | 1.5067e+11 |
+| 6 | 8.362e-13 | 5.6763e-02 | 2.848e-05 | 1.7555e+11 |
+| 9 | 1.045e-13 | 5.6767e-02 | 3.565e-06 | 8.6008e+11 |
+| 13 | 6.532e-15 | 5.6764e-02 | 2.228e-07 | 1.3627e+13 |
+
+`dal_remap` is **constant to 4-5 significant figures across every one of the 13 retries** (5.676e-2
+throughout); `dal_adv` **halves exactly, every single retry**, from 8.68e-4 down to 2.23e-7 -- a
+textbook-clean confirmation of P1+P2+P3 (`docs/YADV_ROUND_13_PLAN.md` §2), with no ambiguity left
+for interpretation.
+
+**Control (OFF, `ACID_YADV` unset)**: **zero `RINIT`/`RMISM` lines** -- the instrument is gated on
+`yadv`, and the OFF path has no remap term structurally (§0: alpha updates the same state it
+already holds, no Y-recovery step), so this is the predicted structural immunity made visible.
+
+**Control (`+ALPHA_IMPLICIT`)**: step 19 needed only **1 retry** (not 14 -- this step doesn't even
+stall under `+ALPHA_IMPLICIT`), and `dal_remap = 2.2204e-16` -- **literal `DBL_EPSILON`**, i.e.
+exactly zero to machine precision, while `dal_adv = 2.469e-02` carries the entire alpha jump. This
+is the predicted mechanism made numerically explicit: `+ALPHA_IMPLICIT` re-derives alpha at the
+CURRENT `(p,T)` on every Newton call, so the previous step's converged alpha already reflects it --
+the REMAP term is identically absent. **This gives round 12 §22.5's A/B result (which favored
+`+ALPHA_IMPLICIT` 7-8x on RH residual) a mechanism, not just a correlation**: `+ALPHA_IMPLICIT`
+structurally cannot accumulate this particular defect.
+
+### 23.2 The fix (`ACID_YADV_HREINIT`) -- refuted (S4)
+
+Setting `s.h := Htot_o` right after the Eqs.43-44 rebuild (before Newton starts) was predicted to
+make the `it==0` transient vanish and let cases 24/34 complete cleanly (S2). **Measured instead**:
+
+| config | result |
+|---|---|
+| case24, `HREINIT` alone (no `STALL_ACCEPT`) | still stalls -- pushed from step 19 (`t=2.99e-7`) to step 28 (`t=5.52e-7`), i.e. ~1.85x further, but only ~1.6% of the 1732 steps the OFF path needs, nowhere near `t_end` |
+| case34, `HREINIT` alone | **worse**: 15400 tiny steps needed to reach `t=2.91e-7`, LESS time than plain's original step-229 stall (`t=3.85e-7`) reached -- the CFL ramp collapsed harder, not better |
+| case24, `HREINIT` + `STALL_ACCEPT=1` | **9 accepted non-converged steps needed** (vs round 12's 2 without `HREINIT`) -- worse, not better -- reaching only `t=1.28e-6` (1.2% of `t_end`) before still hitting the accept budget |
+
+**S4 fires unambiguously: the fix does not work, and combined with the round-12 safety net it is
+measurably worse than not having it.** `ACID_YADV_HREINIT` stays default OFF, not promoted, and is
+**not recommended** for combination with `ACID_STALL_ACCEPT`.
+
+### 23.3 Honest interpretation -- what the refutation means, not just that it happened
+
+The Stage-0 mechanism (§23.1) is not in doubt -- it is measured to 4-5 significant figures with two
+independent controls both landing exactly on their predicted extremes (zero and `DBL_EPSILON`).
+What is refuted is only the inference that *removing that one `it==0` initial-guess artifact would
+be sufficient* to let Newton converge. It evidently is not: correcting `s.h` alone still leaves
+`s.rho` (and everything `compute_R` derives from it) at its stale, `s0`-consistent value until the
+first `compute_R()` call re-derives `T`/`rho` from the corrected `h` -- and by that point Newton is
+already iterating, not starting from a self-consistent state. A more complete fix would need to
+reconcile `s.rho`/`s.T` at the SAME instant as `s.h` (i.e. actually re-solve for a self-consistent
+`(T,rho)` at the new alpha before Newton's `it==0`, not just hand it a better `h` and let the first
+iteration sort out the rest) -- not attempted this round; flagged as the natural next step for a
+future round, not implemented here per this round's own non-goal against scope creep into the
+Newton loop itself.
+
+It is also possible -- not measured either way this round -- that the difficulty compounds: once
+one step's Newton solve fails to fully converge (even under `STALL_ACCEPT`'s best-iterate accept),
+the NEXT step inherits a slightly-off `s.alpha`/`s.h` pairing that reintroduces a fresh REMAP-like
+mismatch, so a single-point fix cannot suffice regardless of how well it is targeted. Round 12
+§22.4's own case33 signature (sustained, escalating, not one-time) is consistent with this reading.
+
+### 23.4 Verdict for round 13
+
+1. **Stage 0's mechanism finding is the round's durable result**: the `1/dt` growth is precisely the
+   REMAP term in the alpha recovery -- alpha recovered at the previous step's frozen Y meeting the
+   current step's `(p_o,T_o)`, constant within a retry sweep because it is set by `dt_prev`, not
+   the current `dt`. Confirmed via self-checked instrumentation with two controls landing exactly on
+   their predicted extremes.
+2. **Stage 1's fix is refuted (S4)** -- correcting the initial guess alone does not restore Newton
+   convergence, and combined with round 12's `ACID_STALL_ACCEPT` safety net is measurably worse.
+   Both new flags (`ACID_RINIT`, `ACID_YADV_HREINIT`) stay default OFF; `ACID_YADV_HREINIT` is
+   explicitly NOT recommended in combination with `ACID_STALL_ACCEPT`.
+3. Round 12's `ACID_STALL_ACCEPT=1` (without `HREINIT`) remains the only working path to completion
+   for cases 24/34, with its existing caveat (round 12 §22.5) UNCHANGED -- this round does not
+   remove it, and did not find a way to.
+4. Per this project's negative-result culture and the plan's own pre-registered rule
+   (`docs/YADV_ROUND_13_PLAN.md` §2/§3): a correctly-instrumented refutation of a stated hypothesis
+   is measured progress, not a failed round -- `consecutive_failures` is not incremented.
+5. Case33 untouched (explicit non-goal, per plan). Stage 3c (`diverged=true`) not implemented
+   (still needs explicit Advisor decision). `ACID_YADV`'s recommended default status is UNCHANGED
+   (default OFF, 15/19). All four hard gates hold with both new env vars unset.
+
+### 23.5 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+DENNER_ACID=1 ACID_YADV=1 ACID_RINIT=1 ACID_BLK_STEP=19 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
+    2>&1 >/dev/null | grep -E "^RINIT|^RMISM"                     # sect.23.1's primary measurement
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RINIT=1 ACID_BLK_STEP=19 \
+    ./build-cpp/cpp/denner_1d/denner1d_dump 24 2>&1 >/dev/null | grep -E "^RINIT|^RMISM"  # control D
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_HREINIT=1 ACID_DBG=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
+    2>&1 >/dev/null | grep STALLED                                # sect.23.2's refutation
+```

@@ -308,6 +308,75 @@ int main() {
     check(g.size() == 7, "ghost size");
     check(g[0] == 1.0 && g[1] == 1.0 && g[5] == 3.0 && g[6] == 2.0, "ghost values");
 
+    // --- Round 21: pT_from_v_e_massfrac closed-form identity round-trip -------------------
+    // Build (v,e,Y) exactly as eval_thermo/acid.cpp would from a KNOWN (p,T), then invert and
+    // require the recovered (p,T) match. Also cross-checks against the existing INDEPENDENT
+    // 2x2 Newton (recover_pressure_temperature_from_density_energy) at fixed alpha.
+    {
+        const auto vapor2 = denner1d::water_vapor_phase();
+        const auto helium = denner1d::Phase{1.667, 0.0, 0.0, 3047.0, 0.0};
+        const denner1d::Phase pairsPT[][2] = {
+            {air, water}, {water, air}, {air, vapor2}, {vapor2, air}, {helium, air},
+        };
+        double worst_rel_p = 0.0, worst_rel_T = 0.0, worst_cross = 0.0;
+        for (const auto& pr : pairsPT) {
+            for (const double p0 : {1.0e4, 1.0e5, 1.0e7, 1.0e9, 1.5e10}) {
+                for (const double T0 : {200.0, 300.0, 1.0e3, 1.0e4, 1.0e5}) {
+                    for (const double Y : {0.0, 1.0e-4, 0.00116, 0.1, 0.5, 0.9, 1.0}) {
+                        const auto pa = denner1d::phase_props(p0, T0, pr[0]);
+                        const auto pb = denner1d::phase_props(p0, T0, pr[1]);
+                        const double alpha = denner1d::alpha_from_mass_fraction(Y, pa.rho, pb.rho);
+                        const double rho = alpha * pa.rho + (1.0 - alpha) * pb.rho;
+                        if (!(rho > 0.0) || !std::isfinite(rho)) continue;
+                        const double h_stat = (alpha * pa.rho * pa.h + (1.0 - alpha) * pb.rho * pb.h) / rho;
+                        const double v = 1.0 / rho;
+                        const double e = h_stat - p0 * v;
+                        const auto r = denner1d::pT_from_v_e_massfrac(v, e, Y, pr[0], pr[1]);
+                        check(r.ok, "pT_from_v_e_massfrac ok on a physically-built state");
+                        if (!r.ok) continue;
+                        const double rel_p = std::abs(r.p - p0) / p0;
+                        const double rel_T = std::abs(r.T - T0) / T0;
+                        worst_rel_p = std::max(worst_rel_p, rel_p);
+                        worst_rel_T = std::max(worst_rel_T, rel_T);
+                        check(rel_p < 1.0e-8, "pT_from_v_e_massfrac recovers p");
+                        check(rel_T < 1.0e-8, "pT_from_v_e_massfrac recovers T");
+                        // cross-check vs the existing independent frozen-alpha 2x2 Newton
+                        double p2 = 1.1 * p0, T2 = 0.9 * T0;
+                        const bool ok2 = denner1d::recover_pressure_temperature_from_density_energy(
+                            rho, rho * e, alpha, pr[0], pr[1], p2, T2);
+                        if (ok2) {
+                            const double cross_p = std::abs(r.p - p2) / p0;
+                            worst_cross = std::max(worst_cross, cross_p);
+                            check(cross_p < 1.0e-6, "pT_from_v_e_massfrac vs independent Newton agree");
+                        }
+                    }
+                }
+            }
+        }
+        std::cerr << "  Round21 pT_from_v_e_massfrac: worst rel_p=" << worst_rel_p
+                  << " worst rel_T=" << worst_rel_T << " worst vs-Newton=" << worst_cross << "\n";
+
+        // rejection: an inadmissible input (v below the covolume blend) must return ok=false
+        // and touch nothing -- no fallback, no clamp-and-continue.
+        {
+            const auto r = denner1d::pT_from_v_e_massfrac(-1.0, 1.0e5, 0.5, air, water);
+            check(!r.ok, "pT_from_v_e_massfrac rejects v<=bbar");
+        }
+        // gas-gas degenerate pair (both pinf==0 => A0==0): must still pick the nonzero root.
+        {
+            const auto pa = denner1d::phase_props(1.0e5, 300.0, helium);
+            const auto pb = denner1d::phase_props(1.0e5, 300.0, air);
+            const double alpha = denner1d::alpha_from_mass_fraction(0.3, pa.rho, pb.rho);
+            const double rho = alpha * pa.rho + (1.0 - alpha) * pb.rho;
+            const double h_stat = (alpha * pa.rho * pa.h + (1.0 - alpha) * pb.rho * pb.h) / rho;
+            const double v = 1.0 / rho;
+            const double e = h_stat - 1.0e5 * v;
+            const auto r = denner1d::pT_from_v_e_massfrac(v, e, 0.3, helium, air);
+            check(r.ok, "pT_from_v_e_massfrac gas-gas degenerate ok");
+            check(r.ok && std::abs(r.p - 1.0e5) / 1.0e5 < 1.0e-8, "pT_from_v_e_massfrac gas-gas p");
+        }
+    }
+
     // --- conservative operator invariant: static air-water interface stays static
     // (interface-equilibrium / Collis IEC property). This is the invariant the
     // double-flux recovery broke; the production scheme must hold it to roundoff.

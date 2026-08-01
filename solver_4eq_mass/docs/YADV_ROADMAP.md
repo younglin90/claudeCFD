@@ -45,23 +45,33 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 20
+round_counter: 21
 consecutive_failures: 0
 done: false
-next_task: Round 20 promoted ACID_TSAT_STALL (F2'') to unconditional default and DELETED the env
-           var entirely (round 14 no-opt-out precedent) -- safe (byte-identical to flag-forced-ON
-           across all 7 configs A-G + both ACID_STALL_ACCEPT levels) and a net improvement (D/E/G
-           FD-path configs recover cases 27/28 from silent NaN to genuine PASS; case33 fails
-           faster/cleaner). FD-invariance baseline CHANGED (D 12/19->13/19, E 13/19->14/19, new
-           config G added at 15/19) -- scripts/yadv_r9_sweep.py EXPECTED already updated. Live
-           threads for round 21, carried forward untouched: (a) round 13 sect.23.3's harder
-           simultaneous (T,rho,h) reconciliation for case24/34 (a DIFFERENT root cause from
-           case33's, per rounds 15/16) -- case33's own difficulty is now better-posed (fails at
-           step 43 not 100/104, cleanly typed) but still fundamentally unsolved; (b) max_steps
-           exhaustion (case15 legitimately uses it and PASSES on OFF -- needs careful design);
-           (c) case29's (excluded) likely-explained blocker (analytic post-shock T=2.93e6K
-           exceeds the 1e6K clamp by 2.93x) -- not pursued, recorded for the record.
-           Grounded in YADV_RESEARCH.md sect.30, docs/YADV_ROUND_20_PLAN.md.
+next_task: Round 21 designed and implemented a (rho,e,Y)-conserving closed-form (p,T,alpha)
+           reconciliation (ACID_YADV_RECON, default OFF) to remove the alpha-remap lag round 13
+           diagnosed (dal_remap). Refuted round 13 sect.23.3's STATED mechanism (compute_R already
+           reconciles T,rho with h before r_init is measured -- Stage 0 Branch A) while confirming
+           its EMPIRICAL finding (HREINIT alone still doesn't fix the stall). Delivered a reusable,
+           unit-tested closed-form NASG p-T-equilibrium solver (eos.hpp:pT_from_v_e_massfrac,
+           worst rel_p=4.7e-11) regardless of the fix's own fate. Case24 gets real progress under
+           B+RECON (stall step 19->399, ~20x further, failure re-types to the correctly-diagnosed
+           T-ceiling-saturated) but cases 13/14 REGRESS from PASS to FAIL (u-field quality
+           collapse) -- S5 (harm) per the plan's own pre-registered stop rule. Flag stays OFF, not
+           promoted, committed as gated-off research infrastructure (round 4/8 precedent).
+           Live threads for round 22, carried forward: (a) the plan's own S2 follow-up target --
+           the rho_star continuity predictor (acid.cpp:999-1002, self-documented O(dt)-inconsistent)
+           and the theta_o MWI memory (stale dt_prev-set quantity) -- untouched, may matter for
+           case34/33's residual floor; (b) a Jacobian-aware variant of RECON (visible to the
+           linearization, not just the residual's starting state) that might avoid the 13/14
+           regression -- undesigned, would need careful staging given round 4's precedent that
+           Jacobian-family mismatches are this project's most reliable failure mode; (c) round 13
+           sect.23.3's harder consistency question is now answered (see above) but case33's own
+           difficulty (round 15/16's T-ceiling-saturation-from-advection channel, unrelated to
+           REMAP) remains fundamentally unsolved; (d) max_steps exhaustion (case15 legitimately
+           uses it and PASSES on OFF -- needs careful design); (e) case29's (excluded) likely-
+           explained blocker -- not pursued, recorded for the record.
+           Grounded in YADV_RESEARCH.md sect.31, docs/YADV_ROUND_21_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -391,6 +401,27 @@ not start a new round.
   executable line changed, rest comment-only. All hard gates held (OFF 19/19, byte-identical to
   `solver_denner` published binary).
   → `YADV_RESEARCH.md` §30, `docs/YADV_ROUND_20_PLAN.md`, commit `78a1b12`.
+- Round 21: designed and implemented a `(rho,e,Y)`-conserving closed-form `(p,T,alpha)`
+  reconciliation (`ACID_YADV_RECON`, default OFF) targeting the alpha-remap lag (`dal_remap`)
+  round 13 diagnosed. **Refutes round 13 §23.3's STATED mechanism** (direct code reading:
+  `compute_R` already reconciles `T,rho` with `h` before `r_init` is ever measured, at
+  `acid.cpp:1576` vs `:2022` -- Stage 0 Branch A, HREINIT flattens `r_init`'s `1/dt` growth yet the
+  stall persists) while CONFIRMING its empirical finding. Delivers a reusable, unit-tested
+  closed-form NASG p-T-equilibrium solver (`eos.hpp:pT_from_v_e_massfrac`, worst rel error
+  `4.7e-11` vs an independent Newton) regardless of the fix's own fate -- prior art: Collis et al.
+  2025 §2.3 (independent derivation, not transcribed). **Case24 gets real, mechanistically-clean
+  20x progress** under plain `B+RECON` (stall step 19->399, failure re-types from vague
+  retry-exhaustion to the correctly-diagnosed `T-ceiling-saturated`) -- but **cases 13/14 REGRESS
+  from PASS to FAIL** (u-field quality collapse, `l2_u`/`corr_u` cross the gate). **Verdict: S5
+  (harm)**, per the plan's own pre-registered stop rule (`B+RECON < 15/19`, specifically 13/19).
+  Flag stays OFF, not promoted, committed as gated-off research infrastructure (round 4/8
+  precedent -- a measured-regression mechanism is preserved, not deleted). A sub-prediction was
+  falsified honestly (cases 26/27/28 are NOT bit-exact pure in practice -- `alpha~0.999886`, not
+  `1.0` -- so the exact-skip rule doesn't exempt them; no pass/fail regression resulted there).
+  `consecutive_failures` NOT incremented (mechanistically-explained negative result, round 4/8/13
+  precedent). All hard gates held (OFF 19/19, flag-unset paths byte-identical, `ALL GATES OK`
+  unchanged from round 20).
+  → `YADV_RESEARCH.md` §31, `docs/YADV_ROUND_21_PLAN.md`, commit TBD.
 
 ## Setup reference
 

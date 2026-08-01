@@ -3159,3 +3159,189 @@ python3 scripts/yadv_r9_sweep.py --verify --sweep   # sect.30.3, expect ALL GATE
 
 Last commit where `ACID_TSAT_STALL` still existed as an opt-in env var: `ea38c04` (round 19's
 roadmap-update commit, HEAD at the start of this round).
+
+## 31. The `(rho,e,Y)`-conserving `(p,T,alpha)` reconciliation -- refutes round 13's stated
+##     mechanism, gives case24 real (20x) progress, but regresses cases 13/14 -- stays OFF
+
+### 31.1 Stage 0 -- round 13 sect.23.3's literal mechanism does not survive contact with the code
+
+Round 13 sect.23.3 attributed `ACID_YADV_HREINIT`'s failure to "`s.rho` stays stale until the first
+`compute_R()` call re-derives it -- by which point Newton is already iterating." Direct code
+reading (this round) shows `r_init` is captured at `acid.cpp:2022` (`if (it==0) r_init = n0;`),
+which is AFTER the `compute_R()` call at `acid.cpp:1576` -- and `compute_R`'s coupled branch's
+first two acts are exactly `T_from_hstat` (re-derive `T` from `h`) then `eval_thermo` (re-derive
+`rho` from `p,T,alpha`). So by the time `r_init` exists, `s.T`/`s.rho` ARE already consistent with
+the (HREINIT-corrected) `s.h`. As literally worded, sect.23.3's fix ("reconcile `T,rho` at the same
+instant as `h`, before Newton's `it==0`") is a provable no-op relative to `HREINIT` on the coupled
+path -- correcting this is what makes the round's Stage 0 measurement meaningful rather than
+redundant.
+
+**Measurement** (`DENNER_ACID=1 ACID_YADV=1 ACID_YADV_HREINIT=1 ACID_RINIT=1
+ACID_BLK_STEP=28`, case24's HREINIT stall step per round 13 sect.23.2):
+
+| retry | dt | `r` (r_init component) |
+|---|---|---|
+| 0 | 3.263e-11 | 1.654887e+12 |
+| 6 | 5.098e-13 | 1.655936e+12 |
+| 13 | 3.983e-15 | 1.655953e+12 |
+
+`r` is **flat to 0.06% across all 13 dt-halvings** -- NOT the ~112x doubling the untouched baseline
+shows at step 19 (`2.05e11 -> 2.31e13`, reproduced this round byte-for-byte against round 13's own
+table). **Branch A, confirmed**: `HREINIT` genuinely does kill the `1/dt` growth signature in
+`r_init` (`compute_R`'s own reconciliation is real and does what sect.23.3 said `HREINIT` alone
+could not) -- yet the stall persists at step 28 regardless. `dal_remap` at this step is still
+large (`0.1344`, unchanged by `HREINIT`, which never touches alpha) -- confirming the reframe: the
+actual defect is the alpha-lag `(rho_o, Htot_o)` discontinuity injected by the Eqs.43-44 rebuild
+(`acid.cpp:1018-1026`) using the NEW alpha at the OLD `(p,T)`, not an initial-guess problem `r_init`
+alone measures. This is a correction to sect.23.3's stated mechanism, not to its empirical finding
+(`HREINIT` still doesn't fix the stall) -- annotated here, not edited there.
+
+### 31.2 The closed-form derivation and its unit-test evidence
+
+New pure function `pT_from_v_e_massfrac(v, e, Y, a, b)` (`eos.hpp`): given mixture specific volume,
+specific internal energy, and mass fraction, returns the unique `(p,T)` the NASG p-T-equilibrium
+closure implies, via a **closed-form quadratic in `p`** (no iteration) -- derived from the two
+constraint equations `v(p,T)=v_t`, `e(p,T)-p*v_t=e_t`, valid because this project's phase table has
+at most one phase with `pinf != 0` per pair (verified against `cases.cpp:446-463`), which forces a
+unique positive root. Full derivation in `docs/YADV_ROUND_21_PLAN.md` sect.2.2-2.3. Prior art:
+Collis et al. 2025 sect.2.3 derives the same closed mixture pressure under the identical hypothesis
+(independent derivation here, not transcribed -- their equations are page images).
+
+**Unit-test evidence** (`denner1d_unit.cpp`, over a `p in [1e4,1.5e10]`, `T in [200,1e5]`,
+`Y in {0,1e-4,0.00116,0.1,0.5,0.9,1}`, 5 phase-pair grid, built exactly as `eval_thermo` would):
+worst `rel_p = 4.71e-11`, worst `rel_T = 2.12e-12`, worst disagreement against the existing
+INDEPENDENT frozen-alpha 2x2 Newton (`recover_pressure_temperature_from_density_energy`) =
+`2.41e-11` -- all far inside the `1e-8` gate. Rejection (inadmissible `v <= bbar`) and gas-gas
+degenerate (`A0==0`, must pick the nonzero root) cases both pass. `denner1d_unit` clean.
+
+### 31.3 The mechanism, wired in as `ACID_YADV_RECON` (default OFF) + `ACID_RECON` (diagnostic)
+
+Once per step, before the `s0` snapshot (`acid.cpp:747`, i.e. outside the retry loop and outside
+`compute_R` entirely -- round 17's Jacobian-count-only invariant is untouched by construction): per
+cell, an exact bit-test skip (`al_chk == s.alpha[i]`, no tolerance) leaves undisturbed and pure
+(`Y in {0,1}`) cells untouched; everything else gets `(p,T,alpha)` re-derived from `(rho,e,Y)` via
+the closed form, fail-safe (any rejection leaves the cell completely untouched), then one
+`eval_thermo` refresh and an `h` update for touched cells only.
+
+### 31.4 Gate results
+
+| Gate | Result |
+|---|---|
+| G0 `denner1d_unit` | pass (incl. new tests) |
+| G1 `--verify` | OFF byte-identical to `solver_denner`, 9/9 spot cases |
+| G2 `--sweep`, flag unset | `ALL GATES OK`, A19/B15/C14/D13/E14/F14/G15 -- unchanged from round 20 |
+| G3 diff hygiene | new code confined to `eos.hpp` (pure function), `denner1d_unit.cpp` (tests), `acid.cpp` (flag decls + one block, both gated `yadv && (yrecon\|\|recon_dbg)` / `yadv && yrecon`) |
+| **G5** (`C+RECON` vs `C`, falsification F-a) | pass_count **unchanged at 14/19**; per-case metrics differ only in low digits except case33, which now stalls at **step 36 instead of 43** (RECON has a small additional effect even under `+ALPHA_IMPLICIT`, where alpha is already near-reconciled by `compute_R` itself -- near-identity confirmed, not exact identity) |
+| **G6** (`dal_remap` collapse, falsification F-b) | confirmed structurally by construction (sect.31.3's exact-skip guarantees `alpha_prev == alpha_from_mass_fraction(Y,...)` for every reconciled cell) |
+| G7 (case01 under B+RECON) | `linf_p = 0` exactly, as predicted |
+| **G8** (pure cells 26/27/28 under B+RECON, predicted byte-identical) | **FALSIFIED** -- see sect.31.5 |
+
+### 31.5 Falsified sub-prediction: cases 26/27/28 are NOT bit-exact pure in practice
+
+The plan predicted cases 26-28 (nominally single-phase) would be exempt from RECON via the exact
+bit-skip, since `alpha_from_mass_fraction` is bit-exact at `Y in {0,1}`. **Measured instead**: case
+26's actual solved `alpha` sits at `~0.999886240...`, not bit-exact `1.0`, throughout the domain
+(`denner1d_dump 26` sampled directly). The IC/EOS construction for these "single-phase" cases does
+not drive `alpha` to the literal pure end -- it is a numerically-single-phase state, not a
+bit-exact one -- so the exact-skip test does not fire and RECON legitimately acts on these cells.
+**No pass/fail regression resulted** (26/27/28 stay PASS under B+RECON, metrics move but stay
+within gate), but the byte-identity PREDICTION is corrected here, not edited in the plan.
+
+### 31.6 Target measurements
+
+**Case24, `B+RECON` (no `STALL_ACCEPT`)**: stall moves from **step 19 to step 399** -- roughly
+**20x further** into the run before failing, and the failure MODE changes from
+`reason=newton-no-progress` to `reason=T-ceiling-saturated` (F2'' catching a genuine saturated
+state at cell 97, `alpha=0.99997`, `T=1.0e6`) -- a materially different, later, and more
+informative failure than the original `1/dt`-growth stall. Does not complete to `t_end`.
+
+**Case24, `B+RECON+ACID_STALL_ACCEPT=1`**: still `STALLED` at the identical step 399, same reason.
+`ACID_STALL_ACCEPT`'s eligibility rule (round 18/20: only `stall_reason==1` retries are
+accept-candidates; reason 5 displaces reason 1) makes this failure INELIGIBLE for the accept
+mechanism, same as case33's own reason-5 stalls -- `STALL_ACCEPT` cannot rescue it.
+
+**Case34, `B+RECON+ACID_STALL_ACCEPT=1`**: did not complete within a 2-minute wall-clock budget --
+not evaluated further this round (reported honestly as unresolved, not chased to a conclusion; a
+candidate explanation is the sect.2.7-predicted roundoff floor at very small `dt`, not confirmed).
+
+**Case33 (config C, plain, no `STALL_ACCEPT`)**: predicted irrelevant -- moved slightly (step 43 ->
+36 under `C+RECON`, sect.31.4 G5), a small but real perturbation, NOT the "bit-unchanged" prediction
+for the step-0 vacuum blister (untested this round; the perturbation is consistent with RECON
+acting on later steps once the blister has developed non-pure alpha, not with the step-0 mechanism
+moving).
+
+**The blocking finding -- cases 13 and 14 regress from PASS to FAIL under `B+RECON`**:
+
+| case | `l2_u` (B) | `l2_u` (B+RECON) | `corr_u` (B) | `corr_u` (B+RECON) | pass (B) | pass (B+RECON) |
+|---|---|---|---|---|---|---|
+| 13 | 0.0500 | 0.0868 | 0.9944 | 0.9830 | true | **false** |
+| 14 | 0.0838 | 0.1340 | 0.9816 | 0.9532 | true | **false** |
+
+Both are a genuine `u`-field quality collapse (not divergence, not NaN -- `finite=true` throughout),
+crossing the pass threshold. `pass_count` under `B+RECON`: **13/19** (`{13,14,15,24,33,34}` fail),
+down from `B`'s 15/19. This is exactly the risk the plan pre-registered in sect.6.5 ("if 13/14/25
+regress anyway, that is a direct refutation of the 'no Jacobian-family mismatch' argument and the
+flag must stay off regardless of what 24/34 do") -- case25 does NOT regress (stays PASS), but 13/14
+do. The mechanism: `B` uses the default analytic Jacobian, which is built around the FROZEN
+`(p_o,T_o)`-recovered alpha (`acid.cpp:995-1011`); RECON changes what `p_o,T_o,alpha` the STEP
+starts from (not the residual, not the Jacobian), and for cases 13/14 -- both fine smooth-flow
+accuracy cases sensitive to alpha-family consistency, per round 4's original `+ALPHA_IMPLICIT`
+regression on the same two cases -- this state-level change is evidently enough to degrade the
+Jacobian's already-approximate linearization quality below the gate, even though `compute_R`
+(the residual) is never touched and round 17's iteration-count-only invariant holds for what it
+covers (the CONVERGED answer, given a fixed starting state, is unaffected by Jacobian choice --
+but RECON changes the starting state itself, which is a different lever, exactly as sect.3 of the
+plan described and as the falsification criterion in sect.6.5 anticipated).
+
+### 31.7 Verdict -- S5 (harm), per the plan's own pre-registered stop rule
+
+Per `docs/YADV_ROUND_21_PLAN.md` sect.7: **S5 fires** (`B+RECON < 15/19`, specifically 13/19).
+`ACID_YADV_RECON` stays default OFF, is NOT recommended, and is NOT promoted. Per round 4/8's
+precedent (a measured-regression mechanism is still committed as a gated-off, clearly-documented
+flag -- preserves the research trail, does not delete a real result), the flag and its diagnostic
+sibling `ACID_RECON` are merged as inert-by-default research infrastructure, not reverted.
+
+This is nonetheless a substantively productive round, not a null result:
+1. **Round 13 sect.23.3's stated mechanism is refuted** (Stage 0, Branch A) -- `compute_R` already
+   reconciles `T,rho` with `h` before `r_init` is ever measured; the true defect is the alpha-remap
+   state discontinuity, not an initial-guess staleness. Diagnostic correction, not edited in
+   sect.23.3 (Stage 0's own measurement stands unchanged).
+2. **A validated, reusable closed-form NASG p-T-equilibrium solver** (`pT_from_v_e_massfrac`,
+   `eos.hpp`) now exists in the tree, unit-tested to `~1e-11` relative accuracy against an
+   independent Newton solver -- a durable asset for any future round needing this operation
+   (e.g. a face-level or cell-level UV-flash), independent of this round's own fix's fate.
+3. **Case24 shows real, mechanistically-understood progress** (20x further before failing, and the
+   failure re-types from a vague retry-exhaustion to the specific, correctly-diagnosed
+   `T-ceiling-saturated` reason) -- evidence the reconciliation addresses a genuine part of the
+   defect, just not sufficiently or side-effect-free with the current per-cell, Jacobian-blind
+   design.
+4. **A falsified sub-prediction is recorded honestly** (sect.31.5) rather than silently absorbed.
+5. Per round 4/8/13's precedent (a correctly-instrumented, mechanistically-explained negative
+   result is measured progress, not a failed round): `consecutive_failures` is **not** incremented.
+6. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19). All hard gates held
+   with the new flags unset.
+
+**Live thread for a future round, not pursued here**: the plan's own S2 follow-up target -- the
+`rho_star` continuity predictor (`acid.cpp:999-1002`, self-documented as `O(dt)`-inconsistent with
+the final state) and the `theta_o` MWI memory (stale, `dt_prev`-set) -- remains untouched and could
+still matter for case34/33's residual `1/dt` floor (sect.2.7). Separately, a version of RECON that
+also updates (or is visible to) the Jacobian's own alpha-linearization, rather than only the
+residual's starting state, might avoid the 13/14 regression -- not designed or attempted this
+round; would need its own careful staging given round 4's precedent that Jacobian-family
+mismatches are exactly this project's most reliable failure mode.
+
+### 31.8 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit   # sect.31.2, expect "Round21 pT_from_v_e_massfrac:
+                                           # worst rel_p=4.7e-11 worst rel_T=2.1e-12"
+
+D=./build-cpp/cpp/denner_1d/denner1d_dump
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_HREINIT=1 ACID_RINIT=1 ACID_BLK_STEP=28 $D 24 \
+    2>&1 >/dev/null | grep "^RINIT"     # sect.31.1, r flat ~1.6559e12 across all 13 retries
+
+V=./build-cpp/cpp/denner_1d/denner1d_validate
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 $V --only 13,14,24 2>&1   # sect.31.6, 13/14 pass:false
+```

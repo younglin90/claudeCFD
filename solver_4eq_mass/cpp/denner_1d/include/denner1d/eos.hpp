@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+
 #include "denner1d/types.hpp"
 
 namespace denner1d {
@@ -59,6 +61,77 @@ inline double alpha_from_mass_fraction(double Y, double rho_a, double rho_b) {
     const double num = Y * rho_b;
     const double den = rho_a * (1.0 - Y) + num;
     return den > 0.0 ? num / den : Y;
+}
+
+// ---- closed-form NASG p-T-equilibrium inversion, given (v, e, Y) -- round 21 -----------------
+// Given mixture specific volume v, specific internal energy e, and mass fraction Y of phase a,
+// return the unique (p,T) the four-equation p-T-equilibrium closure implies -- i.e. the
+// composition-frozen "UV flash" this solver needs once per step to remove the alpha-remap lag
+// (docs/YADV_ROUND_21_PLAN.md sect.2). Per-phase NASG (eos.cpp): v_k = (g_k-1)*cv_k*T/(p+pinf_k)
+// + b_k, h_k = g_k*cv_k*T + b_k*p + eta_k. Mixture at p-T equilibrium (mass fraction Y of a):
+//     bbar = Y*b_a+(1-Y)*b_b        qbar = Y*eta_a+(1-Y)*eta_b
+//     cpbar = Y*g_a*cv_a+(1-Y)*g_b*cv_b     cvbar = Y*cv_a+(1-Y)*cv_b   (cpbar-cvbar = Ka+Kb)
+//     Ka = Y*(g_a-1)*cv_a           Kb = (1-Y)*(g_b-1)*cv_b
+//     v(p,T) = bbar + T*S(p),  S(p) = Ka/(p+pinf_a) + Kb/(p+pinf_b)
+//     h(p,T) = cpbar*T + bbar*p + qbar,   e = h - p*v
+// Solving v(p,T)=v (i.e. T=(v-bbar)/S(p)) simultaneously with e(p,T)-p*v = e (i.e.
+// T=(E0+p*W)/cpbar, W=v-bbar, E0=e-qbar) and clearing denominators gives a quadratic in p:
+//     A2*p^2 + A1*p + A0 = 0
+//     A2 = W*cvbar
+//     A1 = cpbar*W*(pinf_a+pinf_b) - W*(Ka*pinf_b+Kb*pinf_a) - E0*(Ka+Kb)
+//     A0 = cpbar*W*pinf_a*pinf_b   - E0*(Ka*pinf_b+Kb*pinf_a)
+// Root selection: every phase pair this project uses has at most one phase with pinf!=0
+// (verified against cases.cpp, docs/YADV_ROUND_21_PLAN.md sect.1), so pinf_a*pinf_b==0 =>
+// A0<=0 always (E0>0 for admissible input) => either the two roots have opposite sign (take the
+// positive one) or one root is exactly 0 (take the other, requiring it positive). This is NOT a
+// general multi-stiffened-phase solver -- if a future case pairs two phases with pinf!=0 this
+// root-selection argument needs revisiting (flagged, not built, since no such pair exists today).
+// Prior art: Collis et al. 2025 sect.2.3 derives the same closed mixture pressure under the same
+// at-most-one-stiffened-phase hypothesis (papers/library/md/newest5/2025_Collis_..._four_equation
+// _thermodynamic_ENO.md); this derivation is independent, not transcribed from theirs (their
+// equations are page images, not text). ok=false on ANY of: W<=0 (v below the covolume blend,
+// unphysical), non-finite disc, no admissible positive root, p*<1, T* outside (1e-6,1e6) (the
+// same ceiling T_from_hstat enforces -- this function can never itself trip the F2'' reason-5
+// scan, acid.cpp:2328), or any non-finite output. Pure function: no state, no env reads.
+struct MixPT { double p = 0.0; double T = 0.0; bool ok = false; };
+inline MixPT pT_from_v_e_massfrac(double v, double e, double Y, const Phase& a, const Phase& b) {
+    MixPT o;
+    const double bbar = Y * a.b + (1.0 - Y) * b.b;
+    const double qbar = Y * a.eta + (1.0 - Y) * b.eta;
+    const double cpbar = Y * a.gamma * a.kv + (1.0 - Y) * b.gamma * b.kv;
+    const double cvbar = Y * a.kv + (1.0 - Y) * b.kv;
+    const double Ka = Y * (a.gamma - 1.0) * a.kv;
+    const double Kb = (1.0 - Y) * (b.gamma - 1.0) * b.kv;
+    const double W = v - bbar;
+    const double E0 = e - qbar;
+    if (!(W > 0.0)) return o;
+    const double A2 = W * cvbar;
+    const double A1 = cpbar * W * (a.pinf + b.pinf) - W * (Ka * b.pinf + Kb * a.pinf)
+                     - E0 * (Ka + Kb);
+    const double A0 = cpbar * W * a.pinf * b.pinf - E0 * (Ka * b.pinf + Kb * a.pinf);
+    if (!(A2 > 0.0)) return o;
+    const double disc = A1 * A1 - 4.0 * A2 * A0;
+    if (!(disc >= 0.0) || !std::isfinite(disc)) return o;
+    const double sq = std::sqrt(disc);
+    const double qq = -0.5 * (A1 + std::copysign(sq, A1));
+    double p_cand = -1.0;
+    if (qq != 0.0) {
+        const double r1 = qq / A2;
+        const double r2 = A0 / qq;
+        // A0<=0 in this project (verified, see comment above): at most one positive root exists
+        // unless A0==0, in which case one root is exactly 0 -- pick the strictly positive one.
+        if (r1 > 0.0 && std::isfinite(r1)) p_cand = r1;
+        else if (r2 > 0.0 && std::isfinite(r2)) p_cand = r2;
+    } else if (A0 == 0.0) {
+        // qq==0 with A0==0: both roots are 0 -- no positive root, reject below.
+    }
+    if (!(p_cand >= 1.0) || !std::isfinite(p_cand)) return o;
+    const double T_cand = (E0 + W * p_cand) / cpbar;
+    if (!std::isfinite(T_cand) || !(T_cand > 1.0e-6) || !(T_cand < 1.0e6)) return o;
+    o.p = p_cand;
+    o.T = T_cand;
+    o.ok = true;
+    return o;
 }
 
 // ---- derivatives of alpha(Y, rho_a(p,T), rho_b(p,T)) at FIXED mass fraction Y ---------------

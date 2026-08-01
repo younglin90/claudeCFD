@@ -639,6 +639,39 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // identically. This changes ONLY the initial guess -- compute_R is the single source of truth
     // and the fixed point R=0 is unchanged by it, so no conservation/RH property can move.
     const bool hreinit = std::getenv("ACID_YADV_HREINIT") != nullptr;
+    // ACID_RECON (round 21, DIAGNOSTIC ONLY, default OFF, stderr only, applies nothing): measures
+    // the per-step per-cell lag between the stored alpha and the alpha implied by (Y, p, T) --
+    // i.e. how large a jump ACID_YADV_RECON would apply, without applying it. Reuses
+    // ACID_BLK_STEP for step selection (existing var, shared with ACID_RHIST/ACID_RINIT/
+    // ACID_RCELL). docs/YADV_ROUND_21_PLAN.md sect.5 Stage 1.
+    const bool recon_dbg = std::getenv("ACID_RECON") != nullptr;
+    // ACID_YADV_RECON (round 21, Phase 3a, RESEARCH-ONLY, default OFF; inert unless ACID_YADV is
+    // also active): once per step, before the retry loop, re-derive (p,T,alpha) per cell from the
+    // cell's own CONSERVED state (rho, e=hstat-p/rho, Y) via the closed-form NASG p-T-equilibrium
+    // inversion (eos.hpp:pT_from_v_e_massfrac) -- holding mass, momentum, and total energy
+    // EXACTLY fixed. This removes the alpha-remap lag (dal_remap, round 13 sect.23.1) at its
+    // source: after reconciliation, alpha_prev IS alpha_from_mass_fraction(Y,...) by construction,
+    // so the Eqs.43-44 rebuild's rho_o/Htot_o below differ from the true old level only by this
+    // step's own O(dt) Y-advection, not by an O(1) remap artifact -- docs/YADV_ROUND_21_PLAN.md
+    // sect.2.6 derives why this makes r_init dt-independent again.
+    // Exact-skip (bit test, no tolerance, sect.2.4): a cell whose stored alpha already IS
+    // alpha_from_mass_fraction(Y, rho_a(p,T), rho_b(p,T)) is left untouched -- bit-exact for
+    // every pure cell (Y in {0,1}, verified: eos.hpp's alpha_from_mass_fraction is bit-exact at
+    // both ends) and every undisturbed cell, so this is automatically local to the region where
+    // the lag actually exists and free elsewhere (case01, single-phase cases: zero cells touched).
+    // Fail-safe: any cell pT_from_v_e_massfrac rejects (inadmissible input, non-finite, or the
+    // recovered T would sit outside T_from_hstat's own (1e-6,1e6) range) is left COMPLETELY
+    // untouched -- no fallback, no clamp-and-continue.
+    // Does NOT touch compute_R: runs once per step, BEFORE the s0 snapshot below, so every
+    // retry's `s = s0` restores the reconciled state identically, and it is a pure function of
+    // the current (s.p,s.T,s.alpha,s.rho,s.hstat,s.u,Yv,A,B) -- no call history. Round 17's
+    // invariant (an approximate/frozen Jacobian changes only iteration count, never the converged
+    // answer) is unaffected by construction; this changes the state the step STARTS from, exactly
+    // like dt selection does, not the residual or the Jacobian.
+    // Must NOT be combined with ACID_YADV_HREINIT: HREINIT would overwrite s.h with the
+    // (pre-reconciliation-consistent) Htot_o after this already ran -- redundant at best,
+    // confounding at worst. docs/YADV_ROUND_21_PLAN.md sect.2-3.
+    const bool yrecon = std::getenv("ACID_YADV_RECON") != nullptr;
     // ACID_TEND_SCALE (round 11, Phase 3a Stage 2, DIAGNOSTIC ONLY, default 1.0 = byte-identical
     // when unset): multiplies THIS SOLVER's stop time only. It is an OBSERVATION WINDOW, not a
     // physical or tuning parameter -- the standard shock-tube verification convention is to sample
@@ -740,6 +773,63 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         double dt = (cfl_ramp ? cfl_scale : 1.0) * dt_full;  // ramp-scaled actual dt
         dt = std::min(dt, t_end - t);
         if (!(dt > 0.0)) break;
+
+        // ---- Round 21 (ACID_YADV_RECON / ACID_RECON): once-per-step conserved-state
+        //      reconciliation. See the flag declarations above for the full rationale;
+        //      docs/YADV_ROUND_21_PLAN.md sect.2 for the derivation. Runs BEFORE the s0 snapshot
+        //      below, so the whole retry sweep sees (and restores, via s=s0) the reconciled
+        //      state identically -- compute_R itself is never touched. ----
+        if (yadv && (yrecon || recon_dbg)) {
+            int ncell = 0, nskip = 0, nrej = 0, ntouch = 0;
+            double worst_dp = 0.0, worst_dp_rel = 0.0; int worst_dp_i = -1;
+            double worst_dT = 0.0, worst_dT_rel = 0.0; int worst_dT_i = -1;
+            double worst_dal = 0.0; int worst_dal_i = -1;
+            std::vector<char> touched(n, 0);
+            for (int i = 0; i < n; ++i) {
+                ++ncell;
+                const double pu = std::max(s.p[i], 1.0), Tu = std::max(s.T[i], 1e-6);
+                const auto pa = phase_props(pu, Tu, A);
+                const auto pb = phase_props(pu, Tu, B);
+                const double al_chk = std::clamp(
+                    alpha_from_mass_fraction(Yv[i], pa.rho, pb.rho), 0.0, 1.0);
+                if (al_chk == s.alpha[i]) { ++nskip; continue; }  // exact skip, sect.2.4
+                const double v_t = 1.0 / s.rho[i];
+                const double e_t = s.hstat[i] - s.p[i] * v_t;
+                const auto r = pT_from_v_e_massfrac(v_t, e_t, Yv[i], A, B);
+                if (!r.ok) { ++nrej; continue; }  // fail-safe: cell left completely untouched
+                const double dp = r.p - s.p[i], dT = r.T - s.T[i], dal = al_chk - s.alpha[i];
+                if (std::abs(dp) > worst_dp) { worst_dp = std::abs(dp); worst_dp_rel = dp / s.p[i]; worst_dp_i = i; }
+                if (std::abs(dT) > worst_dT) { worst_dT = std::abs(dT); worst_dT_rel = dT / s.T[i]; worst_dT_i = i; }
+                if (std::abs(dal) > worst_dal) { worst_dal = std::abs(dal); worst_dal_i = i; }
+                if (yrecon) {
+                    s.p[i] = r.p;
+                    s.T[i] = r.T;
+                    const auto ra2 = phase_props(std::max(r.p, 1.0), std::max(r.T, 1e-6), A);
+                    const auto rb2 = phase_props(std::max(r.p, 1.0), std::max(r.T, 1e-6), B);
+                    s.alpha[i] = std::clamp(
+                        alpha_from_mass_fraction(Yv[i], ra2.rho, rb2.rho), 0.0, 1.0);
+                    touched[i] = 1;
+                    ++ntouch;
+                }
+            }
+            if (ntouch > 0) {
+                eval_thermo(s, A, B);  // refresh rho/hstat/cp/a/drhodp; unchanged inputs on
+                                        // skipped cells -> bit-identical there.
+                for (int i = 0; i < n; ++i)
+                    if (touched[i]) s.h[i] = s.hstat[i] + 0.5 * s.u[i] * s.u[i];
+            }
+            if (recon_dbg) {
+                const char* se = std::getenv("ACID_BLK_STEP");
+                const int rstep = se ? std::atoi(se) : -1;
+                if (rstep < 0 || rstep == step)
+                    std::fprintf(stderr,
+                        "RECON case=%s step=%d ncell=%d nskip=%d nrej=%d ntouch=%d "
+                        "dp=%.4e(rel %.4e)@%d dT=%.4e(rel %.4e)@%d dal=%.4e@%d\n",
+                        c.id.c_str(), step, ncell, nskip, nrej, ntouch,
+                        worst_dp, worst_dp_rel, worst_dp_i, worst_dT, worst_dT_rel, worst_dT_i,
+                        worst_dal, worst_dal_i);
+            }
+        }
 
         // ---- adaptive dt with retry: if the implicit step diverges (non-finite, or a cell
         //      blows past 10*uref), restore the state, halve dt, and redo. Lets the violent

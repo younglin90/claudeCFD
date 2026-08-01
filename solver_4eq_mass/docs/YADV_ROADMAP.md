@@ -45,17 +45,22 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 11
+round_counter: 12
 consecutive_failures: 0
 done: false
-next_task: docs/YADV_PHASE3_PLAN.md Stage 3 branch selection (3a retry-exhaustion accept-best,
-           3b Y->alpha recovery/limiting fix, or 3c an explicit Advisor decision to set
-           diverged=true at the stall site) -- gated on round 11's sect.21 evidence: the
-           exited-shock residual for cases 24/34 is now measured at ~7%/2% (not the ~40-50%
-           round 10 first reported, itself corrected this round), and no case in {24,33,34}
-           has ever had plain and +ALPHA_IMPLICIT complete simultaneously, so Stage 3's real
-           target is enabling that controlled A/B, not chasing the residual magnitude further.
-           Grounded in YADV_RESEARCH.md sect.21, docs/YADV_PHASE3_PLAN.md sect.2 Stage 3.
+next_task: Two open threads, either is a valid next round: (a) the real fix for the shock-
+           formation Newton difficulty (docs/YADV_PHASE3_PLAN.md sect.7a pre-registered
+           follow-up -- localise which rnorm3 component carries the measured r_init~1/dt
+           scaling via ACID_RHIST's per-component breakdown at it==0; prior guess is energy,
+           from rho_o/Htot_o being re-evaluated at the new alpha while s.h stays the previous
+           step's converged value), which would give cases 24/34 a genuinely CLEAN completion
+           and remove round 12's sect.22.5 caveat from the first controlled A/B; or (b) case33's
+           still-unsolved, qualitatively different sustained difficulty (221 accepted steps at
+           budget 20, still only 14.8% of t_end -- needs its own diagnosis, not just a bigger
+           budget). Advisor should also consider whether to authorise Stage 3c (diverged=true
+           at the stall site, docs/YADV_ROUND_12_PLAN.md sect.5) now that 3a's accept path
+           exists and needs the give-up path to match its own honesty standard.
+           Grounded in YADV_RESEARCH.md sect.22, docs/YADV_ROUND_12_PLAN.md sect.7.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -221,6 +226,24 @@ not start a new round.
   load-bearing finding stands). `ACID_YADV` status unchanged (default OFF, 15/19). Zero effect
   on numerics with either new env var unset; all hard gates held throughout both stages.
   → `YADV_RESEARCH.md` §21, `docs/YADV_ROUND_11_PLAN.md`, commits `272ce08`, `587c3f8`, `be83576`.
+- Round 12: Phase 3a Stage 3, branch 3a (retry-exhaustion accept-best). **3b REFUTED** by direct
+  evidence -- all three stalling configs show `cell=-1`, `max|u|` numerically frozen across the
+  full retry sweep, no void cell ever. Decisive mechanism finding, independently reproduced: the
+  pre-Newton residual `r_init` grows exactly as `1/dt` at the stall (falsifies the existing `bad`
+  gate's own "dt too large" design comment). New `ACID_STALL_ACCEPT` (default 0, byte-identical):
+  level 1 gets **case24 and case34 (plain) to complete for the first time ever**, zero
+  `pass_count` regression -- far exceeding the round's own calibrated expectation (every accepted
+  step is a tight cluster right at shock formation, <0.5% into each run; both then run clean to
+  `t_end`). **Produces the first-ever controlled A/B for cases 24/34**: plain+accept shows
+  momentum residual +98.0%/+45.6% vs `+ALPHA_IMPLICIT`'s clean +7.35%/+2.06% -- favors
+  `+ALPHA_IMPLICIT` sharply, but reported with an explicit caveat (the plain runs are not clean
+  solves; the large residual may partly reflect the accept mechanism's own defect at formation,
+  not intrinsic physics -- not yet a clean result). Level 2 (CFL-neutrality) is a measured net
+  regression (plain-ON 15/19→14/19, case28 newly fails) and is NOT adopted; level 1 is the
+  recommendation. Case33 remains unsolved -- a qualitatively different, sustained difficulty (221
+  accepted steps at a 5x larger budget, still only 14.8% of `t_end`), not a one-time glitch like
+  24/34. `ACID_YADV` status unchanged (default OFF, 15/19 with the new var unset); all hard gates
+  held. → `YADV_RESEARCH.md` §22, `docs/YADV_ROUND_12_PLAN.md`, commits `a21ed4a`, `5017362`.
 
 ## Setup reference
 

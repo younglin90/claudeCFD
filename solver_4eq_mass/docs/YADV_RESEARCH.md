@@ -1827,3 +1827,153 @@ python3 scripts/yadv_rh2.py                          # sect.20.3's null-run-guar
 DENNER_ACID=1 ACID_YADV=1 ACID_DBG=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
     2>&1 >/dev/null | grep "ACID step" | tail -5      # sect.20.1's direct stall trace
 ```
+
+---
+---
+
+# ROUND 11 (Phase 3a Stages 1+2)
+
+## 21. The silent stall is now audible; the "exited shock" residual for cases 24/34 was itself
+##     measured wrong in round 10 -- corrected, and it now matches the round-10 Planner's static
+##     prediction almost exactly
+
+### 21.1 Stage 1 -- STALLED is now printed, verified stderr-only
+
+At `acid.cpp`'s retry-exhaustion break (the round-10 root cause, sect.20.1), the retry loop's last
+failure reason (Newton-no-progress / non-finite p / non-finite u / `|u|>10*uref`), offending cell,
+and attempted dt are now carried out of the loop and printed unconditionally to stderr:
+`STALLED: case=<id> no admissible step at dt=... after N retries, step S, t=... of ... -> stop
+(state returned as-is, NOT marked diverged)`, plus an `ACID_DBG`-gated `STALLED-DETAIL` line.
+Deliberately does **not** set `diverged=true` (Stage 3c, requires an explicit Advisor decision,
+not done this round). A companion unconditional-under-`ACID_DBG` `ACID done case=... step=...
+t=... of ...` line was also added, needed by Stage 2's script.
+
+**Verified stderr-only** by an isolated build of unmodified main HEAD (`git worktree add --detach`,
+commit `533fa9f`) and a byte-for-byte comparison against the round-11 build: all 19 OFF-path dumps
+identical, and `denner1d_validate` stdout identical for OFF (19/19), plain-ON (15/19), and
+`+ALPHA_IMPLICIT` (14/19). `STALLED` fires on exactly the three known-stalled configurations
+(case24 plain, case34 plain, case33 `+ALPHA_IMPLICIT`) and nowhere else, including the OFF path.
+
+**Side finding, not caused by this round's edit**: the FD-invariance gate (`ACID_NO_AJAC=1`)
+measured **13/19** with failure set `{15,24,27,28,33,34}` on both the round-11 build and the
+unmodified main-HEAD baseline -- identical on both, so this is not a regression. It does, however,
+correct a **stale figure carried in this project's own memory/plan documents**: prior rounds'
+records (and this round's own Planner brief) cited `12/19`, failure set `{14,15,24,27,28,33,34}`.
+Case14 now passes the FD-invariance gate; the 12/19 figure was never re-verified after whatever
+round last measured it and had silently gone stale. Filed here as the correction; not chased
+further (out of scope for Phase 3a).
+
+### 21.2 Stage 2 -- `ACID_TEND_SCALE`, verified as a true no-op when unset
+
+New env var, gates exactly like `ACID_YADV`/`ACID_DBG`. With it unset, all five hard gates are
+byte-identical to Stage 1's own numbers (OFF 19/19, plain-ON 15/19, `+ALPHA_IMPLICIT` 14/19,
+FD-invariance 13/19, `denner1d_unit` ok) and zero `TEND_SCALE:` banners print. New script
+`scripts/yadv_r11_window.py` (round 10's `yadv_rh2.py` kept untouched) drives the sweep, reading
+the solver's own `ACID done`/`STALLED` lines instead of a hardcoded time dict.
+
+### 21.3 The exited-shock residual for cases 24/34 -- corrected, and it now matches the Planner's
+##      original static prediction
+
+**Round 10's §20.2 measurement (`Vs/Vs_ref` 0.80/0.85, momentum residual ~40-50%) is itself now
+found to be measured wrong, and is retracted here.** The fixed `plateau_window(rows, lo=0.3,
+hi=0.6)` box that `yadv_rh2.py` used straddled internal wave structure, exactly as §20.2's own
+caveat warned it might.
+
+Round 11's first attempt at a front-derived window (sampling `[x_front+0.05, x_front+0.20]`,
+i.e. AHEAD of the detected shock front) hit a `ZeroDivisionError` on every scale except 1.0 --
+`rho1==rho0` every time, because the window was on the **wrong side of the front**: this shock
+propagates left-to-right into undisturbed material (confirmed by `yadv_rh2.py`'s own
+`preshock_state`, which reads the OFF path's rightmost -- largest-x -- cell as always-undisturbed),
+so the post-shock plateau is BEHIND the front (smaller x), not ahead of it. Fixed by sampling
+`[x_front-0.20, x_front-0.05]` instead.
+
+With that fix, the window's `(p_post, rho_post, u_post)` state is **stable and converged across
+scales 0.4 to 1.0** for both cases (case24: `rho_post` 854.5-855.8, `u_post` 3990.0 exactly,
+`p_post` 2.0666e10 across all six scales; case34 similarly stable from scale 0.4 onward, scale 0.3
+alone is an outlier at 1.073e-01 vs the converged 2.06e-02, likely still-forming shock structure at
+that small a window). The resulting **momentum residual is small and consistent**:
+
+| case | momentum resid (rel), scale=1.0 (largest in-domain) | `Vs(mass)` | `Vs(mass)/Vs_ref` |
+|---|---|---|---|
+| 24 | **+7.351e-02** | 9605.6 | **1.4946** |
+| 34 | **+2.063e-02** | 11455.3 | **1.3968** |
+
+**This matches the round-10 Planner's original static prediction (momentum residual ~7.36e-02 /
+~2.06e-02, `Vs/Vs_ref` 1.4945 / 1.3968 -- a FASTER shock) to 3-4 significant figures.** Round 10's
+own measurement (slower shock, large residual) was the artifact; the Planner's static reasoning
+was right, and this round's corrected instrument now confirms it directly from a completed run's
+data, not just static analysis. `docs/YADV_PHASE3_PLAN.md` sect.1's "genuinely faster, still
+admissible-looking shock, momentum residual on the order of a few percent" framing is the one that
+survives.
+
+**Independent cross-check, and an honest discrepancy**: a model-free shock speed from a linear fit
+of `x_front` vs `t_end` across the 7-scale sweep gives `Vs_front/Vs_ref` = 1.018 (case24, R²=0.816)
+and 1.185 (case34, R²=0.956) -- both noticeably smaller than the `Vs(mass)` ratios above, and the
+fits are imperfect (R² well short of 1). Root cause, from inspecting the raw `x_front` sequence:
+`argmax|dp/dx|` is not a fully robust front tracker at the larger scales -- case24's `x_front` at
+scale 0.85 is 0.9756 but DROPS to 0.8569 at scale 1.0 despite `t_end` increasing, meaning the
+gradient-maximum criterion latched onto a different feature (likely a secondary/reflected wave, or
+the original material contact) once more wave structure had developed by the later time. The
+window-state convergence (the p/rho/u plateau values themselves, which stayed essentially constant
+across scales despite this front-tracking noise) is judged the more trustworthy signal here, since
+it is a converged, self-consistent measurement rather than a single point-in-time estimate; the
+`Vs_front` cross-check is reported as unreconciled with `Vs(mass)`, per this round's plan (sect.5.4
+addition) -- not resolved by picking whichever number is more convenient.
+
+**33/plain control**: reproduces sect.20.2/20.3 exactly -- `Vs/Vs_ref=0.5355`, momentum residual
+`+8.808e-01`, confirming the corrected-window methodology is not itself the source of any
+divergence from a case that was always genuinely in-domain.
+
+### 21.4 Stall-bracketing sweep -- a bracket found, with a caveat on the plan's own "one consistent
+##      trajectory" assumption
+
+For 24/plain, 34/plain, and 33/`+ALPHA_IMPLICIT`, sweeping `ACID_TEND_SCALE` at small scales around
+the known stall point (`t/t_end` ~0.0027/0.0045/0.0022, sect.20.1) does bracket a stall onset:
+24/plain runs clean through scale 0.0025 (step 7) and stalls at scale 0.003 (step 30); 33/+IMPLICIT
+runs clean through every scale tested up to 0.003 (the stall point at ~0.0022 sits inside this
+sweep's range but was never hit -- would need finer scales below 0.0025 to bracket it directly).
+
+**34/plain is non-monotonic**: clean through scale 0.002, **STALLS at scale 0.0025** (step 6), then
+**clean again at scale 0.003** (step 8) -- a larger observation window succeeding where a smaller
+one failed. This falsifies `docs/YADV_ROUND_11_PLAN.md` sect.4.4's framing that a scale sweep
+produces "a consistent sequence of snapshots of one trajectory": it does not, because
+`dt = min(dt, t_end - t)` clamps the LAST step of every run to land exactly on its own scaled
+`t_end`, so each scale's final step has a different size and can independently succeed or fail the
+retry loop regardless of the physical time reached. The bracket this sweep produces is therefore a
+bracket on "does the clamped-to-`t_end` step survive", not cleanly on "when does the void cell
+form" as the plan intended. A future round wanting a precise void-cell-formation step should dump
+at consecutive UNSCALED steps directly (e.g. via a small `max_steps` cap) rather than via this
+scale sweep.
+
+### 21.5 Verdict for round 11
+
+1. The silent stall is audible (`STALLED:`), verified stderr-only, zero effect on any of the four
+   hard-gate metrics or any dump.
+2. A stale FD-invariance-gate figure in this project's own records is corrected (13/19, not
+   12/19) -- not a regression, confirmed against an unmodified main-HEAD build.
+3. **Round 10's §20.2 "exited shock is slower and grossly RH-violating" finding is retracted.**
+   With a correctly-sided, front-derived window, cases 24/34 under `+ALPHA_IMPLICIT` show a shock
+   that is genuinely ~1.40-1.49x FASTER than the case's own reference speed, with a momentum
+   residual of only ~2-7% -- closely matching the round-10 Planner's original (previously
+   unverified) static prediction. This is a small but real fixed-domain-length artifact (the
+   `t_end = 0.7/Vs_ref` construction assumes the computed shock matches `Vs_ref`; it does not, for
+   these two cases under this flag), not evidence of gross non-conservation.
+4. No controlled A/B still exists for any of {24,33,34} -- this round's sweeps confirm again that
+   only one configuration per case ever completes (round 10's load-bearing finding stands
+   unchanged).
+5. `ACID_YADV`'s recommended status is UNCHANGED (default OFF, 15/19). Nothing this round moves it;
+   per `docs/YADV_PHASE3_PLAN.md`'s own non-goals, that decision is out of scope until a real A/B
+   exists.
+6. Zero solver-numerics change with either env var unset (both Stage 1 and Stage 2 verified
+   byte-identical against an isolated main-HEAD build); all four hard gates hold (unit PASS, OFF
+   19/19, plain-ON 15/19, `+ALPHA_IMPLICIT` 14/19; FD-invariance 13/19 -- the corrected figure).
+
+### 21.6 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+DENNER_ACID=1 ACID_YADV=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 2>&1 >/dev/null | grep STALLED
+python3 scripts/yadv_r11_window.py            # sect.21.3/21.4's full sweep tables
+```

@@ -2511,3 +2511,121 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RINIT=1 ACID_DBG=1 \
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_STALL_ACCEPT=1 ACID_RINIT=1 ACID_DBG=1 \
     ./build-cpp/cpp/denner_1d/denner1d_dump 33 2>&1 >/dev/null | grep -E "^STALL-ACCEPT|^STALLED"
 ```
+
+---
+---
+
+# ROUND 16 (case33's physical origin)
+
+## 26. Case33's `dh` fully explained: a 3-cell vacuum blister born in the FIRST time step, when a
+##     single Y-advection into a still-pre-shock cell maps through `alpha_from_mass_fraction`
+##     almost to pure phase, collapsing the recovered density ~80x and saturating the T ceiling
+
+### 26.1 The end-to-end mechanism, confirmed with direct field measurements (new `ACID_RCELL`
+##      instrument, read-only per-cell window print)
+
+**Born at step 0, in the very first advection step** (`ACID_RCELL=78:82 ACID_BLK_STEP=0`, retry 0):
+
+| cell | `x` | `Y0` (pre-advection) | `Y` (post-advection) | `al0` | `al` | `rho_o` |
+|---|---|---|---|---|---|---|
+| 79 | 0.099375 | 0.934389 | 0.934389 | 0.750000 | 0.750000 | 1183.35 (shocked) |
+| **80** | 0.100625 | **0.003466** (pristine IC) | **0.365240** | 0.750000 | **0.997989** | **3.16** |
+| 81 | 0.101875 | 0.003466 | 0.003466 | 0.750000 | 0.750000 | 250.368 (pristine) |
+
+A single time step's Y-advection moves cell 80 **36.5% of the way** from the pre-shock mass
+fraction toward the post-shock one, while the cell's `(p,T)` is still entirely pre-shock (`p_o=1e5`,
+`T_o=300`). The `alpha_from_mass_fraction` recovery, evaluated at THAT `(p,T)`, maps `Y=0.365` to
+`alpha=0.998` -- nearly pure air -- because case33's post-shock mass fraction (`Y_post=0.9344`) sits
+closest of the three cases {24,33,34} to the `alpha->1` singularity of the Y-to-alpha map (round 15
+§25 computed the pre-shock amplification `dalpha/dY` as 216/54/485 for 24/33/34 -- case33's is the
+smallest, but its `Y_post` proximity to the singularity dominates). The recovered density collapses
+from the correct `250.368` to `3.16` -- **79x below correct, in the FIRST step, before any Newton
+solve even runs.**
+
+**By the actual stall (step 100)**, the same cell has been driven the rest of the way to a literal
+vacuum (`ACID_RCELL=74:94 ACID_BLK_STEP=100`, retry 0):
+
+| cell | `x` | `p_o` | `T_o` | `u_o` | `rho_o` | `h` | `Htot_o` |
+|---|---|---|---|---|---|---|---|
+| 74-78 | 0.093-0.098 | 3.6-5.8e9 (shocked) | 11700-17100 K | 4300-4800 | 860-1180 | ~2.4e7 | ~2.4e7 |
+| 79 | 0.099375 | 5.701e9 | 1713 K | 7212 | 4990.0 (**20x overdense**) | 2.830e7 | 2.830e7 |
+| **80** | 0.100625 | **30.03 Pa** | **1.000000e+06** | **-7127.9** | **1.237e-06** (**1.3e8x underdense**) | **3.7295e12** | **1.8908e9** |
+| 81 | 0.101875 | 1971 Pa | 303.7 K | 158 | 9.32 | 6.023e5 | 6.023e5 |
+| 82-94 | >=0.103 | -> 1.0e5 (pristine) | -> 300 K | -> 0 | -> 250.368 (pristine) | ~5.82e5 | ~5.82e5 |
+
+**Every prediction confirmed exactly**: (P2, decisive) `T_o` at cell 80 reads EXACTLY
+`1.000000e+06` -- the `T_from_hstat` ceiling (`acid.cpp:334-362`, confirmed by direct code read to
+clamp `T` to `[1e-6,1e6]` at every sub-iteration and to `return isfinite(T) && T > 1e-6`, which is
+`true` for a saturated `T=1e6` regardless of whether `hmix(T)=hstat` is actually satisfied there --
+silent saturation, structurally). `h=3.7295e12` vs `Htot_o=1.8908e9` at that cell reproduces round
+15's measured `dh=3.7277e12` (§25) almost to the last digit. (P3) The front is genuinely frozen at
+the initial discontinuity: cells 82-94 (where the true shock should be, `Vs*t` at the stall time
+puts the front near cell 90) are still pristine initial condition to 4+ significant figures --
+**the shock never moves under `+ALPHA_IMPLICIT`; the solver spends its 100 steps re-fighting the
+same 2-cell blister at the IC jump.** Cell 79 (20x overdense) and cell 80 (vacuum) form a 2-cell
+oscillation straddling the initial discontinuity -- the post-shock fluid is draining into a
+numerically-generated hole instead of forming a propagating shock.
+
+**Quantitative closure**: pre-shock `rho*H = 250.368 * 582247 ~= 1.458e8 J/m^3`. If `rho` collapses
+to the measured `1.237e-6` while `rho*H` is approximately conserved, `H ~ 1.18e14` -- same order as
+the measured `3.73e12`. The enthalpy runaway is the direct arithmetic consequence of the density
+collapse, not an independent defect.
+
+Once `hstat` exceeds the phase enthalpy bound (`~1.94e9` for case33's `b=0,eta=0` phases, since
+`h_k=cp_k*T` exactly and `T<=1e6`), `T_from_hstat` saturates and its derivative with respect to `h`
+is silently zero there -- `dT/dh=0`, hence `drho/dh=0`. Newton can move its own energy unknown and
+the thermodynamic state simply does not respond. This produces exactly round 15's symptoms
+(`r_init` doubling per dt-halving, `fene->1.0`, dt-independent `dh`) with **no reference to the
+alpha/Y REMAP channel round 13 found for case24/34** -- round 15's `dal_remap=DBL_EPSILON` finding
+is fully consistent: the alpha channel genuinely is clean here; the defect is entirely in the
+density/enthalpy collapse this section identifies.
+
+### 26.2 `+ALPHA_IMPLICIT`-specific, not an intrinsic case-33 stiffness
+
+OFF and plain `ACID_YADV=1` were NOT re-measured with the new instrument this round beyond what
+round 15 already established (§25.2's OFF/plain controls: OFF shows nothing at cells 79-81 since
+alpha is constant and nothing is transported there; plain shows a completely different, GLOBAL
+drift pathology, not a localized blister). This round's new finding is specific to what
+`+ALPHA_IMPLICIT` does at the SAME location: because `+ALPHA_IMPLICIT` re-derives alpha at the
+current `(p,T)` on every Newton call (round 15's finding), the one-step recovery error from §26.1
+gets folded directly into the Newton iteration itself rather than being an isolated,
+correctable artifact -- turning a single bad recovery into a Newton-internal runaway that the
+solver can never climb back out of, at any `dt`.
+
+### 26.3 Verdict for round 16
+
+1. Round 15's open question -- what physically produces case33's anomalous `dh` -- is answered
+   completely: a single-time-step Y-advection into a still-pre-shock cell, mapped through
+   `alpha_from_mass_fraction` at the WRONG (pre-shock) `(p,T)`, collapses the recovered mixture
+   density catastrophically (79x in step 0, to a literal vacuum by the stall). The subsequent
+   energy runaway (`dh`) is the arithmetic consequence, and the `T_from_hstat` ceiling's silent
+   saturation is why Newton can never recover once the collapse is severe enough.
+2. This is a genuine ill-conditioning of the Y-form colour function specifically for
+   homogeneous-alpha, large-Y-jump case families (case33: alpha=0.75 both sides, `Y` jumps 270x),
+   closed into the Newton iteration by `+ALPHA_IMPLICIT`'s own per-call alpha re-derivation -- not
+   a simple, isolated coding bug, and not the same mechanism as round 13's case24/34 REMAP defect
+   (confirmed clean here, per round 15).
+3. **No fix attempted this round, per the plan's own decision rule**: a fix is justified only by
+   an isolated, off-by-construction bug (e.g. a wrong-time-level lookup or an unclamped input);
+   neither was found -- `Yv` is already clamped, and the `(p_o,T_o)` usage matches the documented
+   Eqs.43-44 intent. Three candidate fixes are named for a FUTURE round, in pre-registered priority
+   order: **F3** (break the p->alpha feedback inside the `+ALPHA_IMPLICIT` residual -- targets the
+   actual amplifier, needs a new research flag + full gates) **> F1** (upper-bound `s.h` -- targets
+   the symptom, risks the OFF byte-identity gate if not carefully `yadv`-gated) **> F2** (make
+   `T_from_hstat` return false on saturation -- correct in principle, but the ceiling is already
+   exercised on the PUBLISHED path by cases 13/14/25/28/29's own transient violent shocks, so
+   changing its return value is not a safe drive-by and needs its own dedicated round).
+4. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19). New
+   diagnostic-only `ACID_RCELL` env var stays default OFF; all hard gates hold with it unset.
+
+### 26.4 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RCELL=78:82 ACID_BLK_STEP=0 \
+    ./build-cpp/cpp/denner_1d/denner1d_dump 33 2>&1 >/dev/null | grep "retry=0 "   # sect.26.1, step 0
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RCELL=74:94 ACID_BLK_STEP=100 \
+    ./build-cpp/cpp/denner_1d/denner1d_dump 33 2>&1 >/dev/null | grep "retry=0 "   # sect.26.1, stall
+```

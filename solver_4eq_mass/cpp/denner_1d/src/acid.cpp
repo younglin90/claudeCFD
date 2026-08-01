@@ -604,6 +604,18 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // only; adds no FP arithmetic to any path when unset. Optional ACID_BLK_STEP (existing var,
     // shared with ACID_RHIST/ACID_AJAC_BLK) restricts output to one step.
     const bool rinit_dbg = std::getenv("ACID_RINIT") != nullptr;
+    // ACID_RCELL (round 16, DIAGNOSTIC ONLY, default OFF): "lo:hi" cell-index window (e.g.
+    // "76:92"); unset/malformed/hi<lo disables. Prints one RCELL line per cell in the window per
+    // retry, right after the Eqs.43-44 rebuild -- read-only, no new computation, separate from
+    // ACID_RINIT so RINIT's existing reproduce blocks (round 13/15) stay untouched. Reuses the
+    // existing ACID_BLK_STEP for step selection. See docs/YADV_ROUND_16_PLAN.md sect.2.
+    int rcell_lo = -1, rcell_hi = -1;
+    if (const char* rc = std::getenv("ACID_RCELL")) {
+        int lo = -1, hi = -1;
+        if (std::sscanf(rc, "%d:%d", &lo, &hi) == 2 && lo >= 0 && hi >= lo) {
+            rcell_lo = lo; rcell_hi = hi;
+        }
+    }
     // ACID_YADV_HREINIT (round 13, Phase 3a Stage 1, RESEARCH-ONLY, default OFF; inert unless
     // ACID_YADV and coupled are also active): consistency re-init of the Newton INITIAL GUESS for
     // the coupled energy unknown. docs/YADV_ROUND_13_PLAN.md sect.0/3: the pre-Newton Y-transport +
@@ -1031,6 +1043,28 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     "dal_remap=%.4e@%d dal_adv=%.4e@%d\n",
                     c.id.c_str(), step, retry, dt, dh, ih, drho, irho, dal, ial,
                     dal_remap, iremap, dal_adv, iadv);
+            }
+        }
+
+        // RCELL (round 16, docs/YADV_ROUND_16_PLAN.md sect.2): read-only per-cell window dump,
+        // right after the Eqs.43-44 rebuild (so rho_o/hstat_o/Htot_o are live) and before Stage 1
+        // HREINIT (which overwrites s.h below) -- s.h/s.rho/s.alpha here are still the natural
+        // it==0 values. No new computation; answers round 15's open question (why is dh so large
+        // at cell ~79-81 for case33) by exposing the raw state, not another derived mismatch.
+        if (rcell_lo >= 0 && yadv) {
+            const char* se = std::getenv("ACID_BLK_STEP");
+            const int blkstep = se ? std::atoi(se) : -1;
+            if (blkstep < 0 || step == blkstep) {
+                const int lo = std::max(0, rcell_lo), hi = std::min(n - 1, rcell_hi);
+                for (int i = lo; i <= hi; ++i) {
+                    std::fprintf(stderr,
+                        "RCELL case=%s step=%d retry=%d dt=%.6e i=%d x=%.6f Y0=%.6e Y=%.6e "
+                        "al0=%.6f al=%.6f p_o=%.6e T_o=%.6e u_o=%.6e h=%.6e Htot_o=%.6e "
+                        "rho=%.6e rho_o=%.6e\n",
+                        c.id.c_str(), step, retry, dt, i, st.x[i], Yv0[i], Yv[i],
+                        s0.alpha[i], s.alpha[i], p_o[i], T_o[i], u_o[i],
+                        s.h[i], Htot_o[i], s.rho[i], rho_o[i]);
+                }
             }
         }
 

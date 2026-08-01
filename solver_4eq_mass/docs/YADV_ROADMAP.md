@@ -10,20 +10,32 @@ doc) and link to them.
 
 Complete Phase 2 (`docs/YADV_PHASE2_PLAN.md`, Stages 0-4): add analytic `d(alpha)/dp`,
 `d(alpha)/dT` Jacobian contributions so `ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1` converges under
-the default analytic Jacobian at least as well as round 4's FD-Jacobian result (recover
-13/15/25, keep everything else, `pass_count >= 15`). When Phase 2's Stage 4 (consolidation) is
-done, the round that completes it must explicitly re-evaluate this "Current goal" section: either
-mark `done: true` (if the loop should idle / hand back to a human) or replace it with the next
-concrete goal (e.g. the cases-24/33/34 conservation defect, §11.6/§15.5 of YADV_RESEARCH.md) and
-reset `consecutive_failures`.
+the default analytic Jacobian at least as well as round 4's FD-Jacobian result.
+
+**Re-scoped after round 7** (`YADV_RESEARCH.md` §17): the original target was "recover
+13/15/25, `pass_count >= 15`". Round 6 recovered 13 and 25 (`pass_count` 12->14). Round 7 measured
+that case15's actual blocker -- computed exactly from `validation.cpp`'s own `smooth_ok` formula
+against a fresh dump -- is a central-jump/concentration failure at the domain's stagnation point
+(x=0.5, u=0 by symmetry for this symmetric double-rarefaction case), NOT the amplitude/convergence
+defect §7.2 originally diagnosed and NOT something `d(alpha)/dp` or `d(alpha)/dT` Jacobian
+accuracy can reach by construction. **case15 is no longer a target of this plan.** Revised goal:
+`pass_count >= 14` (already met) with cases 13/25 durably recovered; Stage 3 (T-pathway) remains
+worth attempting because it targets case14 specifically (a separate, genuinely T-related `hsT<0`
+lead from round 5), not because it might reach case15.
+
+When Phase 2's Stage 4 (consolidation) is done, the round that completes it must explicitly
+re-evaluate this "Current goal" section: either mark `done: true` (if the loop should idle / hand
+back to a human) or replace it with the next concrete goal (e.g. the cases-24/33/34 conservation
+defect, §11.6/§15.5, or a fresh investigation into case15's central-jump defect as its own
+question, unrelated to `ACID_YADV`) and reset `consecutive_failures`.
 
 ## Control state
 
 ```
-round_counter: 6
+round_counter: 7
 consecutive_failures: 0
 done: false
-next_task: docs/YADV_PHASE2_PLAN.md Stage 2
+next_task: docs/YADV_PHASE2_PLAN.md Stage 3 (contingent T-pathway; targets case14, not case15)
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -100,9 +112,17 @@ not start a new round.
   Cases 24/33/34 unmoved as predicted (separate conservation defect); case14 unmoved (separate
   `hsT<0` lead). All hard gates held (OFF 19/19+9/9, plain ON 15/19, FD-invariance exact same
   failure set). → `YADV_RESEARCH.md` §16, `docs/YADV_ROUND_6_PLAN.md`, commit `33e006f`.
-- Round 7+: not yet run. `next_task` above (Phase 2 Stage 2 -- the J2 flux-blend diagonal,
-  `alp_p[]` already stored and waiting; plan predicts this is the strongest remaining candidate
-  for closing case15's TV guard).
+- Round 7: Phase 2 Stage 2 -- the J2 flux-blend diagonal (own-cell alpha sensitivity in the ACID
+  mass/energy flux blend). MEASURED NO-OP on `pass_count` (stayed 14/19, identical failure set) --
+  an honest negative result, consistent with the round's own prediction that 13/25 had nothing
+  left for J2 to add. The real result: corrected round 6's case15 diagnosis. `peak_delta_u` is NOT
+  part of case15's gate (verified against `validation.cpp` directly); computed the true blocker
+  exactly -- a central-jump/concentration failure (`cj=30.02` vs threshold `8.0`) at the domain's
+  stagnation point, structurally unrelated to alpha-Jacobian accuracy. **Roadmap goal re-scoped**
+  (see "Current goal" above) -- case15 is no longer a target of this plan. All hard gates held.
+  → `YADV_RESEARCH.md` §17, `docs/YADV_ROUND_7_PLAN.md`, commit `9b0a698`.
+- Round 8+: not yet run. `next_task` above (Phase 2 Stage 3, contingent T-pathway -- targets
+  case14's separate `hsT<0` lead, round 5).
 
 ## Setup reference
 

@@ -45,11 +45,15 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 9
+round_counter: 10
 consecutive_failures: 0
 done: false
-next_task: docs/YADV_PHASE3_PLAN.md -- round 10 produces it (Planner call), grounded in
-           YADV_RESEARCH.md sect.11/14.3/15.5/19.4, per the "Current goal" section above
+next_task: docs/YADV_PHASE3_PLAN.md Stage 1 -- make the silent stall audible (a stderr
+           "STALLED" message at acid.cpp's `if (!stepped) break;` site, plus setting
+           `diverged=true` there so validate/dump never again score a stall as a clean
+           completion). Then Stage 2 (`ACID_TEND_SCALE` diagnostic knob) to get a clean
+           in-domain residual for cases 24/34, resolving sect.20.2's plateau-window
+           discrepancy. Grounded in YADV_RESEARCH.md sect.20, docs/YADV_PHASE3_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -173,6 +177,27 @@ not start a new round.
   Phase 2 (Stages 0-4) declared complete; roadmap re-scoped to `done: true` with this new finding
   named as the sharpest lead for a future Phase 3 (P3a). All hard gates held throughout.
   → `YADV_RESEARCH.md` §19, `docs/YADV_ROUND_9_PLAN.md`, commits `51e2497`, `6f1538d`.
+- Round 10: Phase 3a Stage 0. **RETRACTS round 3's "24/34 close to 1e-13" and round 9's "case33
+  closes to machine precision under +ALPHA_IMPLICIT"** -- both were `yadv_rhcheck.py`'s
+  undisturbed-cell search locking onto a SILENTLY STALLED run's pristine IC (`acid.cpp`'s
+  `if (!stepped) break;` never sets `diverged`, so a stalled run scores as a normal completion).
+  Independently reproduced via direct `ACID_DBG` traces (case24 plain, case33 +IMPLICIT both
+  stall at <1% of `t_end`, mid-domain cells still bit-for-bit pristine IC). New
+  `scripts/yadv_rh2.py` (null-run + IC-match guard, exited-shock plateau-window fallback):
+  confirmed ALL six predicted null-run/completion classifications exactly. Load-bearing finding:
+  **no case in {24,33,34} has ever had a plain and a +IMPLICIT run complete simultaneously** --
+  every RH-residual number this whole investigation has produced for these three cases compares
+  across different configurations, never a true A/B. Where 24/34 do complete (+IMPLICIT, shock
+  exited domain), residual is large (~40-50%), not near-zero -- measured value disagrees with the
+  round-10 Planner's own predicted ~2-7%/faster-shock figures (`YADV_PHASE3_PLAN.md`); likely a
+  plateau-window artifact straddling internal wave structure, not yet resolved (needs Stage 2's
+  `ACID_TEND_SCALE` in-domain measurement). `Y` conserved to 3-4 digits through the leading shock
+  in every completing run, against closure-(A)'s 270-1620x growth requirement -- may make 24/33/34
+  a structurally unreachable target for any Y-preserving scheme, pending Stage 1-4.
+  `ACID_YADV` recommended status UNCHANGED (default OFF, 15/19). Zero solver code changed; all
+  four hard gates held (unit PASS, OFF 19/19, 9/9 byte-identical vs published binary,
+  ON-vs-OFF genuinely differs as expected). → `YADV_RESEARCH.md` §20, `docs/YADV_PHASE3_PLAN.md`,
+  commit `666c6c8`.
 
 ## Setup reference
 

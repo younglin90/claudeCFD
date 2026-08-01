@@ -1669,3 +1669,161 @@ python3 scripts/yadv_r9_sweep.py --timing            # sect.19.3 wall clock, min
 python3 scripts/yadv_rhcheck.py                                # sect.19.4 control (post-merge)
 ACID_YADV_ALPHA_IMPLICIT=1 python3 scripts/yadv_rhcheck.py     # sect.19.4 Y+implicit rows
 ```
+
+---
+---
+
+# ROUND 10 (Phase 3a begins)
+
+## 20. RETRACTION -- section 14.3 bullet 2 and section 19.4's headline were measuring a silently
+##     stalled run, not a computed shock. Corrected with a null-run-guarded instrument.
+
+### 20.1 What was found, and independently reproduced
+
+`acid.cpp`'s per-step retry loop, on exhausting all 14 dt-halving retries, does
+`if (!stepped) break;` -- this exits the time-stepping loop WITHOUT setting `diverged = true`.
+`diverged` is what later triggers NaN-marking, whose own comment states its purpose: "so the
+validate counts a collapsed/diverged run as a clean failure (finite=false), not a misleading
+partial state at t < final_time." Because `diverged` is never set on a silent stall,
+`solve_case_acid` returns a FINITE state -- the field at whatever step it last completed,
+sometimes still the pristine initial condition -- and both `denner1d_validate` and
+`denner1d_dump` treat it as a normal, completed run.
+
+Independently verified by the Advisor session (not just taken from the Planner's report):
+`acid.cpp`'s `if (!stepped) break;` site read directly and confirmed to lack a `diverged = true`
+before it. Then reproduced empirically:
+
+```
+case24, plain ACID_YADV=1, ACID_DBG=1: last printed step = 5, t=2.978e-07 (final_time~1.089e-04,
+  i.e. 0.27% of the run). Dump's mid-domain (x=0.498) reads p=100000, u=0, rho=499.5787 --
+  bit-for-bit the pristine IC.
+case33, ACID_YADV_ALPHA_IMPLICIT=1, ACID_DBG=1: last printed step = 5, t=2.853e-07
+  (final_time~1.283e-04). Same signature.
+case33, plain ACID_YADV=1 (control): completes normally to step 2000, t=1.225e-04 -- confirms
+  the stall is config-specific, not universal.
+```
+
+**`yadv_rhcheck.py`'s undisturbed-cell search (`p < 1.5*p0`) then locks onto the near-void cell a
+stall leaves near `x=0.1` as "the shock front," and picks a pre-shock reference cell that is
+ALSO pristine IC.** The "residual" it computes in that situation is `cases.cpp`'s own closure-(A)
+analytic construction checked against itself -- which §11.3 already proved closes to 1e-16. The
+round-9 `+8.39e-13` and round-3's original `1e-13` numbers are that identity, seen through a
+12-digit dump print, not a property of any computed solution.
+
+**Retracted**: §14.3's second bullet ("Genuine partial win on discrete conservation... cases
+24/34 now satisfy their own leading-shock RH jump to 1e-13") and §19.4's headline finding. Left in
+place above, annotated, not deleted -- this project's established culture of keeping failed
+results in the record (rounds 1-4's negative findings, round 7's peak_delta_u correction).
+
+**Not retracted, because it was always a genuinely completing run**: case33 under plain
+`ACID_YADV=1`, momentum residual `+8.81e-01`, energy `+6.46e-01` (§11.5, reproduced again this
+round as the control check for the new instrument).
+
+### 20.2 Time-vs-space -- resolved: neither. The domain is genuinely too short at the Y path's
+##      own shock speed, for the runs that complete.
+
+All three cases share identical domain/timing construction in `cases.cpp`
+(`base_config(800, 0.7/Vs_ref, 0.0, 1.0)`, IC step at `x<0.1`, transmissive both ends) -- no
+per-case asymmetry. For the two configurations that genuinely complete but whose shock has left
+the domain (24 and 34 under `+ALPHA_IMPLICIT`), using the pre-shock state read directly from the
+OFF path's own undisturbed right-boundary cells (robust, no analytic re-derivation needed -- the
+OFF path always completes and its rightmost cells stay pristine IC by construction):
+
+| case | config | `Vs`(mass) | `Vs/Vs_ref` | note |
+|---|---|---|---|---|
+| 24 | `+ALPHA_IMPLICIT` | 5148.4 | 0.8011 | plateau-window method, see caveat below |
+| 34 | `+ALPHA_IMPLICIT` | 6933.0 | 0.8453 | plateau-window method, see caveat below |
+| 33 | `ACID_YADV=1` (control) | 2922.1 | 0.5355 | in-domain, matches §11.5 exactly |
+
+**Caveat, stated honestly rather than papered over**: the round-10 Planner's own reading (from
+static analysis, not yet re-measured against a completed run at the time) predicted `Vs/Vs_ref`
+of 1.49/1.40 (a FASTER shock) and momentum residuals of ~7%/2%. The measurement above instead
+gives `Vs/Vs_ref` < 1 (a slower inferred speed) and much larger residuals (~50%/41%, see §20.3).
+Root cause of the discrepancy, most likely: the fixed `x in [0.3,0.6]` plateau window used to
+locate "the post-shock state" for an already-exited shock can straddle INTERNAL wave structure --
+round 8's independent trace of a similar case (case33's completed run, §11.4) found a two-shock,
+one-contact structure (`x~0.12 LEFT-FACING SHOCK ... x~0.45 CONTACT ... 0.50-0.93 shock-processed
+material`), not a single uniform plateau. A window that straddles that contact would give a
+median value that is neither pre- nor post-plateau cleanly. **This is not resolved this round --
+it is exactly what Stage 2's `ACID_TEND_SCALE` diagnostic (viewing the shock BEFORE it exits, so
+the true post-shock plateau can be sampled cleanly) is designed to fix**, per
+`docs/YADV_PHASE3_PLAN.md`. Reported here as measured, with the method's limitation named, rather
+than either silently adopting the more optimistic un-verified prediction or overclaiming
+precision the current method does not have.
+
+**What is solid, independent of the plateau-window caveat**: the null-run CLASSIFICATION matches
+the plan's prediction exactly on all six case/config combinations (see §20.3's table), and it was
+independently verified twice (direct `ACID_DBG` trace, and the automated guard in
+`scripts/yadv_rh2.py`). That is this round's load-bearing result.
+
+**The `alpha_pre` (0.50/0.75/0.25) hypothesis for which case stalls is dead.** Under plain
+`ACID_YADV=1` the stall hits `alpha_pre in {0.50, 0.25}` (cases 24, 34) and spares 0.75 (case 33);
+under `+ALPHA_IMPLICIT` it hits 0.75 and spares 0.50/0.25. The flag flips WHICH case stalls -- a
+Newton-robustness switch, not a thermodynamic threshold.
+
+### 20.3 `scripts/yadv_rh2.py` -- the null-run-guarded instrument
+
+New file (`yadv_rhcheck.py` kept byte-identical, so the historical -- now understood-to-be-bogus
+-- numbers stay independently reproducible). Guards: (1) a completion-fraction check via
+`ACID_DBG`'s last printed step vs the case's known `final_time`; (2) an IC-match check (fraction
+of cells still equal to the pre-shock state to 1e-6 relative); either tripping labels the run
+`NULL RUN` and refuses to compute a residual; (3) reports `min(p)`/`min(rho)` (the near-void-cell
+signature); (4) falls back to the OFF-path-derived analytic pre-shock state plus a plateau window
+when the in-domain undisturbed-cell search comes up empty (an exited shock), instead of printing
+"shock has left the domain, no undisturbed state" and stopping there.
+
+```
+| case | config | status | Vs/Vs_ref | momentum resid (rel) |
+|---|---|---|---|---|
+| 24 | plain | NULL RUN (t/t_end=0.0027, IC-match=0.89) | -- | -- |
+| 24 | +IMPLICIT | completed (shock exited) | 0.8011 | +5.03e-01 |
+| 33 | plain | completed (in-domain) | 0.5355 | +8.81e-01 (matches sect.11.5/19.4's control exactly) |
+| 33 | +IMPLICIT | NULL RUN (t/t_end=0.0022, IC-match=0.89) | -- | -- |
+| 34 | plain | NULL RUN (t/t_end=0.0045, IC-match=0.89) | -- | -- |
+| 34 | +IMPLICIT | completed (shock exited) | 0.8453 | +4.07e-01 |
+```
+
+**Every one of the three predicted NULL RUNs is confirmed; every one of the three predicted
+completions is confirmed.** The magnitude numbers for the two exited-shock cases carry the §20.2
+caveat and are reported as a first estimate, not a final one.
+
+### 20.4 Verdict for round 10
+
+1. Two prior "results" (round 3's §14.3 bullet 2, round 9's §19.4 headline) are retracted, with
+   the mechanism identified, independently confirmed twice, and a working guarded instrument
+   built to prevent recurrence.
+2. **No case in {24, 33, 34} has ever completed under both a plain and an implicit-alpha
+   configuration simultaneously.** Every RH-residual number this whole investigation has ever
+   produced for these three cases (round 3, round 4, round 9, this round) is from a DIFFERENT
+   configuration completing than the one being compared against -- there has never yet been a
+   controlled A/B on any of these three cases. That is Phase 3a's real starting line.
+3. Cases 24/34, where they DO complete (under `+ALPHA_IMPLICIT`), carry a genuinely large
+   Rankine-Hugoniot violation (order 40-50%, pending §20.2's cleaner remeasurement) -- not the
+   near-perfect closure round 9 believed. Case33's only completing run (`ACID_YADV=1` plain)
+   remains the one number in this family that was always real: 88%/65% violation.
+4. `Y` is conserved to 3-4 significant digits through the leading shock in every completing run
+   (§20.2, consistent with §11.4's original observation), against a closure-(A) reference that
+   requires 270-1620x `Y` growth across the same shock. This is very likely why no configuration
+   of any of the last four rounds' Jacobian work could ever bring these three cases to their
+   validation-gate reference -- it may be a structurally unreachable target for any Y-preserving
+   scheme, not a solver defect. Not yet the final word (per `YADV_PHASE3_PLAN.md`'s stopping
+   criteria) -- Stage 1-4 of that plan pursue this properly, including the controlled A/B this
+   investigation has never had.
+5. `ACID_YADV`'s recommended status is UNCHANGED by this round: default OFF, 15/19. Nothing in
+   this round's findings moves that; if anything, they weaken the case for 24/33/34 ever changing
+   it, per point 4.
+
+Zero solver code changed this round -- `scripts/yadv_rh2.py` is additive/diagnostic only. All
+four hard gates (OFF 19/19+9/9, plain ON 15/19, `+IMPLICIT` 14/19, FD-invariance failure set) hold
+by construction; re-verified via `denner1d_unit` and a direct rebuild this round.
+
+### 20.5 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+python3 scripts/yadv_rh2.py                          # sect.20.3's null-run-guarded table
+DENNER_ACID=1 ACID_YADV=1 ACID_DBG=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
+    2>&1 >/dev/null | grep "ACID step" | tail -5      # sect.20.1's direct stall trace
+```

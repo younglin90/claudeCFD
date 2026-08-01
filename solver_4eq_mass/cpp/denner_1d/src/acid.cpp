@@ -535,6 +535,18 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                                      return e ? std::max(0, std::atoi(e)) : 4; }();
     long n_stall_accept = 0;      // total accepted-unconverged steps this run (reported at the end)
     int  stall_accept_run = 0;    // CONSECUTIVE accepted-unconverged steps (reset by any clean step)
+    // ACID_TSAT (round 17, DIAGNOSTIC ONLY, default OFF, stderr only, deliberately NOT yadv-gated
+    // -- this must be able to observe the published OFF path). Counts residual evaluations where
+    // any cell's T sits at T_from_hstat's 1e6 ceiling (or 1e-6 floor) after the coupled h->T
+    // inversion. Answers whether F2 ("make T_from_hstat report saturation") is safe: if
+    // calls_hi==0 everywhere on OFF, the branch it would change is never taken on the published
+    // path. Integer counters + comparisons only; no FP arithmetic added when unset.
+    // docs/YADV_ROUND_17_PLAN.md sect.3-4.
+    const int tsat = []{ const char* e = std::getenv("ACID_TSAT");
+                         return e ? std::max(0, std::atoi(e)) : 0; }();
+    long tsat_calls = 0, tsat_calls_hi = 0, tsat_calls_lo = 0;
+    long tsat_steps_hi = 0;
+    int  tsat_cells_hi_max = 0, tsat_first_step = -1, tsat_first_cell = -1;
     // THINC (Xiao/Shyue-Xiao tanh) interface sharpening of the VOF face alpha in the colour-
     // function transport (the alpha loop below). ONLY the face alpha `af[]` of the non-conservative
     // alpha update uses it -- the ACID mass/momentum/energy fluxes use the CELL alpha, so THINC
@@ -1218,6 +1230,27 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     // else: keep old T (non-physical hstat<kinetic transient); the line search
                     // / clamp pulls h back into the physical range on the next trial.
                 }
+            }
+            // ACID_TSAT block A (round 17): after the C1 loop, s.T[i]>=1e6 is an EXACT bit-level
+            // test for "this cell sits at the clamp, not a solution of hmix(T)=hstat" -- serial,
+            // no change to the OMP loop above. docs/YADV_ROUND_17_PLAN.md sect.3.
+            if (tsat && coupled) {
+                int nhi = 0, nlo = 0, ihi = -1;
+                for (int i = 0; i < n; ++i) {
+                    if (s.T[i] >= 1.0e6)  { ++nhi; if (ihi < 0) ihi = i; }
+                    if (s.T[i] <= 1.0e-6) { ++nlo; }
+                }
+                ++tsat_calls;
+                if (nhi) {
+                    ++tsat_calls_hi;
+                    if (nhi > tsat_cells_hi_max) tsat_cells_hi_max = nhi;
+                    if (tsat_first_step < 0) { tsat_first_step = step; tsat_first_cell = ihi; }
+                    if (tsat >= 2)
+                        std::fprintf(stderr,
+                            "TSAT case=%s step=%d retry=%d dt=%.6e ncells_hi=%d i0=%d p=%.6e h=%.6e\n",
+                            c.id.c_str(), step, retry, dt, nhi, ihi, s.p[ihi], s.h[ihi]);
+                }
+                if (nlo) ++tsat_calls_lo;
             }
             eval_thermo(s, A, B);
             // ghost-extended p, u for gradients / BC (filled into reusable scratch, OPT3)
@@ -2272,6 +2305,17 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             }
         if (!bad) {
             stepped = true;
+            // ACID_TSAT block B (round 17): does the ACCEPTED (clean) state carry a ceiling cell?
+            if (tsat) {
+                int nhi = 0, ihi = -1;
+                for (int i = 0; i < n; ++i) if (s.T[i] >= 1.0e6) { ++nhi; if (ihi < 0) ihi = i; }
+                if (nhi) {
+                    ++tsat_steps_hi;
+                    std::fprintf(stderr,
+                        "TSAT-ACCEPT case=%s step=%d retry=%d ncells=%d i0=%d\n",
+                        c.id.c_str(), step, retry, nhi, ihi);
+                }
+            }
             // BDF2 bookkeeping: the level-n (OLD-level for this step) conserved quantities
             // become the SECOND-old level (phi_o2) for the NEXT step. Captured here while
             // rho_o/u_o/Htot_o are still in scope; dt_prev records the actually-used dt so
@@ -2355,6 +2399,18 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                 c.id.c_str(), step, t, acc_retry, acc_dt, acc_rbest, acc_rinit, acc_ratio,
                 stall_accept_run, stall_accept_max, n_stall_accept);
             stepped = true;
+            // ACID_TSAT block B (round 17): does the ACCEPTED (non-converged) state carry a
+            // ceiling cell? s == acc_s here (just restored above).
+            if (tsat) {
+                int nhi = 0, ihi = -1;
+                for (int i = 0; i < n; ++i) if (s.T[i] >= 1.0e6) { ++nhi; if (ihi < 0) ihi = i; }
+                if (nhi) {
+                    ++tsat_steps_hi;
+                    std::fprintf(stderr,
+                        "TSAT-ACCEPT case=%s step=%d retry=%d ncells=%d i0=%d\n",
+                        c.id.c_str(), step, acc_retry, nhi, ihi);
+                }
+            }
         }
         if (!stepped) {
             // Phase 3a Stage 3c (round 14, docs/YADV_ROUND_14_PLAN.md) -- authorised by an
@@ -2433,6 +2489,18 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             "STALL-ACCEPT-TOTAL: case=%s accepted %ld non-converged step(s) "
             "(ACID_STALL_ACCEPT=%d max_run=%d) -- this run is NOT a clean solve\n",
             c.id.c_str(), n_stall_accept, stall_accept_lvl, stall_accept_max);
+
+    // ACID_TSAT block C (round 17): run summary. final_cells_hi scans s.T directly (the
+    // `diverged` NaN-fill below touches only s.p/s.u, not s.T, so this reads the true last state).
+    if (tsat) {
+        int final_hi = 0;
+        for (int i = 0; i < n; ++i) if (s.T[i] >= 1.0e6) ++final_hi;
+        std::fprintf(stderr,
+            "TSAT-TOTAL case=%s calls=%ld calls_hi=%ld calls_lo=%ld cells_hi_max=%d "
+            "accepted_steps_hi=%ld first_hi_step=%d first_hi_cell=%d final_cells_hi=%d\n",
+            c.id.c_str(), tsat_calls, tsat_calls_hi, tsat_calls_lo, tsat_cells_hi_max,
+            tsat_steps_hi, tsat_first_step, tsat_first_cell, final_hi);
+    }
 
     // Stage 1 sect.3.5 (round 11, ACID_DBG only): the exact end state and effective stop time,
     // needed by Phase 3a Stage 2's window sweep to compute completion robustly instead of

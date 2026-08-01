@@ -2629,3 +2629,120 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RCELL=78:82 ACID_BLK_S
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RCELL=74:94 ACID_BLK_STEP=100 \
     ./build-cpp/cpp/denner_1d/denner1d_dump 33 2>&1 >/dev/null | grep "retry=0 "   # sect.26.1, stall
 ```
+
+---
+---
+
+# ROUND 17 (F2 risk assessment)
+
+## 27. F2 is V-SAFE on the entire published OFF path -- but F2 as literally named is the WRONG
+##     SHAPE regardless. Corrected form F2'' is now the pre-registered candidate.
+
+### 27.1 Round 16's stated risk basis was inaccurate -- corrected here, not edited there
+
+Round 16 §26.3 named F2 risky because "the ceiling is already exercised on the PUBLISHED path by
+cases 13/14/25/28/29's own transient violent shocks." Measured this round: **case29 is not in the
+graded suite at all** (`cases.cpp:569-593`, excluded -- its own comment records an unexplained
+blocker, see §27.4). Of the remaining four, **13/14/25 sit 3-4 orders of magnitude below the 1e6 K
+ceiling** in their converged state (4.8e2 / 8.6e2 / 1.4e4 K), and **case28 (Ms=100 air) is the only
+one within a factor of 2 analytically** (0.587x) -- its converged state is still 41% below the
+ceiling. This correction is recorded here per this project's convention (annotate, don't edit
+history).
+
+### 27.2 New instrument `ACID_TSAT` -- deliberately NOT `yadv`-gated (must observe OFF)
+
+Unlike `ACID_RCELL`/`ACID_RINIT` (round 13/16, both `yadv`-gated and therefore structurally unable
+to observe the OFF path -- a reusable fact worth recording for future rounds), `ACID_TSAT` probes
+`s.T[i] >= 1.0e6` immediately after the coupled h->T inversion loop closes, on every path. Counts
+residual-evaluation-level saturation (`calls_hi`), accepted-state saturation, and final-state
+saturation. Verified NOT to perturb the solve: `ACID_TSAT=1` on a full OFF `denner1d_validate` run
+produces byte-identical stdout to the unset baseline (G6) -- the strongest form of this project's
+standard non-perturbation gate, since this flag actually executes on the path being checked (unlike
+`ACID_RCELL`'s gate, which only proves the block is skipped).
+
+**Positive control (G9, mandatory before trusting any other number)**: `ACID_TSAT=1` on case33
+`+ALPHA_IMPLICIT` reports `calls_hi=13719`, `first_hi_cell=80` -- an exact match to round 16's
+directly-measured cell (§26.1's vacuum cell). The instrument is validated against an independent,
+already-published finding.
+
+### 27.3 Main measurement -- clean V-SAFE, all 19 OFF cases, zero exceptions
+
+| case | `calls` | `calls_hi` | `calls_lo` |
+|---|---|---|---|
+| 01/02/04/05/07 | 960-125494 | **0** | **0** |
+| 13/14/15 | 3694-7306 | **0** | **0** |
+| 24/25/26/27 | 10630-31763 | **0** | **0** |
+| **28** | **29975** | **0** | **0** |
+| 30/31/33/34/35/36 | 4190-41370 | **0** | **0** |
+
+**Every one of the 19 graded cases, across every residual evaluation of a full OFF-path run
+(totalling >400,000 calls), shows zero cells ever reaching the `T_from_hstat` ceiling.** Case28 --
+the analytically closest case (0.587x) -- shows zero hits across its own 29,975 calls, meaning even
+its worst TRANSIENT Newton iterate never actually touches the clamp, not just its converged state
+(which §27.1 already established via the independent density-inversion method). `calls_lo` (the
+EXISTING lower-saturation signal, already returning `false` today) is also zero everywhere on OFF --
+meaning the existing asymmetric failure signal is not currently exercised at all on the published
+path; F2/F2'' would activate a code path that has literally never fired in this suite's history.
+
+**Verdict: V-SAFE.** The branch F2/F2'' would change is PROVABLY never taken on the entire published
+OFF path. Round 16's stated caution, while a reasonable prior before measurement, does not survive
+direct measurement.
+
+### 27.4 But F2 as literally specified is the wrong shape -- independent of the measurement
+
+`T_from_hstat`'s only consuming call site (`acid.cpp:1216`, confirmed the sole `s.T` update on the
+published path since `coupled==true` unconditionally for all 19 graded cases, `cases.cpp:28`'s
+`unic=true` with no per-case override) treats `false` as "keep `s.T[i]` at its PREVIOUS value". This
+makes `compute_R` a function of call HISTORY, not of state alone -- breaking the four
+`compute_R(); // restore` sites (`acid.cpp:1592,1685,2062,2129`) that assume re-evaluating from the
+same `(u,p,h)` reproduces the same residual, load-bearing for the FD-Jacobian assembly at `:1685`.
+Worse: freezing `T` gives `dT/dh=0` **exactly and by construction** -- the very failure mode round
+16 §26.3 diagnosed as the reason Newton can never recover. F2 as named would make the death-of-
+derivative pathology MORE certain, not less.
+
+**Corrected form, F2'' (supersedes F2 in the priority list -- now F3 > F2'' > F1)**: keep
+`T_from_hstat` state-pure (still returns the clamped T), but additionally report saturation to the
+CALLER, which treats "any cell saturated in the accepted iterate" as a NEW stall reason (5, "T
+ceiling saturated") triggering the EXISTING dt-halving retry machinery -- composing with the
+existing reason 1-4 taxonomy (`acid.cpp:741`ish) and round 14's `diverged` marking, without
+touching residual purity anywhere.
+
+### 27.5 Side finding -- case29's likely root cause, for the record (not pursued)
+
+Case29 (Ms=100 water, excluded) has an analytic post-shock temperature of **2.932e6 K -- 2.93x
+ABOVE the solver's own 1e6 K clamp.** Its initial condition is not representable by the solver's own
+thermodynamic clamp from step 0, which very plausibly explains the `cases.cpp:591` blocker comment
+("dt collapses ~1e-9, front under-resolved") that has never previously been explained in this
+project's history. Not pursued this round (would require raising a global physical clamp, a
+separate decision affecting the published OFF path); recorded so a future round doesn't re-derive
+it from scratch.
+
+### 27.6 Verdict for round 17
+
+1. **V-SAFE, confirmed with zero exceptions across all 19 graded cases.** F2/F2'' is provably
+   byte-identical-safe on the published OFF path.
+2. **F2 as originally named is superseded by F2'' in the priority list** (now F3 > F2'' > F1) --
+   an architectural correction independent of the measurement, found by reading the four
+   `compute_R(); // restore` call sites.
+3. **No fix implemented this round** (diagnostic only, per this round's own bar: "essentially free
+   AND fully specified" -- not met, since F2 needed correcting to F2'' before any implementation
+   would be sound). F2'' is now well-specified enough for a future round to implement directly,
+   with the risk assessment already done.
+4. Case29's likely root cause identified for the record (§27.5), not pursued.
+5. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19). New
+   diagnostic-only `ACID_TSAT` stays default OFF; all hard gates hold with it unset, and G6 (the
+   critical non-perturbation check) confirms it is a true no-op even when it actually executes on
+   OFF.
+
+### 27.7 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_TSAT=1 \
+    ./build-cpp/cpp/denner_1d/denner1d_dump 33 2>&1 >/dev/null | grep TSAT-TOTAL   # sect.27.2 G9
+for c in 01 02 04 05 07 13 14 15 24 25 26 27 28 30 31 33 34 35 36; do
+  DENNER_ACID=1 ACID_TSAT=1 ./build-cpp/cpp/denner_1d/denner1d_dump $c 2>&1 >/dev/null | grep TSAT-TOTAL
+done   # sect.27.3's full table
+```

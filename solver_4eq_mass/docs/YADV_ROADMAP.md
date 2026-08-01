@@ -45,15 +45,17 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 10
+round_counter: 11
 consecutive_failures: 0
 done: false
-next_task: docs/YADV_PHASE3_PLAN.md Stage 1 -- make the silent stall audible (a stderr
-           "STALLED" message at acid.cpp's `if (!stepped) break;` site, plus setting
-           `diverged=true` there so validate/dump never again score a stall as a clean
-           completion). Then Stage 2 (`ACID_TEND_SCALE` diagnostic knob) to get a clean
-           in-domain residual for cases 24/34, resolving sect.20.2's plateau-window
-           discrepancy. Grounded in YADV_RESEARCH.md sect.20, docs/YADV_PHASE3_PLAN.md.
+next_task: docs/YADV_PHASE3_PLAN.md Stage 3 branch selection (3a retry-exhaustion accept-best,
+           3b Y->alpha recovery/limiting fix, or 3c an explicit Advisor decision to set
+           diverged=true at the stall site) -- gated on round 11's sect.21 evidence: the
+           exited-shock residual for cases 24/34 is now measured at ~7%/2% (not the ~40-50%
+           round 10 first reported, itself corrected this round), and no case in {24,33,34}
+           has ever had plain and +ALPHA_IMPLICIT complete simultaneously, so Stage 3's real
+           target is enabling that controlled A/B, not chasing the residual magnitude further.
+           Grounded in YADV_RESEARCH.md sect.21, docs/YADV_PHASE3_PLAN.md sect.2 Stage 3.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -198,6 +200,27 @@ not start a new round.
   four hard gates held (unit PASS, OFF 19/19, 9/9 byte-identical vs published binary,
   ON-vs-OFF genuinely differs as expected). → `YADV_RESEARCH.md` §20, `docs/YADV_PHASE3_PLAN.md`,
   commit `666c6c8`.
+- Round 11: Phase 3a Stages 1+2. Stage 1 makes the silent stall audible (`STALLED:` stderr
+  message + `ACID_DBG`-gated detail, `diverged` deliberately still NOT set -- that's Stage 3c,
+  needs an explicit Advisor decision). Verified stderr-only against an isolated main-HEAD build:
+  all 19 OFF dumps and OFF/plain-ON/+IMPLICIT stdout byte-identical. Side finding: the
+  FD-invariance gate is 13/19 (`{15,24,27,28,33,34}`), not the 12/19 this project's own memory
+  had recorded -- a stale prior figure, corrected, confirmed identical on unmodified main HEAD
+  (not a regression). Stage 2 adds `ACID_TEND_SCALE` (diagnostic observation-window knob,
+  default 1.0 = no-op, verified byte-identical to Stage 1 when unset). **The sweep this knob
+  enables RETRACTS round 10's own §20.2 finding**: `yadv_rh2.py`'s fixed `[0.3,0.6]` plateau box
+  straddled internal wave structure exactly as its own caveat warned; a corrected front-derived
+  window (found and fixed a bug along the way -- an earlier attempt sampled the wrong, still-
+  undisturbed side of the front) gives a STABLE, converged plateau across scales 0.4-1.0 for
+  cases 24/34 under `+ALPHA_IMPLICIT`: momentum residual `+7.351e-02`/`+2.063e-02`,
+  `Vs(mass)/Vs_ref` 1.4946/1.3968 -- matching the round-10 Planner's original static prediction
+  to 3-4 significant figures (the Planner was right; round 10's own measurement was wrong). An
+  independent front-position-vs-time linear-fit cross-check disagrees (R²=0.82/0.96, smaller
+  ratio) -- reported as an open, unreconciled discrepancy, not forced to match. No case in
+  {24,33,34} has ever had plain and `+ALPHA_IMPLICIT` complete simultaneously (round 10's
+  load-bearing finding stands). `ACID_YADV` status unchanged (default OFF, 15/19). Zero effect
+  on numerics with either new env var unset; all hard gates held throughout both stages.
+  → `YADV_RESEARCH.md` §21, `docs/YADV_ROUND_11_PLAN.md`, commits `272ce08`, `587c3f8`, `be83576`.
 
 ## Setup reference
 

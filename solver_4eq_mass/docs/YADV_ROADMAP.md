@@ -45,23 +45,29 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 14
+round_counter: 15
 consecutive_failures: 0
 done: false
-next_task: Round 14 closed Stage 3c (diverged=true at the retry-exhaustion give-up site) --
-           pure correctness/reporting fix, pass_count unchanged in all four hard gates,
-           ACID_STALL_ACCEPT's accept-and-continue path confirmed byte-identical. Two live
-           threads remain, neither narrowed by round 14: (a) round 13 sect.23.3's harder
-           simultaneous (T,rho)-consistency re-init (the single-field s.h reinit was REFUTED,
-           S4 -- a real fix needs T and rho reconciled at the same instant as h, not the same
-           approach with more fields bolted on); or (b) case33's still-unsolved, qualitatively
-           different sustained difficulty (round 12 sect.22.4, 221 accepts at budget 20, still
-           only 14.8% of t_end). A third, newly named but deliberately NOT pursued: max_steps
-           exhaustion is a sibling silent-partial-exit path to the one round 14 just fixed, but
-           case15 legitimately terminates via that cap and PASSES on OFF -- extending diverged
-           there needs careful design (would break 19/19 naively), left for a future round's
-           deliberate choice, not an autonomous default.
-           Grounded in YADV_RESEARCH.md sect.24, docs/YADV_ROUND_14_PLAN.md.
+next_task: Round 15 diagnosed case33's stall for the first time (ACID_RINIT had only ever run
+           on case24/34): SAME residual shape as round 13's mechanism (energy-dominant,
+           r_init doubles per dt-halving) but PROVABLY NOT the same source -- dal_remap stays
+           at DBL_EPSILON through every retry and every forced-accept step tested, ruling out
+           the alpha/Y-REMAP channel entirely. The actual driver is dh=|s.h-Htot_o|, ~3.7e12
+           and dt-independent, six orders of magnitude beyond the worst value ever seen in a
+           healthy +ALPHA_IMPLICIT run (case24, ~4e6) -- origin not yet identified. Round 13's
+           speculated "alpha inherits the lag" compounding mechanism is refuted for case33
+           specifically (dal_remap clean even after 3 consecutive forced accepts), but dh/drho
+           DO compound directly (dh +51%, drho +5x across 4 accepted steps) -- a different,
+           still-unidentified channel. Do NOT retry ACID_YADV_HREINIT or any alpha/h
+           single-field fix on case33 -- targets a channel already measured clean. Three live
+           threads for round 16: (a) identify dh/drho's actual origin for case33 (likely needs
+           a per-cell local-shock-strength trace, not the current state-mismatch instrument);
+           (b) round 13 sect.23.3's harder simultaneous (T,rho,h) reconciliation for case24/34
+           (now motivated by TWO independent findings with DIFFERENT root causes -- a fix for
+           one is not guaranteed to address the other); (c) max_steps exhaustion, the sibling
+           silent-partial-exit path round 14 didn't touch (case15 legitimately uses it and
+           PASSES on OFF -- needs careful design).
+           Grounded in YADV_RESEARCH.md sect.25, docs/YADV_ROUND_15_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -282,6 +288,21 @@ not start a new round.
   not pursued -- case15 legitimately uses that cap and PASSES on OFF, so extending `diverged` there
   needs careful future design, not an autonomous default.
   → `YADV_RESEARCH.md` §24, `docs/YADV_ROUND_14_PLAN.md`, commit `b67850e`.
+- Round 15: first-ever diagnosis of case33's stall (`ACID_RINIT` had only run on case24/34 before).
+  **Same residual SHAPE as round 13's mechanism** (energy-dominant `fene->1.0`, `r_init` doubles
+  almost exactly per dt-halving) **but provably NOT the same SOURCE**: `dal_remap` measures at
+  literal `DBL_EPSILON` at every retry of the first stall AND across 4 consecutive forced-accept
+  steps -- the alpha/Y-REMAP channel round 13 found for case24/34 is completely absent here, as its
+  own `+ALPHA_IMPLICIT` control predicted structurally. The actual driver is `dh=|s.h-Htot_o|`,
+  constant `~3.7e12` and dt-independent -- **six orders of magnitude beyond the worst value
+  (`~4e6`) ever seen across case24's entire healthy `+ALPHA_IMPLICIT` trajectory**, measured as a
+  control. Round 13's speculated "alpha inherits the previous step's lag" compounding is directly
+  refuted for case33 (`dal_remap` stays clean through repeated forced accepts) -- but real
+  compounding IS measured, through `dh`/`drho` directly (+51%/+5x across 4 accepted steps), a
+  different and still-unidentified channel. Diagnostic-only round, no fix attempted or
+  implemented, no source code changed (`git status` confirmed clean), no hard gates required (no
+  source change to verify a no-op against). `ACID_YADV` status unchanged (default OFF, 15/19).
+  → `YADV_RESEARCH.md` §25, `docs/YADV_ROUND_15_PLAN.md`, commit `a56627a`.
 
 ## Setup reference
 

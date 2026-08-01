@@ -1500,6 +1500,10 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     };
                     Vec dru(n), drp(n), drh(n);          // exact d(rho)/d(u,p,h)
                     Vec dTp(n), dTh(n), dTu(n);          // d(T)/d(p,h,u) from the h->T inversion
+                    // Phase 2 Stage 1: d(alpha)/dp|_{T,Y} per cell. Zero unless the residual
+                    // actually re-derives alpha inside the Newton (yadv && alpha_implicit, line
+                    // ~1014). Filled here, CONSUMED by Stage 2's J2 flux-blend diagonal loop.
+                    Vec alp_p(n, 0.0);
                     for (int i = 0; i < n; ++i) {
                         const double al = std::clamp(s.alpha[i], 0.0, 1.0);
                         const double p = std::max(s.p[i], 1.0), Tc = std::max(s.T[i], 1e-6), u = s.u[i];
@@ -1509,9 +1513,29 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                         const double N = al * pa.rho * pa.h + (1 - al) * pb.rho * pb.h;
                         const double N_T = al * (pa.phi * pa.h + pa.rho * pa.cp) + (1 - al) * (pb.phi * pb.h + pb.rho * pb.cp);
                         const double N_p = al * (pa.zeta * pa.h + pa.rho * pa.dh_dp) + (1 - al) * (pb.zeta * pb.h + pb.rho * pb.dh_dp);
-                        const double hsT = (N_T * D - N * D_T) / (D * D), hsp = (N_p * D - N * D_p) / (D * D);
+                        // ---- Phase 2 Stage 1 (docs/YADV_PHASE2_PLAN.md 2.2 "J1") -------------
+                        // Under ACID_YADV + ACID_YADV_ALPHA_IMPLICIT the residual re-derives
+                        // alpha = alpha(Y, rho_a(p,T), rho_b(p,T)) at the CURRENT iterate (line
+                        // ~1014), so d(alpha)/dp|_{T,Y} = a_p is NOT zero and the frozen-alpha
+                        // D_p / N_p above are the wrong derivative of the map compute_R actually
+                        // evaluates. Measured defect (round 5 unit test, case15's state):
+                        // D_p 1.00196e-06 -> D_p* 5.22580e-04, a factor 521.56. Star them with
+                        // the product-rule addends (D = al*ra + (1-al)*rb  =>  dD/dp gains
+                        // (ra-rb)*a_p; N = al*ra*ha + (1-al)*rb*hb  =>  dN/dp gains
+                        // (ra*ha - rb*hb)*a_p).
+                        // The T-pathway is deliberately NOT wired: alpha is lagged one compute_R
+                        // call in T (the alpha loop at ~1014 runs BEFORE the h->T inversion at
+                        // ~1026), so the frozen-T derivative IS the exact derivative of the map as
+                        // coded. D_T / N_T / hsT stay untouched. That is the contingent Stage 3.
+                        const bool aimp = yadv && alpha_implicit;
+                        const double ap = aimp ? dalpha_dp_massfrac(al, pa.zeta, pa.rho,
+                                                                        pb.zeta, pb.rho) : 0.0;
+                        const double D_ps = aimp ? D_p + (pa.rho - pb.rho) * ap : D_p;
+                        const double N_ps = aimp ? N_p + (pa.rho * pa.h - pb.rho * pb.h) * ap : N_p;
+                        alp_p[i] = ap;   // Stage 2 (J2 flux-blend diagonal) consumes this
+                        const double hsT = (N_T * D - N * D_T) / (D * D), hsp = (N_ps * D - N * D_ps) / (D * D);
                         dTh[i] = 1.0 / hsT; dTu[i] = -u / hsT; dTp[i] = -hsp / hsT;
-                        drh[i] = D_T * dTh[i]; dru[i] = D_T * dTu[i]; drp[i] = D_p + D_T * dTp[i];
+                        drh[i] = D_T * dTh[i]; dru[i] = D_T * dTu[i]; drp[i] = D_ps + D_T * dTp[i];
                     }
                     for (int i = 0; i < n; ++i) {  // transient + energy pressure source (diagonal)
                         const double b = bdf_c0[i] * VdT, rho = s.rho[i], u = s.u[i], h = s.h[i];

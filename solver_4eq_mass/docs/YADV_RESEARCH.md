@@ -1035,3 +1035,119 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_NO_AJAC=1 ./build-cpp/
 DENNER_ACID=1 ACID_NO_AJAC=1 ./build-cpp/cpp/denner_1d/denner1d_validate                                          # FD control on the default alpha path: 13/19
 python3 scripts/yadv_verify.py
 ```
+
+---
+---
+
+# ROUND 6 (first round run under the `yadv-round` autonomous loop)
+
+## 16. Phase 2 Stage 0 -- alpha derivative helpers (additive), and Stage 1 -- analytic Jacobian, p-pathway. Genuine success: 12/19 -> 14/19, case13 and case25 recover.
+
+### 16.1 Stage 0 (round 5)
+
+Added header-inline `alpha_derivs_massfrac`/`dalpha_dp_massfrac`/`dalpha_dT_massfrac` to `eos.hpp`
+(no call sites yet) plus a `denner1d_unit.cpp` block verifying: central-FD agreement, the exact
+mixture-compressibility identity `D_p + (rho_a-rho_b)*a_p == rho*(alpha*zeta_a/rho_a +
+(1-alpha)*zeta_b/rho_b)`, the `a_T` exact-zero property for `b=0` phase pairs (to a measured
+cancellation floor, not bitwise -- `phase_props` does not round-trip `ppinf`/`A` exactly), and
+Phase-2 §1's numeric prediction at case15's state: **measured ratio 521.558, predicted ~500,
+confirmed.**
+
+Found and fixed a bug in the new unit test itself (not the derivative formula): the FD-comparison
+tolerance floor for near-algebraic-zero cases (the air|vapor pair shares `pinf=0, b=0`, so
+`zeta/rho` is identical between the phases and `a_p` vanishes exactly) was multiplied by an extra
+`1e-6`, making the tolerance ~1e6x too strict and failing 581 checks. The derivative formula was
+independently confirmed correct throughout via a standalone probe program (matches FD to full
+double precision everywhere real signal exists, e.g. every air|water combination). Fixed by using
+the roundoff floor directly as the absolute tolerance rather than shrinking it further.
+
+All four gates unchanged, as required for a purely additive stage: OFF 19/19+9/9, `ACID_YADV=1`
+15/19, `+ALPHA_IMPLICIT` 12/19 under both Jacobians, identical failure sets to round 4.
+
+### 16.2 Stage 1 -- the first analytic-Jacobian edit in this whole experiment
+
+Augmented the existing J1 cell-EOS-chain loop (`acid.cpp`, the analytic Jacobian's per-cell
+`D,D_T,D_p,N,N_T,N_p,hsT,hsp,dTp/dTh/dTu,drp/dru/drh` block): under `yadv && alpha_implicit`, star
+`D_p`/`N_p` with the product-rule addend from `a_p = d(alpha)/dp|_{T,Y}` (Stage 0's already-derived,
+already-unit-tested helper):
+
+```cpp
+D_ps = D_p + (rho_a - rho_b) * a_p
+N_ps = N_p + (rho_a*h_a - rho_b*h_b) * a_p
+hsp  = (N_ps*D - N*D_ps) / D^2      // was (N_p*D - N*D_p)/D^2
+drp  = D_ps + D_T * dTp             // was D_p + D_T * dTp
+```
+
+The T-pathway (`D_T`, `N_T`, `hsT`) is deliberately untouched -- the residual's alpha is lagged one
+`compute_R` call in T (§0.4), so the frozen-T derivative is the exact derivative of the coded map;
+starring T is the contingent Stage 3. The `yadv && alpha_implicit` ternary makes the unstarred
+branch a bit-copy of the existing expressions, so the OFF path and plain `ACID_YADV=1` are
+byte-unchanged by construction, not by floating-point luck.
+
+### 16.3 Gates (all held)
+
+```
+OFF (ACID_YADV unset)                                  : 19/19, 9/9 byte-identical (unchanged)
+ACID_YADV=1 (plain)                                     : 15/19 (unchanged, case01 dump byte-identical)
+ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_NO_AJAC=1   : 12/19, EXACT SAME failure set as round 4/5
+                                                           (14,15,24,27,28,33,34) -- Stage 1 only
+                                                           touches code the FD path never executes
+```
+
+### 16.4 The target measurement -- genuine success
+
+`ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1`, default analytic Jacobian:
+
+| | round 4/5 (frozen J1) | **round 6 (Stage 1)** |
+|---|---|---|
+| `pass_count` | 12/19 | **14/19** |
+| failure set | 13,14,15,24,25,33,34 | **14,15,24,33,34** |
+| case13 | FAIL, `l2_p=0.0383` | **PASS**, `l2_p=0.0313`, `corr_p=0.994` |
+| case25 | FAIL, `corr_p=-0.123` | **PASS**, `corr_p=0.991` |
+| case15 `amp_ratio_p` | 1.23223 | **1.00042** (target ~1.0 -- exact) |
+| case15 `corr_p` | 0.09937 | **0.999285** |
+| case15 | FAIL (non-convergence) | FAIL, but **every quantitative gate criterion now passes**
+  (`corr_p/u/rho`, all `l2_*`) -- blocked only by the `smooth_ok`/`osc_ok` TV-jump guards, a
+  narrower and different failure than round 4's non-convergence diagnosis. `peak_delta_u` moved
+  321 (round-4 FD) -> **0** this round, a strong signal but not independently confirmed against
+  the exact `p_osc`/`r_osc` thresholds this round. |
+| case14 | FAIL | FAIL, unchanged in kind (round 5's separate `hsT<0` lead, out of scope) |
+| case24/33/34 | FAIL, conservation defect | FAIL, unchanged in kind (explicit non-goal, §11.6/§15.5) |
+
+Success bar was `pass_count >= 13`; achieved **14**, with case13 AND case25 both fully recovering
+(the plan flagged this as possible but uncertain) and case15 moved to within one narrow gate
+criterion of passing outright.
+
+### 16.5 Verdict
+
+1. **The analytic-Jacobian blind spot diagnosed in round 4 (§15.4) is now closed for the p-pathway
+   on cases 13/25**, and case15's amplitude defect (§7.2's original diagnosis) is closed to within
+   a TV/oscillation guard. A single, small, `const`-only, sign-provable diff recovers what round 4
+   needed the FD Jacobian (and its ~2x cost, and its own case14 NaN) to achieve for 13/25, and does
+   *better* than the FD result for case15 (`peak_delta_u` 0 vs the FD run's residual 321).
+2. **Cases 24/33/34 remain unrecovered, exactly as predicted** -- their defect is the conservation
+   failure of §11.6, orthogonal to Jacobian accuracy. Not chased this round (non-goal).
+3. **Case14 remains unrecovered** and was not expected to move -- round 5 traced its risk to
+   `hsT < 0` at its own initial state (the h->T inversion itself is locally ill-posed there), a
+   separate defect from the one Stage 1 targets.
+4. This is the first round run end-to-end under the `yadv-round` autonomous loop (see
+   `docs/YADV_ROADMAP.md`). The Advisor spot-checked the Planner's line-anchor claims against the
+   live code before implementing, per the loop's own protocol, and found zero drift.
+
+Recommendation: proceed to Phase-2 Stage 2 (the J2 flux-blend diagonal, `alp_p[]` already stored
+and waiting) -- the plan predicts this is where the water/air density-ratio factor
+`(rho_a-rho_b)~-1000` most directly enters the mass/energy flux rows, and is the strongest
+remaining candidate for closing case15's TV guard and for any further movement on 14/24/33/34.
+
+### 16.6 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit                                              # includes Stage-0 checks + diagnostic prints
+DENNER_ACID=1                                          ./build-cpp/cpp/denner_1d/denner1d_validate   # 19/19
+DENNER_ACID=1 ACID_YADV=1                              ./build-cpp/cpp/denner_1d/denner1d_validate   # 15/19
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1                ./build-cpp/cpp/denner_1d/denner1d_validate   # 14/19 (Stage 1)
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_NO_AJAC=1 ./build-cpp/cpp/denner_1d/denner1d_validate   # 12/19, unchanged
+python3 scripts/yadv_verify.py
+```

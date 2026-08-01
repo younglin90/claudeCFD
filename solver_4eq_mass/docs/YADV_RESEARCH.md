@@ -1977,3 +1977,165 @@ cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j
 DENNER_ACID=1 ACID_YADV=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 2>&1 >/dev/null | grep STALLED
 python3 scripts/yadv_r11_window.py            # sect.21.3/21.4's full sweep tables
 ```
+
+---
+---
+
+# ROUND 12 (Phase 3a Stage 3)
+
+## 22. Retry-exhaustion accept-best (`ACID_STALL_ACCEPT`) gets cases 24 and 34 to complete for the
+##     FIRST TIME EVER -- the first-ever controlled A/B now exists, and it favors `+ALPHA_IMPLICIT`,
+##     with an honest caveat
+
+### 22.1 The stall is a pure Newton-convergence failure, not a physical collapse -- 3b refuted
+
+Direct `ACID_DBG` traces on all three known-stalling configurations (case24 plain, case34 plain,
+case33 `+ALPHA_IMPLICIT`) show the identical signature: `reason=newton-no-progress cell=-1`, and
+`max|u|` numerically FROZEN across the full 14-retry, ~16000x dt-halving sweep. No non-finite cell,
+no `rho->0`, no void cell, ever, at any retry, in any of the three. This directly refutes
+`docs/YADV_PHASE3_PLAN.md`'s Stage-3b premise ("the Y->alpha recovery is collapsing to alpha->1
+adjacent to the closure-(A) contact") -- there is no collapsing cell to find. 3b is not implemented.
+
+### 22.2 The decisive measurement -- `r_init` grows exactly as `1/dt`
+
+`ACID_RHIST=1 ACID_BLK_STEP=19` on case24's stalling step, independently reproduced by the Advisor
+(retries 6-13 shown; the earlier retries 0-4 are flat):
+
+| retry | dt | `r_init` (residual at `it==0`, i.e. before any Newton work) | ratio vs prior |
+|---|---|---|---|
+| 6 | 8.362e-13 | 2.5492e+11 | -- |
+| 7 | 4.181e-13 | 3.9117e+11 | 1.53 |
+| 8 | 2.090e-13 | 7.2446e+11 | 1.85 |
+| 9 | 1.045e-13 | 1.4323e+12 | 1.98 |
+| 10 | 5.226e-14 | 2.8701e+12 | 2.004 |
+| 11 | 2.613e-14 | 5.7566e+12 | 2.006 |
+| 12 | 1.306e-14 | 1.1535e+13 | 2.004 |
+| 13 | 6.532e-15 | 2.3095e+13 | 2.002 |
+
+`r_init` **exactly doubles for every halving of dt from retry 6 onward** -- the pre-Newton state
+handed to Newton gets strictly and unboundedly worse as dt shrinks. This falsifies the `bad` gate's
+own design comment (`acid.cpp`, "dt-retry a non-converged step ONLY when it made NO progress at all
+-- that means dt is too large"): dt is not too large here; halving it is actively counterproductive.
+The mechanism (not implemented or fixed this round, see §22.6/7a): a dt-INDEPENDENT state mismatch
+is injected by the pre-Newton explicit block (Y-advection -> alpha recovery at `(p_o,T_o)` -> the
+`rho_o`/`hstat_o`/`Htot_o` re-evaluation), entering the transient residual as `Delta*dx/dt`.
+
+### 22.3 The fix: `ACID_STALL_ACCEPT` -- accept the best-across-retries eligible state
+
+New research-only env var (default 0, byte-identical). Level 1: on exhausting all 14 retries with
+every failure being `newton-no-progress` (finite + speed-bounded), adopt the best-ranked
+(`rbest/r_init` minimized) state instead of breaking with nothing. Discovered during implementation
+that `acid.cpp:2093` (`if (ajac && coupled && !conv_inner && best_it >= 0) s = s_best;`) already
+restores the best iterate WITHIN a retry unconditionally -- so no new keep-best machinery was needed
+inside the Newton loop, only keep-best ACROSS retries. Level 2 additionally stops a step that only
+ever hit reason-1 retries from collapsing `cfl_scale` (measured: `cfl_scale` was already pinned at
+its `1.0e-3` floor after only 19-229 steps for all three stalling cases -- §22.7).
+
+Loud by construction: every acceptance prints `STALL-ACCEPT:` (case, step, retry chosen, ratio),
+and a completed run that contains any prints `STALL-ACCEPT-TOTAL: ... this run is NOT a clean
+solve` unconditionally. A run cannot silently be mistaken for clean (the exact failure mode of the
+sect.20 retraction).
+
+Bounded by a consecutive-accept budget (`ACID_STALL_ACCEPT_MAX`, default 4, reset by any clean
+step) -- caps a livelock to a few wasted steps, never a hang.
+
+**Verified byte-identical to round 11 with the var unset**: all four hard gates (OFF 19/19, plain-ON
+15/19, `+ALPHA_IMPLICIT` 14/19, FD-invariance 13/19) identical stdout, zero `STALL-ACCEPT` lines.
+
+Found and fixed a scoping bug during implementation: `rho_o`/`u_o`/`Htot_o` are retry-loop-local
+(same class of bug as round 11's `rbest`/`r_init`) -- resolved by recognizing the mirror-bookkeeping
+copy is dead code on the accept path anyway (`have_o2=false` there makes `mom_o2`/`rho_o2`/`ene_o2`
+unread by construction), so it was deleted rather than captured.
+
+### 22.4 Result -- FAR better than the round's own calibrated expectation
+
+The plan expected level 1 alone to likely be insufficient (remove the stop but leave `cfl_scale` on
+its floor, ~2-3 million steps still needed). **Measured instead**: level 1 alone gets BOTH case24
+and case34 (plain `ACID_YADV=1`) to complete cleanly to `t_end`:
+
+| case | total steps | accepted (non-converged) steps | when | outcome |
+|---|---|---|---|---|
+| 24 plain | 1800 | 2 | step 19-20 (t/t_end = 0.27%) | **completes to t_end** |
+| 34 plain | 2648 | 4 | step 229-233 (t/t_end = 0.45%) | **completes to t_end** |
+| 33 `+IMPLICIT`, level 1 | 104 (stopped) | 4 (budget exhausted) | -- | still stalls |
+| 33 `+IMPLICIT`, level 2, MAX=4 | 251 (stopped) | 8 | -- | still stalls, further but not close |
+| 33 `+IMPLICIT`, level 2, MAX=20 | 1416 (stopped) | 221 | -- | reaches 14.8% of t_end, still stalls |
+
+**Every accepted step for cases 24 and 34 occurs in a tight cluster right at shock formation** (well
+under 0.5% into the run); after that cluster, both runs proceed with ZERO further `STALL-ACCEPT`
+lines for the remaining 99.5%+ of steps. This is a brief, localized Newton difficulty at the moment
+the initial discontinuity resolves into a shock, not a pervasive one. Case33 is qualitatively
+different: sustained, escalating difficulty (221 accepts even at a 20-step budget, still short of
+`t_end`) -- not a one-time formation glitch. **3a alone does not fix case33**; a future round's
+Stage 3 (§22.6/7a-7c) is still needed for it.
+
+### 22.5 The first-ever controlled A/B -- and an honest, load-bearing caveat
+
+No case in {24,33,34} has EVER had a plain and a `+ALPHA_IMPLICIT` run complete simultaneously
+(rounds 3-11). **This round produces the first two.** Front-derived-window RH residual (round 11's
+validated method, §21.3, reused verbatim -- independently reconfirmed here that the `+IMPLICIT`
+numbers exactly reproduce round 11's published values):
+
+| case | config | momentum resid (rel) | `Vs(mass)` |
+|---|---|---|---|
+| 24 | plain + `STALL_ACCEPT=1` (2 accepted steps) | **+9.804e-01** | 1926.1 |
+| 24 | `+ALPHA_IMPLICIT` (clean, 0 accepted steps) | **+7.351e-02** | 9605.6 |
+| 34 | plain + `STALL_ACCEPT=1` (4 accepted steps) | **+4.562e-01** | 8698.5 |
+| 34 | `+ALPHA_IMPLICIT` (clean, 0 accepted steps) | **+2.063e-02** | 11455.3 |
+
+At face value: `+ALPHA_IMPLICIT` conserves the leading shock's Rankine-Hugoniot jump dramatically
+better than plain -- 7.35% vs 98.0% for case24, 2.06% vs 45.6% for case34.
+
+**This must NOT be read as a clean result.** The plain runs are explicitly NOT clean solves (2 and 4
+accepted non-converged steps respectively, per `STALL-ACCEPT-TOTAL`'s own disclosure), and those
+accepts are concentrated exactly at shock formation -- the single most sensitive place for a defect
+to corrupt the leading shock's own self-consistency as it propagates through the rest of the domain.
+It is entirely possible (and not ruled out by this round's measurements) that some or all of the
+98.0%/45.6% residual reflects the `ACID_STALL_ACCEPT` mechanism's own defect at formation, not an
+intrinsic property of plain Y-transport. **The controlled A/B this investigation has wanted since
+round 10 now exists, but it is not yet a clean one.** A genuinely clean comparison needs the
+formation-time difficulty itself fixed (§22.6/7a), not worked around.
+
+### 22.6 Level 2's cost -- a real regression, not adopted as default
+
+`ACID_YADV=1 ACID_STALL_ACCEPT=2` (no `+ALPHA_IMPLICIT`) drops plain-ON's `denner1d_validate` from
+15/19 to **14/19** -- case28, previously clean, newly fails. Level 1 alone (`ACID_STALL_ACCEPT=1`)
+has **zero regression**: 15/19, identical failure set `{15,24,33,34}` to level 0. Per the round's own
+pre-registered decision rule (`docs/YADV_ROUND_12_PLAN.md` sect.9, R9): level 1 is reported as the
+round's result; level 2's CFL-neutrality change is a measured regression, not adopted. (It remains
+available as a research-only flag for cases like 33 where the extra progress it buys may be worth
+the cost in a future targeted investigation -- not for validation runs.)
+
+### 22.7 Verdict for round 12
+
+1. **3b refuted** (no void cell, ever, in any of the three stalling configurations) -- confirms and
+   extends §2's branch decision. **3c still not implemented** (needs explicit Advisor decision).
+2. **The stall mechanism is now understood**, not just worked around: a dt-independent state
+   mismatch from the pre-Newton explicit alpha/Y block makes the residual scale as 1/dt, so
+   dt-halving retry is actively counterproductive for this failure mode. This is the round's most
+   durable result regardless of the accept mechanism's own caveats.
+3. **Cases 24 and 34 (plain) complete for the first time ever**, via `ACID_STALL_ACCEPT=1`, with
+   zero `pass_count` regression -- far exceeding the round's own calibrated expectation.
+4. **The first-ever controlled A/B for cases 24/34 now exists** and favors `+ALPHA_IMPLICIT` by a
+   wide margin (7-8x smaller RH residual) -- reported with the explicit, load-bearing caveat that
+   the plain runs carry a small, precisely-located but not-yet-eliminated non-convergence defect at
+   shock formation. Not yet a clean result; the honest next step is fixing formation, not trusting
+   the comparison as final.
+5. **Case33 remains unsolved** -- a qualitatively different, sustained (not one-time) difficulty;
+   3a alone does not get it to `t_end` even with a 5x larger accept budget.
+6. **Level 2 is a measured net negative** for general validation (case28 regression) and is not
+   adopted; level 1 is the round's recommended setting for any future work in this area.
+7. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, still 15/19 at the shipped
+   default of `ACID_STALL_ACCEPT` unset). All four hard gates hold with the new env var unset.
+
+### 22.8 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+DENNER_ACID=1 ACID_YADV=1 ACID_RHIST=1 ACID_BLK_STEP=19 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
+    2>&1 >/dev/null | grep "^RHIST it=0"       # sect.22.2's r_init doubling, per retry block
+DENNER_ACID=1 ACID_YADV=1 ACID_STALL_ACCEPT=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
+    2>&1 >/dev/null | grep "STALL-ACCEPT"      # sect.22.3/22.4
+```

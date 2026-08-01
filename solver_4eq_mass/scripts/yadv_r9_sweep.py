@@ -38,14 +38,25 @@ CONFIGS = [
     ("E", "OFF+FD", {"ACID_NO_AJAC": "1"}),
     ("F", "ON+IMPLICIT+T", {"ACID_YADV": "1", "ACID_YADV_ALPHA_IMPLICIT": "1",
                              "ACID_YADV_ALPHA_IMPLICIT_T": "1"}),
+    ("G", "ON+FD", {"ACID_YADV": "1", "ACID_NO_AJAC": "1"}),
 ]
+# EXPECTED updated round 20 (docs/YADV_RESEARCH.md sect.30): promoting the T-ceiling-saturation
+# stall check (F2'', formerly ACID_TSAT_STALL) to unconditional changed D and E -- both were
+# silently accepting a saturated iterate that later NaN-diverged; catching it as a stall now lets
+# the existing dt-halving retry find an admissible step instead, so case28 (D) and case27 (E) flip
+# from FAIL to PASS. A/B/C/F are unchanged (measured byte-identical to their round 19 values).
+# Pre-round-20 values (last valid through commit ea38c04, i.e. through round 19):
+#   D: (12, {"14", "15", "24", "27", "28", "33", "34"})
+#   E: (13, {"15", "24", "27", "28", "33", "34"})
+#   (config G did not exist before round 20)
 EXPECTED = {
     "A": (19, set()),
     "B": (15, {"15", "24", "33", "34"}),
     "C": (14, {"14", "15", "24", "33", "34"}),
-    "D": (12, {"14", "15", "24", "27", "28", "33", "34"}),
-    "E": (13, {"15", "24", "27", "28", "33", "34"}),
+    "D": (13, {"14", "15", "24", "27", "33", "34"}),
+    "E": (14, {"15", "24", "28", "33", "34"}),
     "F": (14, {"14", "15", "24", "33", "34"}),
+    "G": (15, {"15", "24", "33", "34"}),
 }
 ALL_CASES = ["01", "02", "04", "05", "07", "13", "14", "15", "24", "25", "26", "27", "28",
              "30", "31", "33", "34", "35", "36"]

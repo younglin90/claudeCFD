@@ -547,20 +547,6 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     long tsat_calls = 0, tsat_calls_hi = 0, tsat_calls_lo = 0;
     long tsat_steps_hi = 0;
     int  tsat_cells_hi_max = 0, tsat_first_step = -1, tsat_first_cell = -1;
-    // ACID_TSAT_STALL (round 18, F2'', RESEARCH-ONLY, default 0 = OFF, deliberately NOT
-    // yadv-gated -- like ACID_TSAT it must be able to execute on the published OFF path so its
-    // no-op claim is testable rather than structural). Treats "the accepted iterate still has a
-    // cell pinned at T_from_hstat's 1e6 ceiling" as a NEW stall reason (5) fed into the EXISTING
-    // dt-halving retry machinery. T_from_hstat and compute_R are UNCHANGED -- residual purity and
-    // the four `compute_R(); // restore` sites are untouched by construction; this is the
-    // corrected form F2'' (docs/YADV_RESEARCH.md sect.27.4), NOT F2. Round 17 sect.27.3 measured
-    // calls_hi==0 across >400,000 residual evaluations of all 19 graded OFF cases, and the state
-    // this gate scans is always one ACID_TSAT block A already observed -- so SETTING this flag is
-    // provably a no-op on OFF. Still flag-gated because the ACID_YADV / +ALPHA_IMPLICIT / FD-
-    // invariance paths were never swept for saturation before round 18
-    // (docs/YADV_ROUND_18_PLAN.md sect.5, Stage 0). 0/unset/malformed = fully OFF.
-    const int tsat_stall = []{ const char* e = std::getenv("ACID_TSAT_STALL");
-                               return e ? std::max(0, std::atoi(e)) : 0; }();
     // THINC (Xiao/Shyue-Xiao tanh) interface sharpening of the VOF face alpha in the colour-
     // function transport (the alpha loop below). ONLY the face alpha `af[]` of the non-conservative
     // alpha update uses it -- the ACID mass/momentum/energy fluxes use the CELL alpha, so THINC
@@ -766,7 +752,8 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // is added, so every accepted step is bit-identical to the pre-change build.
         int  stall_reason = 0;    // 1=Newton made no progress, 2=non-finite p, 3=non-finite u,
                                   // 4=|u|>10*uref, 5=a cell pinned at the 1e6 K T ceiling
-                                  //   (ACID_TSAT_STALL only; see the flag's declaration above)
+                                  //   (F2'', round 18/20; unconditional since round 20 -- see the
+                                  //   mechanism below)
         int  stall_cell   = -1;   // first offending cell for reasons 2-5
         double stall_dt   = 0.0;  // the last dt actually attempted (dt is halved after the check)
         int  stall_retry  = -1;
@@ -2311,7 +2298,8 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // iterate like the FD path does -- retrying would just collapse dt and freeze the run.
         bool bad = (ajac && coupled && !conv_inner && rbest >= r_init);
         if (bad) { stall_reason = 1; stall_cell = -1; }
-        // ---- F2'' (round 18, ACID_TSAT_STALL): T-ceiling saturation is a STALL, not a step. ----
+        // ---- F2'' (round 18, promoted unconditional round 20): T-ceiling saturation is a
+        // STALL, not a step. ----
         // A cell at T_from_hstat's 1e6 clamp is not a solution of hmix(T)=hstat: dT/dh is exactly
         // 0 there, so Newton's energy unknown moves and the thermodynamic state does not respond
         // (docs/YADV_RESEARCH.md sect.26.1 -- the mechanism behind case33's unrecoverable stall).
@@ -2325,9 +2313,19 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // NOT ajac-gated (unlike the reason-1 term above): saturation is a property of the STATE,
         // not of the Jacobian mode. `coupled`-gated to match ACID_TSAT block A: on the segregated
         // path the convex T-update can never REACH 1e6 from below, so this is equivalent, but the
-        // gate states the intent. Integer/compare only -- no FP arithmetic is added, and the whole
-        // block is skipped when the flag is unset.
-        if (tsat_stall > 0 && coupled) {
+        // gate states the intent. Integer/compare only -- no FP arithmetic is added.
+        // UNCONDITIONAL since round 20 (docs/YADV_RESEARCH.md sect.30): this block was gated
+        // behind an opt-in env flag through round 19 for the same reason the ACID_TSAT probe
+        // existed -- the ACID_YADV / +ALPHA_IMPLICIT / FD-invariance paths had never been swept
+        // for saturation before round 18. Round 18's own sweep (all 19 graded OFF cases,
+        // calls_hi==0) and round 20's 7-config battery (A-G, both ACID_STALL_ACCEPT levels)
+        // proved the old flag's own no-op claim on every published path: turning it on changed
+        // NOTHING except case33/34 under +ALPHA_IMPLICIT, where it turns a silent NaN divergence
+        // into an earlier, correctly-typed STALLED-DETAIL report. Per round 14's precedent for
+        // correctness fixes (the sibling `diverged=true` fix shipped with no opt-out), this is no
+        // longer optional: reason 5 is a real solver defect (a state the EOS cannot represent),
+        // not a research toggle. Last commit where the old opt-in flag still existed: ea38c04.
+        if (coupled) {
             for (int i = 0; i < n; ++i)
                 if (s.T[i] >= 1.0e6) { bad = true; stall_reason = 5; stall_cell = i; break; }
         }
@@ -2386,10 +2384,11 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // which is exactly "finite everywhere and |u| <= 10*uref". Ranked by the DIMENSIONLESS
         // progress ratio rbest/r_init (rnorm3 is unnormalised and not comparable across cases or
         // across retries once r_init starts scaling as 1/dt, docs/YADV_ROUND_12_PLAN.md sect.1.2).
-        // Round 18 (F2''): and, when ACID_TSAT_STALL is on, also "no cell at the 1e6 K T ceiling"
-        // -- the reason-5 assignment above displaces reason 1, so a saturated retry can never be
-        // captured here nor adopted below. Accepting a state known NOT to solve hmix(T)=hstat is
-        // the "silently accept garbage" mode this mechanism's own safeguard exists to prevent.
+        // Round 18/20 (F2'', unconditional since round 20): and also "no cell at the 1e6 K T
+        // ceiling" -- the reason-5 assignment above displaces reason 1, so a saturated retry can
+        // never be captured here nor adopted below. Accepting a state known NOT to solve
+        // hmix(T)=hstat is the "silently accept garbage" mode this mechanism's own safeguard
+        // exists to prevent.
         if (stall_accept_lvl > 0) {
             if (stall_reason != 1) only_reason1 = false;
             if (stall_reason == 1 && r_init > 0.0 && std::isfinite(rbest)) {

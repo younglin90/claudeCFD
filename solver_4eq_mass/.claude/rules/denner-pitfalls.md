@@ -14,6 +14,14 @@ verified facts — do not delete and do not retry the documented dead-ends blind
 
 ## Toolchain (WSL from Windows)
 
+- `denner1d_validate`/`denner1d_run`/`denner1d_dump` require `DENNER_ACID=1` in the environment to
+  select the ACID solver path at all. Without it, the binary silently runs a different, non-ACID
+  default path and reports a plausible-looking but WRONG `pass_count` (11/19, stable and
+  deterministic — not a crash, not NaN) regardless of any `ACID_YADV`/other env var. This produced a
+  false "OFF path regression from 19/19 to 11/19" scare in round 20 (docs/YADV_RESEARCH.md sect.30.2)
+  before being traced to the missing var, not a code bug. `scripts/yadv_r9_sweep.py`'s `base_env()`
+  and `.claude/skills/yadv-round/SKILL.md` Step 6 both set it — always use one of those, or set it
+  explicitly, never invoke the validate/run/dump binaries bare.
 - The WSL login shell prints noise `your NNNN x1 screen size is bogus. expect trouble`
   on init; it pollutes `grep`/`cat`/`tr` output. Do NOT parse WSL command output with
   inline shell pipes for anything fragile — write a `.sh` or `.py` script file and run

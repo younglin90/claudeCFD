@@ -45,28 +45,23 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 19
+round_counter: 20
 consecutive_failures: 0
 done: false
-next_task: Round 19 fully localized round 18's case34+ACID_STALL_ACCEPT+ACID_TSAT_STALL
-           perturbation (no fix needed, no source change made -- existing instrumentation
-           sufficed): channel C1 (a would-be-accepted retry gets rejected for carrying a
-           saturated cell), first divergence at exactly step 325/retry 1 (the step where the
-           baseline's own accepted_steps_hi=3 first fires), dt ratio 1.000000 through step 325
-           then perturbed 0.28-6.05x through step 336, settling to a few percent by step 337,
-           both runs reaching the identical final t to 9 sig figs. Mystery closed. Live threads
-           for round 20, carried from round 18 (untouched by round 19): (a) whether
-           ACID_TSAT_STALL should be promoted toward default given its clean recovery of cases
-           27/28 on the FD path -- needs the analytic-Jacobian/headline path's own saturation
-           behavior swept more thoroughly (round 18 Stage 0 found isolated non-accepted
-           touches there, never a case where turning the flag on changes anything -- but "does
-           it ever HELP the default config" was never directly tested since it's a no-op
-           there); (b) round 13 sect.23.3's harder simultaneous (T,rho,h) reconciliation for
-           case24/34 (a DIFFERENT root cause from case33's, per rounds 15/16); (c) max_steps
+next_task: Round 20 promoted ACID_TSAT_STALL (F2'') to unconditional default and DELETED the env
+           var entirely (round 14 no-opt-out precedent) -- safe (byte-identical to flag-forced-ON
+           across all 7 configs A-G + both ACID_STALL_ACCEPT levels) and a net improvement (D/E/G
+           FD-path configs recover cases 27/28 from silent NaN to genuine PASS; case33 fails
+           faster/cleaner). FD-invariance baseline CHANGED (D 12/19->13/19, E 13/19->14/19, new
+           config G added at 15/19) -- scripts/yadv_r9_sweep.py EXPECTED already updated. Live
+           threads for round 21, carried forward untouched: (a) round 13 sect.23.3's harder
+           simultaneous (T,rho,h) reconciliation for case24/34 (a DIFFERENT root cause from
+           case33's, per rounds 15/16) -- case33's own difficulty is now better-posed (fails at
+           step 43 not 100/104, cleanly typed) but still fundamentally unsolved; (b) max_steps
            exhaustion (case15 legitimately uses it and PASSES on OFF -- needs careful design);
-           (d) case29's (excluded) likely-explained blocker (analytic post-shock T=2.93e6K
+           (c) case29's (excluded) likely-explained blocker (analytic post-shock T=2.93e6K
            exceeds the 1e6K clamp by 2.93x) -- not pursued, recorded for the record.
-           Grounded in YADV_RESEARCH.md sect.29, docs/YADV_ROUND_19_PLAN.md.
+           Grounded in YADV_RESEARCH.md sect.30, docs/YADV_ROUND_20_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -377,6 +372,25 @@ not start a new round.
   (`+ALPHA_IMPLICIT` instead of plain-ON). No fix attempted or needed -- affects no published
   configuration. `ACID_YADV`/`ACID_TSAT_STALL` status unchanged.
   → `YADV_RESEARCH.md` §29, `docs/YADV_ROUND_19_PLAN.md`, commit `0d0aa13`.
+- Round 20: `ACID_TSAT_STALL` (F2'') **promoted to unconditional default, env var DELETED**
+  (round 14's no-opt-out precedent for correctness fixes -- reason 5 is a real solver defect, not
+  a research toggle). Safety proof: 7-config battery (A-G, G new = `ACID_YADV=1 ACID_NO_AJAC=1`)
+  plus both `ACID_STALL_ACCEPT` levels, post-edit default byte-identical to pre-edit
+  flag-forced-ON in every case. **Net improvement, not just neutral**: D/E/G (the FD-Jacobian
+  configs) recover cases 27/28 from silent NaN to genuine PASS (D 12/19->13/19, E 13/19->14/19,
+  G[new] 13/19->15/19 -- G's numbers byte-for-byte reproduce round 18's own §28.3 table row,
+  previously misfiled as describing config D); case33 (config C) fails faster and more honestly
+  (step 43 not 100/104, 0 accepts not 4-8). A/B/C/F unaffected. **BASELINE CHANGE NOTICE**:
+  `scripts/yadv_r9_sweep.py`'s `EXPECTED` updated this round (old values preserved in a provenance
+  comment); the case33 reproduce command at `YADV_RESEARCH.md` line ~2510 now emits empty output
+  (step 100 -> 43); round 12's §22.4 case33 accept/step counts for both `ACID_STALL_ACCEPT` levels
+  are superseded for the current default (case24/34 unaffected). Found and fixed a methodology
+  pitfall this round, not a code bug: `denner1d_validate`/`_run`/`_dump` require `DENNER_ACID=1` in
+  the environment or they silently run a non-ACID path reporting a plausible-but-wrong 11/19 --
+  now recorded in `.claude/rules/denner-pitfalls.md`. `git diff --stat -- cpp/`: one file, one
+  executable line changed, rest comment-only. All hard gates held (OFF 19/19, byte-identical to
+  `solver_denner` published binary).
+  → `YADV_RESEARCH.md` §30, `docs/YADV_ROUND_20_PLAN.md`, commit TBD.
 
 ## Setup reference
 

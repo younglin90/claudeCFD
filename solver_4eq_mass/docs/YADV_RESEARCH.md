@@ -3000,3 +3000,162 @@ DENNER_ACID=1 ACID_YADV=1 ACID_STALL_ACCEPT=1 ACID_TSAT=2 ACID_RINIT=1 ACID_DBG=
 DENNER_ACID=1 ACID_YADV=1 ACID_STALL_ACCEPT=1 ACID_TSAT_STALL=1 ACID_TSAT=2 ACID_RINIT=1 \
     ACID_DBG=1 $D 34 2>&1 >/dev/null | grep -c "TSAT-ACCEPT"  # sect.29.3, expect 0
 ```
+
+## 30. `ACID_TSAT_STALL` (F2'') promoted to unconditional default -- the env var is DELETED, not
+##     just defaulted on
+
+### 30.1 Decision and precedent
+
+Round 18 discovered F2'' and round 19 fully closed its one open concern (case34's tiny
+`ACID_STALL_ACCEPT` perturbation, §29 -- fully explained, settles to the same physical end state,
+not a mystery). Nothing has been outstanding against this mechanism since round 19. This round
+promotes it: the `ACID_TSAT_STALL` env var is **removed entirely** (not left as an opt-out) and its
+mechanism -- "a cell pinned at `T_from_hstat`'s 1e6 K ceiling is a STALL, not an accepted step" --
+runs unconditionally whenever `coupled`.
+
+Precedent, per round 14 (§24): the sibling correctness fix `diverged=true` shipped with **no**
+opt-out and an explicit comment forbidding one, on the same reasoning applied here -- reason 5 is a
+real solver defect (a state the EOS cannot represent, `dT/dh` identically 0 there), not a research
+toggle that legitimately has two supported settings. Keeping a dead env var around after its own
+no-op claim is proven on every published path is exactly the kind of unauthorized-knob debt the
+project's "no tuning coefficients, no case-specific knobs" rule exists to prevent.
+
+### 30.2 Verification design, and a methodology pitfall worth recording
+
+The whole safety argument is a single byte-for-byte diff: run the **pre-edit** binary with
+`ACID_TSAT_STALL=1` forced on (ground truth for "the flag was always on"), then diff it against the
+**post-edit** binary's default output (no env var -- the flag no longer exists). Byte-identical
+across every published configuration proves the promotion changes nothing beyond what round 18
+already measured when the flag was manually set. This round extended the swept configuration set
+from round 18's five (OFF, plain-ON, `+ALPHA_IMPLICIT`, FD, FD+ON+IMPLICIT) to **seven**, adding a
+new config **G** (`ACID_YADV=1 ACID_NO_AJAC=1`, i.e. FD without `+ALPHA_IMPLICIT` -- round 18's own
+§28.3 table row turns out to have measured exactly this combination, see §30.4), plus both
+`ACID_STALL_ACCEPT` levels (G7) and the `T-ceiling-saturated` positive control (G8).
+
+**Pitfall recorded here so it is not rediscovered at cost**: `denner1d_validate` requires
+`DENNER_ACID=1` in its environment to select the ACID solver path at all (SKILL.md Step 6, and
+`scripts/yadv_r9_sweep.py`'s own `base_env()`). Without it, the binary silently runs a *different*,
+non-ACID default path that reports a plausible-looking but WRONG `pass_count` (11/19, stable and
+deterministic, not an error) for every configuration regardless of `ACID_YADV`/`ACID_TSAT_STALL`.
+This round's own first attempt at the S0/gate captures omitted it and produced an apparent "OFF path
+regression from 19/19 to 11/19" that looked, briefly, like a critical bug introduced by the edit --
+traced to the missing env var by cross-checking against the main tree's own published binary (also
+11/19 without the var, 19/19 with it) and against `scripts/yadv_r9_sweep.py --verify --sweep` (which
+sets it internally and reported the correct 19/19 throughout). No source code was ever at fault;
+every capture in this section was re-run with `DENNER_ACID=1` before being reported.
+
+### 30.3 Gate results
+
+7-config battery, post-edit (no env var) vs. pre-edit with `ACID_TSAT_STALL=1` forced:
+
+| Config | Combination | pass/19 | Byte-identical to flag-ON? |
+|---|---|---|---|
+| A | OFF | 19 | **yes** |
+| B | `ACID_YADV=1` | 15 | **yes** |
+| C | `+ACID_YADV_ALPHA_IMPLICIT=1` | 14 | **yes** |
+| D | `+ACID_NO_AJAC=1` | 13 | **yes** |
+| E | `ACID_NO_AJAC=1` alone | 14 | **yes** |
+| F | `+ACID_YADV_ALPHA_IMPLICIT_T=1` | 14 | **yes** |
+| G | `ACID_YADV=1 ACID_NO_AJAC=1` | 15 | **yes** |
+
+`denner1d_unit`: pass. `grep -rn "TSAT_STALL" cpp/`: zero lines. `scripts/yadv_r9_sweep.py --verify
+--sweep` (updated `EXPECTED`, §30.4): `ALL GATES OK`, plus its independent VERIFY mode confirms the
+OFF path byte-identical to the `solver_denner` published binary on all 9 spot-check cases.
+
+**G7 (`ACID_STALL_ACCEPT` cross-check)**: config C + level 1 and level 2, and config B (plain
+`ACID_YADV=1`, matching round 18/19's original test) + level 1 -- all three byte-identical between
+post-edit default and pre-edit flag-forced-ON:
+- **case24** (config B): byte-identical, identical 2 `STALL-ACCEPT` events -- unaffected, as
+  predicted.
+- **case33** (config C): **faster and cleaner** -- level 1 now stalls at step 43 with ZERO
+  `STALL-ACCEPT` events (down from step 104 with 4), level 2 (`MAX=4`) now stalls at step 240 with 1
+  event (down from step 251 with 8). Never completes either way.
+- **case34** (config B): reproduces round 19's exact finding -- the same 4 `STALL-ACCEPT` events
+  fire at the same steps with identical `(retry, dt, rbest, r_init, ratio)`, but the trailing digits
+  of the final state differ (confirmed here: `l2_p` 0.968464 -> 0.968720, `corr_p` 0.140889 ->
+  0.139090, etc.) -- the fully-explained, harmless perturbation from §29, reproduced byte-for-byte
+  identically to round 19's own numbers.
+- **case28** (config C, level 2 only): flips from `finite:false` (NaN) to `finite:true, pass:true`
+  -- see §30.4.
+
+**G8 (positive control)**: config C, `ACID_DBG=1`, no other env var --
+`STALLED-DETAIL: reason=T-ceiling-saturated cell=80 x=0.10063 ... T=1.0000e+06`, case33, step 43.
+Confirms the mechanism fires by default with zero configuration, exactly as round 18 measured with
+the flag explicitly set.
+
+### 30.4 BASELINE CHANGE NOTICE -- every stale artifact this promotion produces
+
+**A/B/C/F are unaffected** (byte-identical pass/fail sets before and after promotion, since these
+configurations already had `ACID_TSAT_STALL=1` swept clean in round 18). **D, E, and G change**,
+all in the improving direction (a case that was silently NaN-diverging now completes and passes,
+because the earlier, correctly-typed stall lets the existing dt-halving retry find an admissible
+step instead of accepting a saturated iterate that poisons a later step):
+
+| Config | Before (round 19, `ACID_TSAT_STALL` unset) | After (round 20, default) | Case(s) fixed |
+|---|---|---|---|
+| D (`+ALPHA_IMPLICIT+FD`) | 12/19, fail={14,15,24,27,28,33,34} | 13/19, fail={14,15,24,27,33,34} | 28 |
+| E (`FD` alone) | 13/19, fail={15,24,27,28,33,34} | 14/19, fail={15,24,28,33,34} | 27 |
+| G (`ON+FD`, new) | 13/19, fail={15,24,27,28,33,34} | 15/19, fail={15,24,33,34} | 27 AND 28 |
+
+G's before/after numbers are not a new measurement in spirit -- they byte-for-byte reproduce round
+18's own §28.3 table row "FD (`ACID_YADV=1 ACID_NO_AJAC=1`)" (13/19 -> 15/19, "cases 27 AND 28
+flip"), which this round's Advisor initially misread as describing config D before tracing it to G
+by direct remeasurement. Recorded here as a correction to how that round-18 row is read, not an edit
+to round 18 itself.
+
+**Stale artifacts, enumerated:**
+
+1. **`scripts/yadv_r9_sweep.py`'s `EXPECTED` dict** -- already updated this round (§30.3 table
+   values), with the pre-round-20 numbers preserved in a provenance comment in the script itself.
+2. **The FD-invariance gate values quoted in `.claude/skills/yadv-round/SKILL.md`** -- verified
+   this round: the skill file hardcodes only the headline `19/19` (OFF) and `9/9` (byte-identical to
+   `solver_denner`) numbers, neither of which changes. No edit needed.
+3. **The case33 reproduce command at this file's §25.2 (line ~2510)**:
+   `denner1d_dump 33 2>&1 >/dev/null | grep "step=100 retry=" | grep RMISM` -- **now emits empty
+   output**. Case33's `+ALPHA_IMPLICIT` stall (no `ACID_STALL_ACCEPT`) moves from step 100
+   (pre-promotion default) to step 43 (post-promotion default, previously only reachable with
+   `ACID_TSAT_STALL=1`). §25.2's own step-100 findings remain historically accurate as a description
+   of the pre-round-20 default; they are not being retracted, only superseded as the *current*
+   default's behavior.
+4. **Round 12's §22.4 table, case33 rows** -- both are pre-`ACID_TSAT_STALL`-existing measurements
+   (the flag didn't exist at round 12) and are now superseded for the *current default*:
+   - level 1 (`MAX` default): was 104 steps stopped, 4 accepted -> now 43 steps stopped, 0 accepted.
+   - level 2, `MAX=4`: was 251 steps stopped, 8 accepted -> now 240 steps stopped, 1 accepted.
+   Case24 and case34's §22.4 rows (1800/2 and 2648/4 respectively) are **unchanged** -- reconfirmed
+   byte-identical (case24) and identical-modulo-the-known-§29-perturbation (case34) this round.
+
+### 30.5 Verdict
+
+1. Promotion is safe: every published configuration's output after deleting the env var is
+   byte-identical to that same configuration with the env var explicitly forced on before deletion.
+   No new measurement was needed to establish this -- the flag's own no-op claim, extended by this
+   round to all seven configurations and both `ACID_STALL_ACCEPT` levels, IS the safety proof.
+2. Promotion is a net improvement, not merely neutral: three configurations (D, E, G) go from
+   silently propagating a thermodynamically-inadmissible state to either failing earlier and more
+   informatively (case33) or completing correctly where they previously NaN-diverged (cases 27, 28).
+3. `[[denner-pitfalls]]`'s core claim -- an approximate/frozen Jacobian changes only iteration
+   count, never the converged answer -- is unaffected and, if anything, reinforced: F2'' is not a
+   Jacobian change at all, it is a defect-correction *stopping criterion* change, and the FD-path
+   cases it fixes (D/E/G) are fixed by the SAME dt-halving retry machinery every other stall reason
+   already used, not by any new physics.
+4. No case regresses. No published gate (OFF 19/19, `solver_denner` byte-identity) moves.
+5. `git status --short -- cpp/` after the edit touches exactly one file
+   (`cpp/denner_1d/src/acid.cpp`), one executable line changed
+   (`if (tsat_stall > 0 && coupled)` -> `if (coupled)`), the rest comment-only.
+
+### 30.6 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+grep -c "TSAT_STALL" cpp/denner_1d/src/acid.cpp  # expect 0 -- the flag no longer exists
+
+V=./build-cpp/cpp/denner_1d/denner1d_validate
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_DBG=1 $V --only 33 2>&1 >/dev/null \
+    | grep "STALLED-DETAIL"   # sect.30.3 G8, expect reason=T-ceiling-saturated, step 43
+
+python3 scripts/yadv_r9_sweep.py --verify --sweep   # sect.30.3, expect ALL GATES OK, VERIFY OK
+```
+
+Last commit where `ACID_TSAT_STALL` still existed as an opt-in env var: `ea38c04` (round 19's
+roadmap-update commit, HEAD at the start of this round).

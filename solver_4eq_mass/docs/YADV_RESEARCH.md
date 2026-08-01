@@ -1500,14 +1500,64 @@ Iteration-count instrumentation (`ACID_RHIST`, sampled not averaged) was prepare
 answers the primary cost question. Available for a future round if the iteration-count question
 specifically becomes relevant.
 
-### 19.4 Cases 24/33/34 -- Rankine-Hugoniot under implicit alpha (deferred to post-merge)
+### 19.4 Cases 24/33/34 -- Rankine-Hugoniot under implicit alpha. NOT what was predicted.
 
-`scripts/yadv_rhcheck.py` hardcodes the main-tree path and is not worktree-portable, so this
-measurement is deferred to be run directly from `main` after this round merges:
-`python3 scripts/yadv_rhcheck.py` (control) vs
-`ACID_YADV_ALPHA_IMPLICIT=1 python3 scripts/yadv_rhcheck.py` (Y+implicit rows) -- both zero new
-code, exactly as planned. Not yet run as of this section being written; see the Advisor's
-follow-up note in this round's commit or a future round if not yet done.
+`scripts/yadv_rhcheck.py` hardcodes the main-tree path, so this measurement was run directly from
+`main` after the round's merge, exactly as planned. The round-9 plan predicted "no movement"
+(24/34 stay at ~1e-13, 33 stays at ~88%/65%). **That prediction was wrong, and the actual result
+is a substantive, previously-unmeasured finding:**
+
+| case | path | p_post | rho_post | u_post | Vs(mass) | momentum resid (rel) | energy resid (rel) |
+|---|---|---|---|---|---|---|---|
+| 24 | alpha | 1.50840e+10 | 1857.25 | 4698.0 | 6426.8 | -2.48e-06 | +1.81e-06 |
+| 24 | Y | 1.50840e+10 | 1857.26 | 4698.0 | 6426.8 | +1.32e-13 | -1.61e-12 |
+| **24** | **Y + implicit alpha** | -- **shock has LEFT the domain**, no undisturbed state -- |
+| 33 | alpha | 5.87723e+09 | 1183.22 | 4302.0 | 5456.6 | -2.91e-05 | +5.83e-05 |
+| 33 | Y | 1.49970e+10 | 1526.75 | 2443.0 | 2922.1 | **+8.81e-01** | **+6.46e-01** |
+| **33** | **Y + implicit alpha** | **5.87724e+09** | **1183.35** | **4302.0** | **5456.5** | **+8.39e-13** | **-2.05e-12** |
+| 34 | alpha | 3.16235e+10 | 2012.20 | 5149.5 | 8201.4 | -1.59e-06 | +3.82e-07 |
+| 34 | Y | 3.16235e+10 | 2012.20 | 5149.5 | 8201.4 | +7.16e-13 | -1.01e-12 |
+| **34** | **Y + implicit alpha** | -- **shock has LEFT the domain**, no undisturbed state -- |
+
+(The alpha-path control rows are bit-identical to every prior run, confirming
+`ACID_YADV_ALPHA_IMPLICIT`'s inertness without `ACID_YADV` -- the diagnostic is trustworthy.)
+
+**case33's Rankine-Hugoniot jump closes to machine precision under implicit alpha** (momentum
+`8.81e-01` -> `8.39e-13`, energy `6.46e-01` -> `2.05e-12`) -- a result that directly contradicts
+rounds 4-8's repeated finding that Stages 1/2/3a "moved 24/33/34 by nothing." That finding was
+true of the VALIDATION-GATE metrics (case33's `l2_p`/`corr_p` against the reference stay terrible
+under `+ALPHA_IMPLICIT`, §19.2) -- it was never true of the underlying conservation-law
+self-consistency, which nobody had checked with implicit alpha until this section.
+
+**Why both can be true simultaneously, and why this is not a contradiction.** `yadv_rhcheck.py`
+tests whether the code's OWN post-shock plateau is an admissible weak solution of the true NASG
+mixture EOS at SOME shock speed inferred from mass conservation -- it says nothing about whether
+that plateau matches the specific reference state `validation.cpp` checks against. §11.3
+established that the alpha-held reference is *also* an exact RH solution of the same EOS -- the
+jump conditions are 3 equations for 4 unknowns, and closure (A) (alpha held) and closure (B) (Y
+held) are two *different, both legitimate* choices of the missing constraint, disagreeing on how
+much interphase mass transfer the shock permits. §11.6's "solver defect, not a modelling
+difference" verdict was reached under FROZEN alpha, where the Y-path plateau satisfied NEITHER
+closure's jump conditions -- an inadmissible state by any standard, not a defensible alternative
+closure. Under implicit alpha, case33 now lands on an admissible Y-consistent shock (to 13
+digits) -- i.e. **Stage 1's fix, which §16-19 measured only against case13/14/15/25 and the
+Jacobian-accuracy question, ALSO appears to repair (at least) case33's conservation defect**, at
+least in the specific sense of "does the code's own answer obey physics." It still disagrees with
+the alpha-held reference, which is why it still fails its validation gate -- but "disagrees with
+one legitimate closure choice while satisfying the underlying conservation laws exactly" is a
+fundamentally different, much less alarming finding than §11.5's original "violates momentum by
+88%, an inadmissible state, full stop."
+
+**case24 and case34's shocks leaving the domain is a genuinely different outcome from case33's,
+and is NOT yet understood.** Two readings, not distinguished by this measurement alone: (a) the Y
++ implicit-alpha shock is now moving FASTER (a corollary of also being admissible, if `Ms` differs
+from the alpha-held reference's), so it exits the `t_end` domain before the check can sample an
+undisturbed post-shock cell -- consistent with case33's outcome, just further along; or (b)
+something is going wrong for 24/34 specifically that case33 does not share (their `alpha_pre` are
+0.5 and 0.25 vs case33's 0.75 -- not an obvious pattern). **Not resolved this round** -- flagged
+explicitly as the sharpest concrete next question if a Phase 3 investigation into 24/33/34
+proceeds, since it is now a much more promising lead than "three rounds of Jacobian work moved
+nothing."
 
 ### 19.5 Promotion decision -- ACID_YADV_ALPHA_IMPLICIT stays a separate opt-in flag
 
@@ -1570,13 +1620,19 @@ layered on `ACID_YADV=1`.**
    Stage-3a T-pathway (round 8, §18.4, a measured regression, gated off), and the analytic
    Jacobian's ~7% wall-clock cost vs plain `ACID_YADV=1` (round 9, §19.3, small but real).
 
-**Still open.**
-1. **Cases 24/33/34 -- a CONSERVATION defect, not a Jacobian defect.** Round 3's conservative
-   `rho*Y` transport brought 24 and 34 to machine-precision Rankine-Hugoniot closure (1e-13) but
-   they still fail their validation gates; case33 still violates momentum by 88% and energy by
-   65% (§14.3). Stages 1, 2 and 3a moved all three by nothing. A direct RH re-check under implicit
-   alpha (§19.4) is prepared but deferred to post-merge. This is a different defect class and
-   needs its own investigation, not a continuation of Phase 2.
+**Still open, but with a genuinely new lead found this round (§19.4).** Cases 24/33/34's
+validation-gate failure is unchanged by Stages 1/2/3a -- but the underlying CONSERVATION
+self-consistency is not uniformly unmoved, contrary to what rounds 4-8 (measuring only the
+validation-gate metrics) implied. **case33's Rankine-Hugoniot jump closes to machine precision
+under `+ALPHA_IMPLICIT`** (momentum residual 88% -> 8.4e-13), meaning Stage 1's fix repairs its
+conservation defect even though it does not make it match the alpha-held reference (a different,
+also-legitimate closure choice, per §11.3 -- so this is "wrong reference" territory, not "solver
+defect" territory, for case33 specifically). case24 and case34 instead show their shocks exiting
+the domain before `t_end` under `+ALPHA_IMPLICIT` -- not yet understood whether this is the same
+phenomenon further along (a faster, still-admissible shock) or a different problem specific to
+those two cases. This is the sharpest, most concrete open question in the whole investigation and
+the natural starting point for any Phase 3 into 24/33/34 -- a materially more promising lead than
+"three rounds of Jacobian work moved nothing," which is what was believed before this round.
 2. **case15's central-jump defect** (§17.4) -- `cj=30.02` against a threshold of `8.0` at the
    symmetric double rarefaction's stagnation point (`u=0` at `x=0.5`), with the oscillation test
    completely clean. A collocated stagnation-point discretization question (MWI/checkerboard

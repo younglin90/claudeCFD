@@ -421,7 +421,7 @@ not start a new round.
   `consecutive_failures` NOT incremented (mechanistically-explained negative result, round 4/8/13
   precedent). All hard gates held (OFF 19/19, flag-unset paths byte-identical, `ALL GATES OK`
   unchanged from round 20).
-  → `YADV_RESEARCH.md` §31, `docs/YADV_ROUND_21_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §31, `docs/YADV_ROUND_21_PLAN.md`, commit `19de476`.
 
 ## Setup reference
 

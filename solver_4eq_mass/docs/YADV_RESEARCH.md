@@ -2883,3 +2883,120 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_TSAT_STALL=1 ACID_DBG=
 DENNER_ACID=1 ACID_YADV=1 ACID_NO_AJAC=1 ./build-cpp/cpp/denner_1d/denner1d_validate       # 13/19 (flag off)
 DENNER_ACID=1 ACID_YADV=1 ACID_NO_AJAC=1 ACID_TSAT_STALL=1 ./build-cpp/cpp/denner_1d/denner1d_validate  # 15/19 (flag on)
 ```
+
+---
+---
+
+# ROUND 19 (case34 perturbation localized)
+
+## 29. Case34's `ACID_STALL_ACCEPT`+`ACID_TSAT_STALL` non-byte-identity is fully localized and
+##     explained: the perturbation starts at exactly the retry that would have accepted a
+##     saturated state, and settles to the same physical end state within ~12 steps
+
+### 29.1 Channel enumeration (the round's analytical result, a property of the code)
+
+`tsat_stall`'s only executable use site can perturb the trajectory through exactly two variables it
+writes, `bad` and `stall_reason`, giving exactly two channels: **C1** -- a retry whose post-solve
+state was clean (`bad==false`) now has a saturated cell, flipping `bad` to true, forcing a retry at
+half `dt`, whose eventual success uses the `cfl_scale *= 0.5^retry` branch instead of `*1.5`,
+cascading into every later step's `dt`; **C2** -- a retry ALREADY `bad` for reason 1 now gets reason
+5 instead, excluded from `ACID_STALL_ACCEPT`'s candidate capture -- effect-free UNLESS that step
+exhausts all 14 retries and the excluded retry was the ratio winner. Round 18 reported all four of
+case34's `STALL-ACCEPT:` events identical (including `acc_retry`, an exact integer), which
+essentially pre-excludes C2 -- confirmed this round by re-running the comparison directly (§29.3).
+
+**Correction to round 18** (recorded here, not edited there): `only_reason1` -- the variable round
+18 §4 implied made the reason-5 exclusion "free" -- is consumed ONLY inside a `stall_accept_lvl >=
+2` condition (confirmed by direct code read), i.e. it is genuinely DEAD at `ACID_STALL_ACCEPT=1`
+(the level actually used in the anomaly). The exclusion is edit-free at level 1, but NOT
+behaviour-free -- C1 is a real, active channel there, which is exactly what this round measures.
+
+**Correction to round 18's own prediction**: round 18's plan predicted byte-identity for case24/34
+"conditional on Stage 0's `+ALPHA_IMPLICIT` column showing `calls_hi=0`" -- but the anomalous run is
+PLAIN `ACID_YADV=1`, whose correct Stage-0 column read `calls_hi=78, first_hi_step=14`. The
+deviation was predictable from round 18's own data using the correct column.
+
+### 29.2 The decisive test, and the result
+
+A retry that channel C1 would flip must, in the UNMODIFIED baseline, have been ACCEPTED with a
+saturated cell -- i.e. `ACID_TSAT`'s block B must have printed a `TSAT-ACCEPT` line for it, and its
+`TSAT-TOTAL` summary must show `accepted_steps_hi > 0`. Measured directly (baseline:
+`ACID_YADV=1 ACID_STALL_ACCEPT=1`, no new flag, instrumented with `ACID_TSAT=2`):
+
+```
+TSAT-TOTAL case=34 calls=162379 calls_hi=575 ... accepted_steps_hi=3 first_hi_step=14 first_hi_cell=80 final_cells_hi=0
+TSAT-ACCEPT case=34 step=325 retry=1 ncells=1 i0=79
+TSAT-ACCEPT case=34 step=326 retry=1 ncells=1 i0=79
+TSAT-ACCEPT case=34 step=329 retry=0 ncells=1 i0=79
+```
+
+**`accepted_steps_hi=3` -- C1 IS live for case34, confirmed directly, not inferred.** Three
+normally-accepted steps (325/326/329) in the unmodified trajectory carry a saturated cell (cell 79,
+not the 79/80/81 blister case33 has under `+ALPHA_IMPLICIT` -- a single cell here). Instrument
+neutrality re-confirmed on this exact never-before-checked configuration (`ACID_TSAT=2 ACID_RINIT=1
+ACID_DBG=1` on top of `ACID_STALL_ACCEPT=1`, plain-ON, case34): the instrumented run is byte-
+identical to a bare, twice-repeated determinism-control baseline.
+
+### 29.3 First divergence located exactly, and the propagation traced
+
+With `ACID_TSAT_STALL=1` added, the two runs' `RMISM`/`RINIT`/`TSAT` line sets are **bit-identical
+through step 325** (verified by full-file diff, first difference at line 2071 of stderr,
+immediately after `TSAT-ACCEPT case=34 step=325 retry=1`), and the `dt` trajectory (retry=0 of every
+step) confirms it independently: ratio `dt_B/dt_A = 1.000000` exactly for every step through 325.
+**At step 326 the ratio breaks (0.50), and stays perturbed by a factor of 0.28-6.05x through step
+336 -- exactly the predicted `cfl_scale` cascade -- before settling to within a few percent by step
+337 (0.96) and continuing to damp toward parity (1.03, 1.08, 1.12, 1.10, 1.03, 0.97, 0.95...)
+through the rest of the sampled window.** `ACID_TSAT_STALL=1`'s run shows **zero** `TSAT-ACCEPT`
+lines (`accepted_steps_hi=0` in its own `TSAT-TOTAL`) -- the round-18 G9 invariant re-confirmed on
+this exact configuration: every one of the three previously-accepted-with-saturation steps is now
+correctly rejected and retried.
+
+Both runs reach the **identical final `t`** to 9 significant digits (`8.535133964e-05`), differing
+only in total step count (2648 vs 2646) -- the perturbed trajectory takes marginally larger average
+steps overall after the transient, converging to the same physical end state. This is the direct,
+quantitative confirmation of round 18's "same plateau, 6th significant figure" observation: **H1 is
+fully confirmed** -- the divergence is a genuine, understood, bounded numerical perturbation from a
+correctly-functioning mechanism (C1 correctly rejecting a state the unmodified code was silently
+accepting), not an artifact, not nondeterminism (ruled out directly, §29.4), and not C2 (the four
+`STALL-ACCEPT:` events remain identical between the two runs, re-confirmed this round with a direct
+diff).
+
+### 29.4 Controls
+
+**H0 (determinism)**: the bare baseline (`ACID_YADV=1 ACID_STALL_ACCEPT=1`, no instrumentation) run
+twice is byte-identical. Ruled out.
+
+**Instrument neutrality**: the instrumented baseline (`+ACID_TSAT=2 ACID_RINIT=1 ACID_DBG=1`) is
+byte-identical (stdout) to the bare determinism-control baseline. Re-verifies round 17 G6 / round
+13 G3 in a configuration neither had checked before (`ACID_STALL_ACCEPT=1` combined with either
+instrument).
+
+### 29.5 Verdict for round 19
+
+1. **The case34 anomaly reported honestly (not minimized) in round 18 §28.3 is now fully explained
+   and localized**: channel C1, first divergence at step 325/retry 1, propagation window ~11 steps,
+   settling to the same physical end state. No mystery remains.
+2. Round 18's own hypothesis was correct in outline; this round sharpens it (the rejection must be
+   of a would-be-ACCEPTED retry, not merely "a transient saturation somewhere") and replaces
+   inference with direct measurement.
+3. Two corrective annotations to round 18 recorded here (§29.1), neither requiring an edit there.
+4. No fix attempted or needed -- this round is understanding-only, per its own framing; the
+   deviation affects no published configuration (round 12's `ACID_STALL_ACCEPT` numbers use that
+   mechanism alone, without `ACID_TSAT_STALL`).
+5. No source code changed this round (`git status --short -- cpp/` clean) -- the existing round
+   13/16/17/18 instrumentation was sufficient to answer the question completely without any new
+   print or env var.
+6. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19). `ACID_TSAT_STALL`
+   remains default OFF, promotion still a separate future decision.
+
+### 29.6 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+D=./build-cpp/cpp/denner_1d/denner1d_dump
+DENNER_ACID=1 ACID_YADV=1 ACID_STALL_ACCEPT=1 ACID_TSAT=2 ACID_RINIT=1 ACID_DBG=1 $D 34 \
+    2>&1 >/dev/null | grep -E "TSAT-TOTAL|TSAT-ACCEPT"       # sect.29.2, accepted_steps_hi=3
+DENNER_ACID=1 ACID_YADV=1 ACID_STALL_ACCEPT=1 ACID_TSAT_STALL=1 ACID_TSAT=2 ACID_RINIT=1 \
+    ACID_DBG=1 $D 34 2>&1 >/dev/null | grep -c "TSAT-ACCEPT"  # sect.29.3, expect 0
+```

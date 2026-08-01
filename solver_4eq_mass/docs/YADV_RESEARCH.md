@@ -1387,3 +1387,229 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1                            
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_YADV_ALPHA_IMPLICIT_T=1 ./build-cpp/cpp/denner_1d/denner1d_validate   # 14/19 but case14 quality regresses (§18.4)
 python3 scripts/yadv_verify.py
 ```
+
+---
+---
+
+# ROUND 9
+
+## 19. Phase 2 Stage 4 -- consolidation. Full six-configuration sweep, first direct timing
+##     measurement, and the promotion decision for ACID_YADV_ALPHA_IMPLICIT.
+
+Round 9 changed no solver code. Every configuration below is reachable with env vars that already
+existed after round 8; the round's deliverables are one measurement script
+(`scripts/yadv_r9_sweep.py`), this section, and the roadmap re-evaluation Phase 2's own plan
+required of whichever round completed Stage 4.
+
+### 19.1 Reproduction audit -- all of rounds 3-8, from one build, in one sitting
+
+A live bug was found and fixed during this round's own tooling: the C++ binary prints lowercase
+`nan`/`-nan` for divergent cases, which Python's `json.loads` cannot parse (it only accepts
+capitalized `NaN`). The script's first pass silently dropped every NaN-carrying case from its
+failure-set count -- `pass_count` (computed by the C++ binary itself) was already correct, only
+the Python-side failure-set listing was short. Fixed with a regex substitution before parsing.
+After the fix, all six configurations reproduced exactly, with no drift from any prior round:
+
+| tag | configuration | pass_count | failure set | first recorded |
+|---|---|---|---|---|
+| A | `DENNER_ACID=1` (OFF) | 19/19 | -- | every round |
+| B | `+ ACID_YADV=1` | 15/19 | 15, 24, 33, 34 | round 3, §14.2 |
+| C | `+ ACID_YADV_ALPHA_IMPLICIT=1` | 14/19 | 14, 15, 24, 33, 34 | round 6, §16.4 |
+| D | `+ ACID_NO_AJAC=1` (FD-invariance) | 12/19 | 14, 15, 24, 27, 28, 33, 34 | round 4, §15.2 |
+| E | `DENNER_ACID=1 ACID_NO_AJAC=1` (FD control) | 13/19 | 15, 24, 27, 28, 33, 34 | round 4, §15.2 |
+| F | `C + ACID_YADV_ALPHA_IMPLICIT_T=1` | 14/19, case14 collapsed | 14, 15, 24, 33, 34 | round 8, §18.4 |
+
+OFF stayed 19/19 and 9/9 byte-identical against the published `solver_denner` binary; case01
+stayed byte-identical between `ACID_YADV=1` and unset. Cases 04/05/07/35/36 (TR-BDF2 -> FD
+Jacobian) were identical across A-F, as they must be by construction.
+
+### 19.2 The consolidated sweep table
+
+19 rows, configs A-F pass/fail plus B/C's `l2_p`/`corr_p`:
+
+| case | A | B | C | D | E | F | B l2_p | C l2_p | B corr_p | C corr_p |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 01 | PASS | PASS | PASS | PASS | PASS | PASS | 0 | 0 | 1 | 1 |
+| 02 | PASS | PASS | PASS | PASS | PASS | PASS | 0 | 1.46e-11 | 1 | 1 |
+| 04 | PASS | PASS | PASS | PASS | PASS | PASS | 0.01484 | 0.01484 | 0.9989 | 0.9989 |
+| 05 | PASS | PASS | PASS | PASS | PASS | PASS | 0.00301 | 0.02673 | 0.9999 | 0.9958 |
+| 07 | PASS | PASS | PASS | PASS | PASS | PASS | 0.00961 | 0.00961 | 0.9983 | 0.9983 |
+| 13 | PASS | PASS | PASS | PASS | PASS | PASS | 0.02073 | 0.03128 | 0.9976 | 0.9945 |
+| **14** | PASS | **PASS** | **FAIL** | FAIL | PASS | FAIL | 0.01389 | 0.01447 | 0.9995 | 0.9996 |
+| 15 | PASS | FAIL | FAIL | FAIL | FAIL | FAIL | 0.1665 | 0.01439 | 0.9855 | 0.9993 |
+| 24 | PASS | FAIL | FAIL | FAIL | FAIL | FAIL | 0.8374 | 0.8611 | 0.1656 | -0.763 |
+| 25 | PASS | PASS | PASS | PASS | PASS | PASS | 0.04813 | 0.05969 | 0.9943 | 0.9911 |
+| 26 | PASS | PASS | PASS | PASS | PASS | PASS | 0.02672 | 0.02361 | 0.9978 | 0.9983 |
+| 27 | PASS | PASS | PASS | FAIL | FAIL | PASS | 0.02219 | 0.02219 | 0.9985 | 0.9985 |
+| 28 | PASS | PASS | PASS | FAIL | FAIL | PASS | 0.0278 | 0.0306 | 0.9976 | 0.9971 |
+| 30 | PASS | PASS | PASS | PASS | PASS | PASS | 0.03384 | 0.03384 | 0.9918 | 0.9918 |
+| 31 | PASS | PASS | PASS | PASS | PASS | PASS | 0.04139 | 0.04139 | 0.9963 | 0.9963 |
+| 33 | PASS | FAIL | FAIL | FAIL | FAIL | FAIL | 1.573 | 0.8368 | 0.3509 | 0.1664 |
+| 34 | PASS | FAIL | FAIL | FAIL | FAIL | FAIL | 0.8392 | 0.6923 | 0.1632 | -0.5338 |
+| 35 | PASS | PASS | PASS | PASS | PASS | PASS | 0.00298 | 0.00298 | 0.9994 | 0.9994 |
+| 36 | PASS | PASS | PASS | PASS | PASS | PASS | 0.00234 | 0.00234 | 0.9998 | 0.9998 |
+
+**case14 is the ONLY case whose pass/fail verdict differs between B and C** (bold row) -- every
+other case that moves at all (05, 07, 13, 25, 26, 27, 28) stays on the same side of its gate; 15,
+24, 33, 34 stay FAIL on both sides (case15's magnitude improves dramatically, per round 6/7, but
+its own narrower TV/oscillation gate still blocks it). Full per-case reduced-metrics table and raw
+JSON: `docs/YADV_ROUND_9_PLAN.md`, `/tmp/yadv_r9/r9_raw.json` (regenerable via
+`python3 scripts/yadv_r9_sweep.py --sweep --table`).
+
+### 19.3 Wall clock -- never measured directly before
+
+Rounds 5-8 measured pass_count and metrics only; §15.5's round-4 claim ("implicit-alpha costs
+nothing under the analytic Jacobian... the FD Jacobian costs its usual ~1.7-1.9x") was qualitative.
+Measured here per case with `denner1d_validate --only`, min of 3 repeats:
+
+| case | B (s) | C (s) | C/B | D (s) | D/C | comparable |
+|---|---|---|---|---|---|---|
+| 01 | 0.103 | 0.114 | 1.100 | 0.154 | 1.355 | yes |
+| 02 | 2.809 | 2.966 | 1.056 | 3.355 | 1.131 | yes |
+| 13 | 1.292 | 1.329 | 1.029 | 2.033 | 1.529 | yes |
+| 14 | 1.180 | 1.562 | 1.324 | 1.619 | 1.037 | no (differing outcome) |
+| 15 | 3.491 | 2.024 | 0.580 | 4.730 | 2.337 | no |
+| **24** | **0.636** | **32.824** | **51.632** | 53.246 | 1.622 | no |
+| 25 | 2.962 | 3.204 | 1.082 | 5.068 | 1.582 | yes |
+| 26 | 12.640 | 13.327 | 1.054 | 24.216 | 1.817 | yes |
+| 27 | 16.298 | 18.059 | 1.108 | 27.466 | 1.521 | yes |
+| 28 | 16.862 | 17.770 | 1.054 | 25.923 | 1.459 | yes |
+| 30 | 2.038 | 2.153 | 1.056 | 3.284 | 1.526 | yes |
+| 31 | 1.126 | 1.180 | 1.048 | 1.505 | 1.275 | yes |
+| 33 | 12.887 | 5.202 | 0.404 | 17.454 | 3.355 | no |
+| 34 | 24.360 | 27.910 | 1.146 | 17.247 | 0.618 | no |
+
+(04/05/07/35/36 excluded -- TR-BDF2 forces the FD Jacobian regardless of these flags, not part of
+this comparison.)
+
+**Both-pass subset (9 cases, the only fair comparison -- a diverged run can abort early and look
+artificially fast, exactly the artifact §15.5 already flagged): B total=56.13s, C total=60.10s,
+ratio=1.071.** The Stage 1+2 analytic-Jacobian path costs **7.1%** more wall clock than plain
+`ACID_YADV=1` -- close to, but somewhat above, Phase-2 §5 risk 12's "<5%" prediction (a few extra
+`phase_props`-scale flops per cell). D/C (FD vs analytic, same configuration) = **1.547**,
+broadly consistent with round 4's qualitative "~1.7-1.9x" (§15.5), measured somewhat lower here.
+
+**case24 is a striking outlier, flagged on its own merit.** Under plain `ACID_YADV=1` it aborts in
+0.64s (an early divergence exit); under `+ALPHA_IMPLICIT` it runs 32.8s before still failing --
+**51.6x** slower for a case that fails either way. This is the "diverged run looks fast" artifact
+measured directly for the first time: Stage 1+2 doesn't fix case24, but it does make the solver
+work substantially harder before giving up on it, with zero quality benefit.
+
+Iteration-count instrumentation (`ACID_RHIST`, sampled not averaged) was prepared
+(`scripts/yadv_r9_sweep.py --iters`) but not run this round -- time budget; wall clock already
+answers the primary cost question. Available for a future round if the iteration-count question
+specifically becomes relevant.
+
+### 19.4 Cases 24/33/34 -- Rankine-Hugoniot under implicit alpha (deferred to post-merge)
+
+`scripts/yadv_rhcheck.py` hardcodes the main-tree path and is not worktree-portable, so this
+measurement is deferred to be run directly from `main` after this round merges:
+`python3 scripts/yadv_rhcheck.py` (control) vs
+`ACID_YADV_ALPHA_IMPLICIT=1 python3 scripts/yadv_rhcheck.py` (Y+implicit rows) -- both zero new
+code, exactly as planned. Not yet run as of this section being written; see the Advisor's
+follow-up note in this round's commit or a future round if not yet done.
+
+### 19.5 Promotion decision -- ACID_YADV_ALPHA_IMPLICIT stays a separate opt-in flag
+
+`YADV_PHASE2_PLAN.md` §4's original Stage-4 bar ("`pass_count >= 15` with 13/15/25 recovered") is
+stale: round 7 (§17.4) removed case15 from this plan's scope after computing its true blocker -- a
+central-jump/concentration failure at the domain's stagnation point, structurally unreachable by
+alpha-Jacobian work. The bar applied here is the re-scoped one:
+
+> Fold only if, under the default analytic Jacobian: (i) `pass_count >=` plain `ACID_YADV=1`'s
+> 15/19; (ii) NO case that plain `ACID_YADV=1` passes newly fails; (iii) 13 and 25 stay recovered;
+> (iv) the OFF path is untouched. case15 excluded per round 7. `ACID_YADV` itself stays default
+> OFF regardless.
+
+**(i) and (ii) both fail, on the same case.** `+ALPHA_IMPLICIT` is 14/19 vs plain's 15/19, and
+§19.2's table shows the difference is exactly case14, which plain `ACID_YADV=1` PASSES and
+`+ALPHA_IMPLICIT` FAILS -- first recorded round 4 (§15.4), never bought back by Stage 1 (which
+recovered 13 and 25 but not 14), and round 8 (§18.4) showed the T-pathway makes case14
+dramatically worse, so its blocker is not there either.
+
+The strongest argument FOR folding was considered and does not carry: Stage 1+2 is a genuine
+CORRECTNESS fix (it removes a measured 521.56x wrong continuity diagonal and the residual/Jacobian
+family mismatch Denner-Evrard-van Wachem (2020) warns about), so one could argue a user setting
+`ACID_YADV=1` should get the consistent formulation. But the flag bundles two things: round 4's
+RESIDUAL change (alpha re-derived at the current iterate inside `compute_R`) and rounds 6/7's
+JACOBIAN consistency terms. The Jacobian half is not separately promotable, and not out of caution
+-- out of correctness: with a frozen-alpha residual (plain `ACID_YADV=1`), `d(alpha)/dp` of the
+coded map genuinely IS zero, so applying the starred terms there would re-introduce the same
+family mismatch with the sign reversed. The `yadv && alpha_implicit` guard (`acid.cpp:1559`) is
+load-bearing mathematics, not a conservative default. There is no good half to promote in
+isolation, and the half that must come along is the one that costs case14.
+
+Independently: `ACID_YADV=1` has had one stable meaning since round 3, and it is the literal
+reproduction command in §13, §14.5, §15.7, §16.6, §17.6, §18.9 and this section, the "plain ON
+stays 15/19" hard gate every round since round 5 has verified, and the toggle in a dozen
+`scripts/yadv_*` files. Redefining it would invalidate all of them at once, for the sake of one
+saved env var on a path that stays default OFF either way.
+
+**Decision: do not fold. `ACID_YADV_ALPHA_IMPLICIT` remains a separate default-OFF opt-in flag
+layered on `ACID_YADV=1`.**
+
+### 19.6 Verdict -- where this research stands after nine rounds
+
+**Proven.**
+1. The OFF path is untouched, verifiably, after nine rounds: 19/19 and 9/9 byte-identical against
+   the published `solver_denner` binary, re-verified this round on a fresh build.
+2. Round 1's diagnosis chain is closed. Freezing `alpha` through the Newton WAS the mechanism §7.2
+   identified (round 4 proved it with the FD Jacobian, §15.3), the analytic Jacobian's missing
+   `d(alpha)/dp` WAS load-bearing (round 4 measured the regression, §15.4), and the closed-form
+   `a_p = alpha(1-alpha)(zeta_b/rho_b - zeta_a/rho_a)` term IS the fix for the p-pathway: 12/19 ->
+   14/19 with case13 and case25 both fully recovered (round 6, §16.4), durable through rounds 7, 8
+   and re-verified here with zero drift.
+3. case15's amplitude defect (§7.2's original target) is closed: `amp_ratio_p` 0.330 -> 1.00041 /
+   1.00042 (round 6/9, consistent), `corr_p` 0.0994 -> 0.9993, under the DEFAULT analytic Jacobian.
+4. `hstat_mix = Y*h_a + (1-Y)*h_b` exactly, hence `hsT* = Y*cp_a + (1-Y)*cp_b` and three companion
+   closed forms (round 8, §18.3) -- strictly positive, provably free of the `1/hsT`
+   near-singularity the unstarred form has below ~78K for air|water. Unit-tested to 6.8e-11. A
+   reusable mathematical fact independent of whether any stage helped.
+5. Four separate negative/no-op results, each honestly recorded rather than buried: alpha-space
+   THINC (round 2, §10), the J2 flux-blend diagonal (round 7, §17.4, a measured no-op), the
+   Stage-3a T-pathway (round 8, §18.4, a measured regression, gated off), and the analytic
+   Jacobian's ~7% wall-clock cost vs plain `ACID_YADV=1` (round 9, §19.3, small but real).
+
+**Still open.**
+1. **Cases 24/33/34 -- a CONSERVATION defect, not a Jacobian defect.** Round 3's conservative
+   `rho*Y` transport brought 24 and 34 to machine-precision Rankine-Hugoniot closure (1e-13) but
+   they still fail their validation gates; case33 still violates momentum by 88% and energy by
+   65% (§14.3). Stages 1, 2 and 3a moved all three by nothing. A direct RH re-check under implicit
+   alpha (§19.4) is prepared but deferred to post-merge. This is a different defect class and
+   needs its own investigation, not a continuation of Phase 2.
+2. **case15's central-jump defect** (§17.4) -- `cj=30.02` against a threshold of `8.0` at the
+   symmetric double rarefaction's stagnation point (`u=0` at `x=0.5`), with the oscillation test
+   completely clean. A collocated stagnation-point discretization question (MWI/checkerboard
+   family), not an alpha question.
+3. **case14's actual blocker is still undiagnosed.** Round 5's `hsT<0` lead was measured real but
+   confined to a single first-timestep transient cell (round 8, §18.1); the T-pathway Jacobian fix
+   aimed at it made case14 dramatically WORSE (§18.4). All that is established is what it is NOT:
+   not the T-pathway, and not the flux form (round 3). The documented `denner-pitfalls.md` finding
+   -- THINC keeps alpha sharp while convected p/T stay first-order smeared -- points at
+   phase-consistent energy transport, a model/scheme extension.
+
+**Recommended status.**
+- `ACID_YADV`: **default OFF, unpromoted.** Unchanged from every round since round 1. The case13
+  win is real and durable; it sits next to an O(1) conservation failure on 24/33/34 that nine
+  rounds have not closed.
+- `ACID_YADV_ALPHA_IMPLICIT`: **default OFF, separate opt-in flag, explicitly NOT folded into
+  `ACID_YADV`** (§19.5). It remains the configuration of record for the alpha-implicit question --
+  the best understood and most internally consistent -- with one standing, precisely quantified
+  cost relative to plain `ACID_YADV=1`: case14 (quality regression) and ~7% wall clock on cases
+  both configurations solve successfully.
+- `ACID_YADV_ALPHA_IMPLICIT_T`: **default OFF, research knob only** (measured regression).
+
+**Phase 2 (`docs/YADV_PHASE2_PLAN.md`, Stages 0-4) is complete.**
+
+### 19.7 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+python3 scripts/yadv_r9_sweep.py --verify            # OFF 9/9 byte-identical, case01 identical
+python3 scripts/yadv_r9_sweep.py --sweep --table     # sect.19.1/19.2 tables + gate assertions
+python3 scripts/yadv_r9_sweep.py --timing            # sect.19.3 wall clock, min of 3
+python3 scripts/yadv_rhcheck.py                                # sect.19.4 control (post-merge)
+ACID_YADV_ALPHA_IMPLICIT=1 python3 scripts/yadv_rhcheck.py     # sect.19.4 Y+implicit rows
+```

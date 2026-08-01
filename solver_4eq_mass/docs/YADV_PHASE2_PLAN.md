@@ -1,9 +1,17 @@
 # Phase 2 — analytic `d(alpha)/dp`, `d(alpha)/dT` for the implicit-alpha Y path
 
-**Status: PLAN ONLY, not started.** Produced by a Plan (opus) agent after reading
+**Status: COMPLETE (round 9).** Produced by a Plan (opus) agent after reading
 `docs/YADV_RESEARCH.md` rounds 1-4, `.claude/rules/denner-pitfalls.md`, `cpp/denner_1d/src/acid.cpp`,
 `eos.hpp`, and four papers gathered this session (see §"Literature" below). Saved by the Advisor
-session for review before any implementation begins.
+session for review before any implementation began.
+
+Stages 0-4 all executed and measured, rounds 5-9, under the `yadv-round` autonomous loop:
+Stage 0 (round 5) additive derivative helpers; Stage 1 (round 6) analytic-Jacobian p-pathway --
+genuine win, 12/19->14/19, case13/25 recovered; Stage 2 (round 7) flux-blend diagonal -- measured
+no-op, corrected case15's diagnosis; Stage 3a (round 8) T-pathway -- measured regression on
+case14, gated off; Stage 3b -- declined by Advisor decision (round 8); Stage 4 (round 9)
+consolidation, timing, and the promotion decision (do not fold `ACID_YADV_ALPHA_IMPLICIT` into
+`ACID_YADV`). Full results: `docs/YADV_RESEARCH.md` §16-19. `ACID_YADV` stays default OFF.
 
 **Goal.** Make `ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1` converge under the DEFAULT analytic Jacobian
 at least as well as round 4's FD-Jacobian result: recover 13/15/25 (and if possible 14), keep

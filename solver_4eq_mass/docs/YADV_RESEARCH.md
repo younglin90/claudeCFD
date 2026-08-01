@@ -2388,3 +2388,126 @@ DENNER_ACID=1 ACID_YADV=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 2>&1 >/dev/
 DENNER_ACID=1 ACID_YADV=1 ACID_STALL_ACCEPT=1 ./build-cpp/cpp/denner_1d/denner1d_dump 24 \
     > /tmp/c24.out 2>&1 && head -1 /tmp/c24.out   # sect.24.2 G5, still byte-identical to round 12
 ```
+
+---
+---
+
+# ROUND 15 (case33 diagnosis)
+
+## 25. Case33's stall is NOT round 13's REMAP mechanism -- it shares the SHAPE (energy-dominant,
+##     dt-independent, doubling residual) but not the SOURCE. First look ever taken at what case33
+##     `+ALPHA_IMPLICIT` actually does when it fails.
+
+### 25.1 Why this had never been measured
+
+Round 13's `ACID_RINIT` instrument was built and validated only on case24/34 (plain `ACID_YADV=1`).
+Case33 stalls under a DIFFERENT config, `+ALPHA_IMPLICIT` -- and round 13's own control on that
+exact flag (case24 `+ALPHA_IMPLICIT`) found `dal_remap` at literal `DBL_EPSILON`, because
+`+ALPHA_IMPLICIT` re-derives alpha at the CURRENT `(p,T)` on every Newton call, eliminating the
+REMAP defect structurally. Round 12 characterized case33 only qualitatively ("sustained, escalating,
+221 accepted steps at budget 20, still only 14.8% of `t_end` -- not a one-time formation glitch like
+24/34"). No round had run the instrument on case33's own stall until this one.
+
+**Self-check (G4, required before trusting anything below)**: `RINIT`'s `r` at every retry of
+case33's first stall matched `RHIST`'s `n0` exactly (cross-verified via the same run's independent
+prints). The instrument is valid in this new configuration, not just the one it was built for.
+
+### 25.2 Case33's first stall (step 100) -- same shape, different source
+
+At case33's very first stall (`ACID_STALL_ACCEPT` unset, so this is a completely unconfounded read
+-- every prior step converged cleanly):
+
+| retry | dt | `dh` | `dal_remap` | `r` (RINIT) | `fene` |
+|---|---|---|---|---|---|
+| 0 | 6.512e-11 | 3.7277e+12 | 2.2204e-16 | 8.546e+10 | 0.647 |
+| 6 | 1.018e-12 | 3.7277e+12 | 2.2204e-16 | 3.384e+12 | 0.9998 |
+| 9 | 1.272e-13 | 3.7277e+12 | 2.2204e-16 | 2.712e+13 | 1.0000 |
+| 13 | 7.949e-15 | 3.7277e+12 | 2.2204e-16 | 4.340e+14 | 1.0000 |
+
+**`r` doubles almost exactly per dt-halving from retry 6 onward** (×2.002, ×2.001, ×2.000... through
+retry 13) -- the SAME `1/dt` signature round 13 found for case24/34. **Energy dominates completely**
+(`fene` -> 1.0000 by retry 8). Both facts match round 13's mechanism exactly.
+
+**But `dal_remap` is at literal `DBL_EPSILON` at EVERY SINGLE RETRY, unchanged to 5+ significant
+figures.** Round 13's REMAP defect (the alpha-recovery operator-splitting lag) is completely absent
+here -- exactly as its own control predicted for `+ALPHA_IMPLICIT`. **Case33's stall is provably
+NOT round 13's mechanism.**
+
+What IS dt-independent and large: `dh = |s.h - Htot_o|`, constant at `3.7277e+12` across all 14
+retries (down to 5 sig figs -- as flat as `dal_remap` was for case24/34, just a different
+quantity). Compare to a healthy `+ALPHA_IMPLICIT` trajectory: case24's entire run (a genuine
+completing case, sampled at every step) never exceeds `dh ~ 4.06e+06` at its single worst step.
+**Case33's stall-time `dh` is six orders of magnitude larger than the worst value ever seen in a
+healthy run of the same configuration.** This is not normal variation -- it is a genuine, severe
+energy-state mismatch that has nothing to do with the alpha/Y channel.
+
+### 25.3 The compounding test -- refined, not confirmed as originally hypothesized
+
+Round 13 §23.3 speculated that repeated `ACID_STALL_ACCEPT` accepts might compound: "the NEXT step
+inherits a slightly-off `s.alpha`/`s.h` pairing that reintroduces a fresh REMAP-like mismatch."
+Tested directly (`ACID_STALL_ACCEPT=1`, following case33 through 4 consecutive accepted
+non-converged steps, 100-103, to the final give-up at 104):
+
+| step | `dh` (retry 0) | `drho` (retry 0) | `dal_remap` (retry 0) |
+|---|---|---|---|
+| 100 (first, unconfounded) | 3.728e+12 | 0.0771 | 2.2204e-16 |
+| 103 (after 3 prior accepts) | 5.626e+12 | 0.2575 | 1.1102e-16 |
+| 104 (after 4 prior accepts, final give-up) | 5.890e+12 | 0.3849 | 2.2204e-16 |
+
+**`dal_remap` stays at machine epsilon through every one of these steps -- the specific "alpha
+inherits the lag" compounding mechanism round 13 speculated about does NOT occur.** `+ALPHA_IMPLICIT`
+keeps the alpha channel clean even through accepted non-converged states, exactly as its structural
+property (re-derivation at every `compute_R` call) predicts.
+
+**But `dh` and `drho` DO grow monotonically across these same steps** (`dh` +51% from step 100 to
+104; `drho` +5x). **Real compounding is happening, but through the raw energy/density state
+mismatch directly, not through the alpha channel round 13's hypothesis named.** This is a genuine
+refinement of round 13's speculation, not a confirmation of it as originally stated.
+
+### 25.4 The contrast, stated precisely
+
+Case24/34 stall under plain `ACID_YADV=1` and complete under `+ALPHA_IMPLICIT`. Case33 does the
+OPPOSITE: it completes under plain (§19.2 config B: `l2_p = 1.573`, the single worst-fit case in the
+entire 19-case suite -- "completes" is not "clean") and stalls under `+ALPHA_IMPLICIT`. **The two
+phenomena are NOT the same mechanism** (§25.2 rules that out directly, `dal_remap` clean throughout)
+and this round makes **no claim** that they share a cause. The prior in `docs/YADV_ROUND_15_PLAN.md`
+§4E (case33 has the SMALLEST Y->alpha amplification of the three pre-shock, `~54x` vs `~216x`/`~485x`)
+is stated for the record and is consistent with case33's difficulty NOT being an alpha-amplification
+problem -- but this is a prior, not a proof.
+
+### 25.5 Verdict for round 15
+
+1. **D-DIFF fires.** Case33's stall shares round 13's mechanism's SHAPE (energy-dominant,
+   dt-independent transient, `r` doubles exactly per dt-halving) but not its SOURCE: the alpha/Y
+   REMAP channel is provably clean (`dal_remap` at `DBL_EPSILON`, every retry, every sampled step,
+   including after repeated forced accepts). The actual driver is a severe, growing `dh`/`drho`
+   mismatch of unknown origin -- six orders of magnitude beyond any value seen in a healthy run of
+   the same configuration.
+2. **Round 13's speculated compounding mechanism (alpha inheriting the previous step's lag) is
+   refuted for case33** -- but a DIFFERENT, real compounding is measured directly in `dh`/`drho`
+   across consecutive forced-accept steps. This refines rather than confirms round 13 §23.3.
+3. **Do not re-attempt `ACID_YADV_HREINIT` or any alpha/h single-field initial-guess fix on
+   case33** -- it targets exactly the channel (`dal_remap`) already measured clean here; it would
+   be aimed at a mismatch that does not exist in this case.
+4. **This round is diagnostic only, per its own non-goals -- no fix attempted or implemented.** The
+   natural next-round candidate (not implemented here): identify what specifically drives `s.h` and
+   `Htot_o` (or `s.rho`/`rho_o`) apart by such a large, dt-independent, growing amount at this
+   specific cell (79-81, consistently) -- likely requires a per-cell trace of the shock's actual
+   strength there rather than a state-mismatch instrument, since the `RMISM`/`RINIT` tools built so
+   far only characterize the SYMPTOM (a state mismatch exists) not yet its physical origin.
+5. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19). No source code
+   changed this round -- `git status --short -- cpp/` confirmed clean at round end (G2). No hard
+   gates required or run (no source change to verify a no-op against, per
+   `docs/YADV_ROUND_15_PLAN.md` §7's explicit reasoning).
+
+### 25.6 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RINIT=1 ACID_DBG=1 \
+    ./build-cpp/cpp/denner_1d/denner1d_dump 33 2>&1 >/dev/null | grep "step=100 retry=" | grep RMISM
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_STALL_ACCEPT=1 ACID_RINIT=1 ACID_DBG=1 \
+    ./build-cpp/cpp/denner_1d/denner1d_dump 33 2>&1 >/dev/null | grep -E "^STALL-ACCEPT|^STALLED"
+```

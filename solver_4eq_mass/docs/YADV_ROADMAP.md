@@ -32,10 +32,10 @@ question, unrelated to `ACID_YADV`) and reset `consecutive_failures`.
 ## Control state
 
 ```
-round_counter: 7
+round_counter: 8
 consecutive_failures: 0
 done: false
-next_task: docs/YADV_PHASE2_PLAN.md Stage 3 (contingent T-pathway; targets case14, not case15)
+next_task: docs/YADV_PHASE2_PLAN.md Stage 4 (consolidation) -- Stages 0-3 all measured, see history
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -121,8 +121,23 @@ not start a new round.
   stagnation point, structurally unrelated to alpha-Jacobian accuracy. **Roadmap goal re-scoped**
   (see "Current goal" above) -- case15 is no longer a target of this plan. All hard gates held.
   → `YADV_RESEARCH.md` §17, `docs/YADV_ROUND_7_PLAN.md`, commit `9b0a698`.
-- Round 8+: not yet run. `next_task` above (Phase 2 Stage 3, contingent T-pathway -- targets
-  case14's separate `hsT<0` lead, round 5).
+- Round 8: Phase 2 Stage 3a (T-pathway). Measure-first: a temporary diagnostic (removed after use)
+  confirmed round 5's `hsT<0` case14 lead was real but confined to a single first-timestep
+  transient cell, not persistent -- worth attempting per the round's own decision rule. Starred
+  the T-pathway analogous to Stage 1's p-pathway; genuine side discovery: `hsT* = Y*cp_a+(1-Y)*cp_b`
+  is an EXACT closed form (hstat_mix = Y*h_a+(1-Y)*h_b identically, NASG h linear in T), strictly
+  positive, retroactively validating Stage 1 and proving the starred form removes an existing
+  1/hsT near-singularity. MEASURED REGRESSION on its target: case14 doesn't flip pass/fail but its
+  quality collapses (l2_p 0.0145->0.512, corr_p 0.9996->0.594) -- confirms a family-mismatch risk
+  flagged in advance (mirror of round 4's original mistake). Gated behind a NEW flag
+  `ACID_YADV_ALPHA_IMPLICIT_T` (default off, round-4 precedent) so `ACID_YADV_ALPHA_IMPLICIT=1`
+  alone stays bit-identical to round 6/7's validated 14/19. Advisor declined the larger Stage 3b
+  (residual-level fix) for now -- its case is performance/robustness, not a case14 fix, and it
+  flips the FD-invariance gate for no currently-open target. All hard gates held.
+  → `YADV_RESEARCH.md` §18, `docs/YADV_ROUND_8_PLAN.md`, commit `3446bc5`.
+- Round 9+: not yet run. `next_task` above (Phase 2 Stage 4, consolidation -- full sweep tables
+  across Stages 0-3, wall-clock/iteration summary, and the promotion-consideration decision for
+  `ACID_YADV_ALPHA_IMPLICIT` — NOT `ACID_YADV` itself, which stays default OFF regardless).
 
 ## Setup reference
 

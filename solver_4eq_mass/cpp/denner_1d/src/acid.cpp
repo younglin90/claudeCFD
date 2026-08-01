@@ -659,6 +659,16 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         const Field s0 = s;
         const Vec Yv0 = Yv;  // ACID_YADV: the transported Y is outside Field -> restore it too
         bool stepped = false;
+        // Stage 1 (round 11, DIAGNOSTIC ONLY): carry the last retry's failure reason out of the
+        // retry loop so the stall report below can name it. Ints/doubles only -- no FP arithmetic
+        // is added, so every accepted step is bit-identical to the pre-change build.
+        int  stall_reason = 0;    // 1=Newton made no progress, 2=non-finite p, 3=non-finite u, 4=|u|>10*uref
+        int  stall_cell   = -1;   // first offending cell for reasons 2-4
+        double stall_dt   = 0.0;  // the last dt actually attempted (dt is halved after the check)
+        int  stall_retry  = -1;
+        bool stall_conv_inner = false;  // rbest/r_init/conv_inner are retry-loop-local; captured
+        double stall_rbest = 0.0;       // out here so the STALLED-DETAIL report (after the loop
+        double stall_rinit = -1.0;      // closes) can still read the last retry's Newton state.
         for (int retry = 0; retry < 14; ++retry) {
         s = s0;
         Yv = Yv0;
@@ -2070,9 +2080,15 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // (case15 cavitation: the line search pins at the al floor at ANY dt), ACCEPT the best
         // iterate like the FD path does -- retrying would just collapse dt and freeze the run.
         bool bad = (ajac && coupled && !conv_inner && rbest >= r_init);
+        if (bad) { stall_reason = 1; stall_cell = -1; }
         for (int i = 0; i < n; ++i)
             if (!std::isfinite(s.p[i]) || !std::isfinite(s.u[i]) ||
-                std::abs(s.u[i]) > 10.0 * uref) { bad = true; break; }
+                std::abs(s.u[i]) > 10.0 * uref) {
+                bad = true;
+                stall_reason = !std::isfinite(s.p[i]) ? 2 : (!std::isfinite(s.u[i]) ? 3 : 4);
+                stall_cell = i;
+                break;
+            }
         if (!bad) {
             stepped = true;
             // BDF2 bookkeeping: the level-n (OLD-level for this step) conserved quantities
@@ -2100,9 +2116,39 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             double mxu = 0; for (int i = 0; i < n; ++i) mxu = std::max(mxu, std::abs(s.u[i]));
             std::fprintf(stderr, "RETRY %d dt=%.3e -> max|u|=%.3e (uref=%.2e)\n", retry, dt, mxu, uref);
         }
+        stall_dt = dt; stall_retry = retry;
+        stall_conv_inner = conv_inner; stall_rbest = rbest; stall_rinit = r_init;
         dt *= 0.5;
         }  // retry loop
-        if (!stepped) break;  // could not advance even at the smallest dt
+        if (!stepped) {
+            // Round 11 Stage 1 (docs/YADV_PHASE3_PLAN.md): the retry loop exhausting all 14
+            // dt halvings used to exit SILENTLY -- no message, and (deliberately, still) no
+            // `diverged = true`, so solve_case_acid returns a FINITE partial state that
+            // validate/dump score as a normal completed run. That silence is what made
+            // YADV_RESEARCH.md sect.14.3/19.4's RH results measure a pristine initial condition
+            // for two rounds (sect.20, retracted). This message is stderr-only and unconditional;
+            // stdout and every validate metric are unchanged. Whether the state SHOULD be marked
+            // diverged here is Phase 3a Stage 3c -- an explicit Advisor decision, not this change.
+            static const char* const why[] = {"unknown", "newton-no-progress", "nonfinite-p",
+                                              "nonfinite-u", "u>10*uref"};
+            std::fprintf(stderr,
+                "STALLED: case=%s no admissible step at dt=%.3e after %d retries, step %d, "
+                "t=%.3e of %.3e -> stop (state returned as-is, NOT marked diverged)\n",
+                c.id.c_str(), stall_dt, stall_retry + 1, step, t, c.config.final_time);
+            if (dbg)
+                std::fprintf(stderr,
+                    "STALLED-DETAIL: reason=%s cell=%d x=%.5f p=%.4e u=%.4e rho=%.4e alpha=%.5f "
+                    "T=%.4e (conv_inner=%d rbest=%.4e r_init=%.4e uref=%.3e)\n",
+                    why[stall_reason], stall_cell,
+                    stall_cell >= 0 ? st.x[stall_cell] : -1.0,
+                    stall_cell >= 0 ? s.p[stall_cell] : 0.0,
+                    stall_cell >= 0 ? s.u[stall_cell] : 0.0,
+                    stall_cell >= 0 ? s.rho[stall_cell] : 0.0,
+                    stall_cell >= 0 ? s.alpha[stall_cell] : 0.0,
+                    stall_cell >= 0 ? s.T[stall_cell] : 0.0,
+                    (int)stall_conv_inner, stall_rbest, stall_rinit, uref);
+            break;  // could not advance even at the smallest dt
+        }
         // store transient advecting velocity for next step
         {
             const auto pe = apply_ghost(s.p, lbc, rbc, 2, false);
@@ -2127,6 +2173,13 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                          step, t, dt, mxu, mxp, s.p[n / 2]);
         }
     }
+
+    // Stage 1 sect.3.5 (round 11, ACID_DBG only): the exact end state and effective stop time,
+    // needed by Phase 3a Stage 2's window sweep to compute completion robustly instead of
+    // inferring it from the last periodically-printed "ACID step" line (every 200 steps).
+    if (dbg)
+        std::fprintf(stderr, "ACID done case=%s step=%d t=%.9e of %.9e\n",
+                     c.id.c_str(), step, t, c.config.final_time);
 
     if (thinc_dbg)
         std::fprintf(stderr, "THINC case=%s activations=%ld rho_guard_rejects=%ld\n",

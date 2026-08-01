@@ -6,48 +6,50 @@ document — round counter, stop conditions, next-task pointer, one-line-per-rou
 put derivations or measurement tables here; put them in `YADV_RESEARCH.md` (or a per-round plan
 doc) and link to them.
 
-## Current goal — ACHIEVED, loop idle
+## Current goal — Phase 3a: the cases-24/33/34 conservation defect
 
-Phase 2 (`docs/YADV_PHASE2_PLAN.md`, Stages 0-4) is COMPLETE as of round 9. Re-scoped goal
-(`pass_count >= 14` under `ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1` with the default analytic
-Jacobian, cases 13 and 25 durably recovered) was met at round 6 and re-verified at rounds 7, 8 and
-9 with zero drift. Stage 4's consolidation, timing measurement and promotion decision are in
-`YADV_RESEARCH.md` §19: `ACID_YADV_ALPHA_IMPLICIT` does NOT fold into `ACID_YADV` (it would cost
-case14, which plain `ACID_YADV=1` passes); both stay default OFF.
+**Re-armed after round 9.** Phase 2 (Stages 0-4) is COMPLETE (`YADV_RESEARCH.md` §19):
+`pass_count >= 14` met and durable since round 6; `ACID_YADV_ALPHA_IMPLICIT` does NOT fold into
+`ACID_YADV` (case14); both stay default OFF. That investigation is closed, not reopened by Phase 3.
 
-`done: true` — the loop is idle pending a human decision on whether to open a Phase 3. Two named,
-scoped candidates, both DIFFERENT defect classes from Phase 2's Jacobian work:
+**New goal, chosen by the Advisor from the two candidates round 9 left open** (P3a over P3b,
+because P3a is the only one that could change `ACID_YADV`'s recommended status and it now has a
+concrete, promising, previously-unmeasured lead): **investigate why case33's Rankine-Hugoniot jump
+closes to machine precision under `ACID_YADV_ALPHA_IMPLICIT=1`** (momentum residual 88% ->
+8.4e-13, `YADV_RESEARCH.md` §19.4) **while case24/34 instead show their shocks exiting the domain
+before `t_end` under the same flag** -- not yet understood whether this is the same phenomenon
+further along (a faster, still-admissible shock) or a different problem specific to those two.
+This directly contradicts the prior belief (rounds 4-8) that Jacobian work moved 24/33/34 "by
+nothing" -- that was only ever true of the validation-gate metrics, never checked against
+conservation self-consistency with implicit alpha until round 9.
 
-- **(P3a) The cases-24/33/34 conservation defect — NOW WITH A CONCRETE, PROMISING LEAD (round 9,
-  §19.4).** Round 3's conservative `rho*Y` transport brought 24/34 to 1e-13 RH closure but all
-  three still fail their validation gates. Round 9's post-merge RH re-check under
-  `ACID_YADV_ALPHA_IMPLICIT=1` (predicted by the round's own plan to show "no movement" — that
-  prediction was WRONG) found: **case33's Rankine-Hugoniot jump closes to machine precision**
-  (momentum residual 88% → 8.4e-13) — Stage 1's Jacobian fix repairs its conservation
-  self-consistency even though it still disagrees with the alpha-held validation reference (a
-  different, also-legitimate closure choice per §11.3, not a "solver defect" in the §11.6 sense).
-  case24/34 instead show their shocks exiting the domain before `t_end` under the same flag —
-  not yet understood whether this is the same phenomenon further along (a faster, still-admissible
-  shock) or a different problem specific to those two. This is a materially better starting point
-  than "three rounds of Jacobian work moved nothing," which is what rounds 4-8 (measuring only
-  validation-gate metrics, never the RH self-consistency under implicit alpha) implied. Decisive
-  instrument already exists and needs no new code: `scripts/yadv_rhcheck.py` /
-  `ACID_YADV_ALPHA_IMPLICIT=1 python3 scripts/yadv_rhcheck.py`.
-- **(P3b) case15's central-jump defect** (§17.4). `cj=30.02` vs threshold `8.0` at the
-  stagnation point, oscillation side clean. A collocated-scheme/MWI question. Narrower and
-  better localized than P3a, but it would not change `ACID_YADV`'s status.
+**Round 10's job (per the same pattern Phase 2 itself started with): produce
+`docs/YADV_PHASE3_PLAN.md`.** A Planner call, grounded in `YADV_RESEARCH.md` §11 (the original
+Y-consistent-Hugoniot derivation and closure-(A)-vs-(B) analysis), §14.3/§15.5 (round 3/4's
+Rankine-Hugoniot measurements), and §19.4 (this round's finding) — NOT a re-derivation from
+scratch. The plan should: (1) explain WHY case33 differs from case24/34 (their `alpha_pre` are
+0.75, 0.50, 0.25 respectively -- not an obvious pattern, worth checking first); (2) determine
+whether case24/34's early-exiting shock is genuinely faster (consistent with also being
+admissible) or symptomatic of something else (extend `t_end`, or re-run with a larger domain, to
+find where their shock actually lands, before assuming); (3) stage the actual investigation the
+same way Phase 2 did -- smallest safe measurement first, then incremental, falsifiable steps; (4)
+set an explicit stopping criterion up front (Phase 2 §12's own lesson: "(a) without (b) is
+insufficient" for a two-part fix -- decide in advance what result would mean "this needs a
+different closure entirely, stop chasing it incrementally").
 
-To re-arm the loop: set `done: false`, write the chosen goal here (P3a is the Advisor's
-recommendation given the round-9 finding above), set `next_task` to a new plan document, and
-reset `consecutive_failures: 0`.
+**Backup candidate, not this round's goal**: (P3b) case15's central-jump defect (§17.4, `cj=30.02`
+vs threshold `8.0` at the stagnation point). Narrower, would not change `ACID_YADV`'s status. Available
+if P3a proves unproductive (three consecutive rounds of no measured progress triggers the stop
+condition below regardless, at which point re-evaluate between P3a-continued and P3b).
 
 ## Control state
 
 ```
 round_counter: 9
 consecutive_failures: 0
-done: true
-next_task: (none -- loop idle, see "Current goal" above for P3a/P3b candidates)
+done: false
+next_task: docs/YADV_PHASE3_PLAN.md -- round 10 produces it (Planner call), grounded in
+           YADV_RESEARCH.md sect.11/14.3/15.5/19.4, per the "Current goal" section above
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -59,8 +61,13 @@ manually, before this loop existed — see `docs/YADV_RESEARCH.md`. Round 5 onwa
 1. `done == true`
 2. `consecutive_failures >= 3` — three rounds in a row with no measured progress or a hard-gate
    failure. This means the current approach needs human reconsideration, not another autonomous
-   attempt at the same thing.
-3. `round_counter >= 100000` (nominal cap; `consecutive_failures` is the real backstop)
+   attempt at the same thing. This is the backstop that actually governs day-to-day; expect the
+   loop to stop here long before either cap below, unless Phase 3 turns out to be unusually clean.
+3. `round_counter >= 1000` — session cap set explicitly by the user for this Phase 3 run (2026-08-
+   01). Not expected to be reached (condition 2 should fire first if Phase 3 stalls); exists as a
+   hard ceiling regardless. Re-raise explicitly if the user wants more headroom after this caps out.
+4. `round_counter >= 100000` (the original nominal cap from when this loop was first set up;
+   condition 3 is stricter and fires first)
 
 Any of these: the round skill calls `ScheduleWakeup({stop: true})`, records why here, and does
 not start a new round.

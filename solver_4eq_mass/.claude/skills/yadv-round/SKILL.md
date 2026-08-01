@@ -51,10 +51,9 @@ allowed-tools:
 - `next_task` 포인터 (보통 `docs/YADV_PHASE2_PLAN.md` 의 특정 Stage, 또는 "Planner 가 다음 방향
   제안" 지시)
 
-**정지조건 (하나라도 해당하면 라운드 시작하지 말고 즉시 중단):**
-1. `done == true` (로드맵의 최상위 목표 달성 — 예: `pass_count>=15` 이고 13/15/25 회복 확인됨)
-2. `consecutive_failures >= 3` (연속 3라운드 무진전/실패 — 근본 재검토 필요, 사람 개입 대기)
-3. `round_counter >= 100000` (상한, 사실상 도달할 일 없음)
+**정지조건**: `docs/YADV_ROADMAP.md` 의 "## Stop conditions" 섹션을 그대로 따른다 — 여기 하드코드
+하지 않는다 (하드코드했다가 로드맵에 조건 추가됐는데 이 파일이 안 따라가서 어긋난 전례 있음,
+2026-08-01). 하나라도 해당하면 라운드 시작하지 말고 즉시 중단.
 
 정지조건 충족 시:
 - `ScheduleWakeup({stop: true, reason: "<사유>"})` 호출로 `/loop` 종료.

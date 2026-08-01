@@ -45,22 +45,26 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 12
+round_counter: 13
 consecutive_failures: 0
 done: false
-next_task: Two open threads, either is a valid next round: (a) the real fix for the shock-
-           formation Newton difficulty (docs/YADV_PHASE3_PLAN.md sect.7a pre-registered
-           follow-up -- localise which rnorm3 component carries the measured r_init~1/dt
-           scaling via ACID_RHIST's per-component breakdown at it==0; prior guess is energy,
-           from rho_o/Htot_o being re-evaluated at the new alpha while s.h stays the previous
-           step's converged value), which would give cases 24/34 a genuinely CLEAN completion
-           and remove round 12's sect.22.5 caveat from the first controlled A/B; or (b) case33's
-           still-unsolved, qualitatively different sustained difficulty (221 accepted steps at
-           budget 20, still only 14.8% of t_end -- needs its own diagnosis, not just a bigger
-           budget). Advisor should also consider whether to authorise Stage 3c (diverged=true
-           at the stall site, docs/YADV_ROUND_12_PLAN.md sect.5) now that 3a's accept path
-           exists and needs the give-up path to match its own honesty standard.
-           Grounded in YADV_RESEARCH.md sect.22, docs/YADV_ROUND_12_PLAN.md sect.7.
+next_task: Round 13 confirmed the 1/dt mechanism (REMAP term in alpha recovery) to textbook
+           clarity but REFUTED the naive fix (ACID_YADV_HREINIT, resetting s.h alone -- S4,
+           makes case34 worse and needs MORE accepts under STALL_ACCEPT, not fewer). Round
+           13 sect.23.3's own diagnosis of why: s.rho/s.T stay stale (s0-consistent) until
+           the first compute_R() re-derives them from the corrected h, so Newton still isn't
+           handed a genuinely self-consistent starting point. Two open threads for round 14:
+           (a) a MORE complete consistency fix that reconciles (T,rho) simultaneously with h
+           at the new alpha, before Newton's it==0 -- not the same as round 13's single-field
+           reinit; needs its own careful design, don't just retry sect.3's approach with more
+           fields bolted on without re-deriving what "simultaneous" requires; or (b) abandon
+           the fix-the-mismatch angle and accept ACID_STALL_ACCEPT=1 (round 12, still the
+           only working path, its sect.22.5 caveat still standing) as the practical answer,
+           pivoting to case33's still-unsolved sustained difficulty (round 12 sect.22.4,
+           qualitatively different, 221 accepts at budget 20, still only 14.8% of t_end) or
+           to Stage 3c (diverged=true at the stall site, still needs explicit Advisor
+           decision, docs/YADV_ROUND_12_PLAN.md sect.5).
+           Grounded in YADV_RESEARCH.md sect.23, docs/YADV_ROUND_13_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -244,6 +248,24 @@ not start a new round.
   accepted steps at a 5x larger budget, still only 14.8% of `t_end`), not a one-time glitch like
   24/34. `ACID_YADV` status unchanged (default OFF, 15/19 with the new var unset); all hard gates
   held. → `YADV_RESEARCH.md` §22, `docs/YADV_ROUND_12_PLAN.md`, commits `a21ed4a`, `5017362`.
+- Round 13: Phase 3a Stage 3, follow-up 7a (localize + fix the `1/dt` mechanism). New `ACID_RINIT`
+  instrument **confirms the mechanism to textbook clarity**: at case24's stalling step, `dal_remap`
+  (alpha recovered at the PREVIOUS step's frozen Y meeting the CURRENT step's `p_o,T_o`) is
+  constant to 4-5 sig figs across all 13 retries, while `dal_adv` (this step's own Y-transport)
+  halves exactly every retry. Two controls land exactly on their predicted extremes: OFF prints
+  zero diagnostic lines (structural immunity, no remap term exists); `+ALPHA_IMPLICIT`'s
+  `dal_remap` measures at literal `DBL_EPSILON` -- giving round 12's A/B result a mechanism, not
+  just a correlation. **The naive fix (`ACID_YADV_HREINIT`, reset `s.h` alone) is REFUTED (S4)**:
+  case24's stall only moves from step 19 to step 28 (<2% of steps needed); case34 gets WORSE;
+  combined with round 12's `ACID_STALL_ACCEPT=1`, case24 needs MORE accepts (9, not 2). Diagnosed
+  why: `s.rho`/`s.T` stay stale until the first `compute_R()` re-derives them from the corrected
+  `h`, so Newton still doesn't start from a genuinely self-consistent state -- a real fix needs
+  simultaneous `(T,rho)` reconciliation, not attempted this round. Both new flags stay default
+  OFF; round 12's `ACID_STALL_ACCEPT=1` (without `HREINIT`) remains the only working path to
+  completion, its caveat unchanged. Per this project's negative-result culture, a
+  correctly-instrumented refutation is measured progress -- `consecutive_failures` not
+  incremented. All four hard gates held, byte-identical to round 12 with both new vars unset.
+  → `YADV_RESEARCH.md` §23, `docs/YADV_ROUND_13_PLAN.md`, commits `aedb1b5`, `dea10ce`.
 
 ## Setup reference
 

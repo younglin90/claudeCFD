@@ -45,33 +45,26 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 16
+round_counter: 17
 consecutive_failures: 0
 done: false
-next_task: Round 16 fully explained case33's dh (new ACID_RCELL per-cell instrument): a single
-           first-time-step Y-advection into a still-pre-shock cell maps through
-           alpha_from_mass_fraction almost to pure phase (case33's Y_post=0.9344 sits closest
-           of {24,33,34} to the alpha->1 singularity), collapsing recovered density 79x in
-           step 0 alone, to a literal vacuum (1.3e8x below correct) by the stall. T_from_hstat
-           silently saturates at its 1e6 ceiling there (confirmed: still returns true when
-           saturated) -- dT/dh=0, dt-independent stall at any dt, matching every round-15
-           symptom with NO alpha/Y-REMAP involvement (consistent with round 15's dal_remap
-           finding). The shock never moves; the solver re-fights a frozen 2-cell blister at
-           the IC jump for all 100 steps. No fix attempted (no isolated bug found -- this is
-           genuine Y-form ill-conditioning for homogeneous-alpha/large-Y-jump cases, closed
-           into Newton by +ALPHA_IMPLICIT's per-call alpha re-derivation). Three candidate
-           fixes named, priority order F3>F1>F2: F3 break the p->alpha feedback inside
-           +ALPHA_IMPLICIT's residual (targets the actual amplifier, needs new research flag +
-           full gates); F1 upper-bound s.h (targets symptom, OFF-identity risk if not
-           carefully yadv-gated); F2 make T_from_hstat report saturation (correct in
-           principle, but the ceiling is already exercised on the PUBLISHED path by cases
-           13/14/25/28/29's own transient violent shocks -- not a safe drive-by, needs its own
-           round). Two other live threads unchanged from round 14: round 13 sect.23.3's harder
-           simultaneous (T,rho,h) reconciliation for case24/34 (a DIFFERENT root cause from
-           case33's, per round 15/16 -- a fix for one is not guaranteed for the other); and
-           max_steps exhaustion (case15 legitimately uses it and PASSES on OFF -- needs
-           careful design, not an autonomous default).
-           Grounded in YADV_RESEARCH.md sect.26, docs/YADV_ROUND_16_PLAN.md.
+next_task: Round 17 measured F2 as V-SAFE across the ENTIRE published OFF path (ACID_TSAT: zero
+           cells ever reach the T ceiling in >400,000 residual evaluations across all 19 graded
+           cases, including case28's own transient Newton iterates) -- but found F2 as literally
+           named is the WRONG SHAPE regardless of the measurement: its false branch freezes s.T,
+           making compute_R a function of call history (breaks the four `compute_R(); //
+           restore` sites) and gives dT/dh=0 exactly, the very failure mode round 16 diagnosed.
+           Corrected form F2'' pre-registered (state-pure T_from_hstat, report saturation to the
+           caller as a new stall reason instead, reusing the existing dt-halving retry
+           machinery) -- priority list now F3 > F2'' > F1. F2'' is well-specified and V-SAFE-
+           verified enough for a future round to implement directly. Two other live threads
+           unchanged: round 13 sect.23.3's harder simultaneous (T,rho,h) reconciliation for
+           case24/34 (a DIFFERENT root cause from case33's); and max_steps exhaustion (case15
+           legitimately uses it and PASSES on OFF -- needs careful design). Side finding for the
+           record (not pursued): case29's (excluded) analytic post-shock T=2.93e6K exceeds the
+           solver's own 1e6K clamp by 2.93x, plausibly explaining its long-unexplained
+           cases.cpp:591 blocker comment.
+           Grounded in YADV_RESEARCH.md sect.27, docs/YADV_ROUND_17_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -326,6 +319,26 @@ not start a new round.
   byte-identical to round 14's baseline; `ACID_RCELL` stays default OFF. `ACID_YADV` status
   unchanged (default OFF, 15/19).
   → `YADV_RESEARCH.md` §26, `docs/YADV_ROUND_16_PLAN.md`, commit `004e4e3`.
+- Round 17: F2's actual risk measured with new `ACID_TSAT` instrument (deliberately NOT
+  `yadv`-gated -- unlike `ACID_RCELL`/`ACID_RINIT`, it can observe the OFF path). **V-SAFE, zero
+  exceptions**: across all 19 graded cases, >400,000 residual evaluations, **not one cell EVER
+  reaches the `T_from_hstat` ceiling** -- not even a rejected transient iterate of case28 (the
+  analytically closest case, 0.587x). Round 16's stated risk basis corrected, not edited: case29
+  isn't graded at all (excluded); 13/14/25 sit 3-4 orders of magnitude below the ceiling. **But F2
+  as literally named is the WRONG SHAPE independent of the measurement**: its `false` branch
+  freezes `s.T`, making `compute_R` a function of call history rather than state -- breaks the four
+  `compute_R(); // restore` sites (load-bearing for the FD-Jacobian assembly) and gives `dT/dh=0`
+  exactly, the very failure mode round 16 diagnosed as why Newton can't recover. **Corrected form
+  `F2''` pre-registered** (state-pure `T_from_hstat`, report saturation to the caller as a new
+  stall reason instead, reusing the existing dt-halving retry machinery) -- priority list now
+  **F3 > F2'' > F1**. No fix implemented (round's own bar -- "free AND fully specified" -- not met
+  until F2 was corrected to F2''); F2'' is now well-specified and risk-cleared enough for direct
+  implementation in a future round. Side finding for the record: case29's analytic post-shock
+  T=2.93e6K exceeds the solver's own clamp by 2.93x, plausibly explaining its long-unexplained
+  blocker comment. Full hard-gate battery held, byte-identical to round 16's baseline; G6 (stronger
+  than round 16's equivalent -- this flag actually executes on OFF) confirms zero perturbation.
+  `ACID_TSAT` stays default OFF. `ACID_YADV` status unchanged (default OFF, 15/19).
+  → `YADV_RESEARCH.md` §27, `docs/YADV_ROUND_17_PLAN.md`, commit `d4ac63a`.
 
 ## Setup reference
 

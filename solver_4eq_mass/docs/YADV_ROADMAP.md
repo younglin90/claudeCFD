@@ -45,29 +45,33 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 15
+round_counter: 16
 consecutive_failures: 0
 done: false
-next_task: Round 15 diagnosed case33's stall for the first time (ACID_RINIT had only ever run
-           on case24/34): SAME residual shape as round 13's mechanism (energy-dominant,
-           r_init doubles per dt-halving) but PROVABLY NOT the same source -- dal_remap stays
-           at DBL_EPSILON through every retry and every forced-accept step tested, ruling out
-           the alpha/Y-REMAP channel entirely. The actual driver is dh=|s.h-Htot_o|, ~3.7e12
-           and dt-independent, six orders of magnitude beyond the worst value ever seen in a
-           healthy +ALPHA_IMPLICIT run (case24, ~4e6) -- origin not yet identified. Round 13's
-           speculated "alpha inherits the lag" compounding mechanism is refuted for case33
-           specifically (dal_remap clean even after 3 consecutive forced accepts), but dh/drho
-           DO compound directly (dh +51%, drho +5x across 4 accepted steps) -- a different,
-           still-unidentified channel. Do NOT retry ACID_YADV_HREINIT or any alpha/h
-           single-field fix on case33 -- targets a channel already measured clean. Three live
-           threads for round 16: (a) identify dh/drho's actual origin for case33 (likely needs
-           a per-cell local-shock-strength trace, not the current state-mismatch instrument);
-           (b) round 13 sect.23.3's harder simultaneous (T,rho,h) reconciliation for case24/34
-           (now motivated by TWO independent findings with DIFFERENT root causes -- a fix for
-           one is not guaranteed to address the other); (c) max_steps exhaustion, the sibling
-           silent-partial-exit path round 14 didn't touch (case15 legitimately uses it and
-           PASSES on OFF -- needs careful design).
-           Grounded in YADV_RESEARCH.md sect.25, docs/YADV_ROUND_15_PLAN.md.
+next_task: Round 16 fully explained case33's dh (new ACID_RCELL per-cell instrument): a single
+           first-time-step Y-advection into a still-pre-shock cell maps through
+           alpha_from_mass_fraction almost to pure phase (case33's Y_post=0.9344 sits closest
+           of {24,33,34} to the alpha->1 singularity), collapsing recovered density 79x in
+           step 0 alone, to a literal vacuum (1.3e8x below correct) by the stall. T_from_hstat
+           silently saturates at its 1e6 ceiling there (confirmed: still returns true when
+           saturated) -- dT/dh=0, dt-independent stall at any dt, matching every round-15
+           symptom with NO alpha/Y-REMAP involvement (consistent with round 15's dal_remap
+           finding). The shock never moves; the solver re-fights a frozen 2-cell blister at
+           the IC jump for all 100 steps. No fix attempted (no isolated bug found -- this is
+           genuine Y-form ill-conditioning for homogeneous-alpha/large-Y-jump cases, closed
+           into Newton by +ALPHA_IMPLICIT's per-call alpha re-derivation). Three candidate
+           fixes named, priority order F3>F1>F2: F3 break the p->alpha feedback inside
+           +ALPHA_IMPLICIT's residual (targets the actual amplifier, needs new research flag +
+           full gates); F1 upper-bound s.h (targets symptom, OFF-identity risk if not
+           carefully yadv-gated); F2 make T_from_hstat report saturation (correct in
+           principle, but the ceiling is already exercised on the PUBLISHED path by cases
+           13/14/25/28/29's own transient violent shocks -- not a safe drive-by, needs its own
+           round). Two other live threads unchanged from round 14: round 13 sect.23.3's harder
+           simultaneous (T,rho,h) reconciliation for case24/34 (a DIFFERENT root cause from
+           case33's, per round 15/16 -- a fix for one is not guaranteed for the other); and
+           max_steps exhaustion (case15 legitimately uses it and PASSES on OFF -- needs
+           careful design, not an autonomous default).
+           Grounded in YADV_RESEARCH.md sect.26, docs/YADV_ROUND_16_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -303,6 +307,25 @@ not start a new round.
   implemented, no source code changed (`git status` confirmed clean), no hard gates required (no
   source change to verify a no-op against). `ACID_YADV` status unchanged (default OFF, 15/19).
   → `YADV_RESEARCH.md` §25, `docs/YADV_ROUND_15_PLAN.md`, commit `a56627a`.
+- Round 16: case33's `dh` **fully explained** via new `ACID_RCELL` per-cell diagnostic (read-only
+  window print, right after the Eqs.43-44 rebuild). A single first-time-step Y-advection into a
+  still-pre-shock cell maps through `alpha_from_mass_fraction` almost to pure phase (case33's
+  `Y_post=0.9344` sits closest of {24,33,34} to the `alpha->1` singularity) -- recovered density
+  collapses **79x in step 0 alone** (250.4->3.16), to a **literal vacuum** (`1.24e-6`, 1.3e8x below
+  correct) by the stall. `T_from_hstat` silently saturates at its `1e6` ceiling there (confirmed by
+  direct code read: still returns `true` when saturated) -- `dT/dh=0`, `drho/dh=0`, so Newton can
+  never recover at ANY `dt`, exactly matching every round-15 symptom with no alpha/Y-REMAP
+  involvement. **The shock never moves**: cells where the true front should be by the stall time
+  are still pristine IC to 4+ sig figs -- the solver re-fights a frozen 2-cell blister at the
+  initial discontinuity for all 100 steps. **No fix attempted** (per the plan's own decision rule --
+  no isolated off-by-construction bug found; this is genuine Y-form ill-conditioning for
+  homogeneous-alpha/large-Y-jump cases, closed into Newton by `+ALPHA_IMPLICIT`'s own per-call alpha
+  re-derivation). Three candidate fixes named for a future round, priority order **F3 > F1 > F2**
+  (break the p→alpha feedback in the residual; upper-bound `s.h`; make `T_from_hstat` report
+  saturation -- each with a stated reason it isn't a safe drive-by). Full hard-gate battery held,
+  byte-identical to round 14's baseline; `ACID_RCELL` stays default OFF. `ACID_YADV` status
+  unchanged (default OFF, 15/19).
+  → `YADV_RESEARCH.md` §26, `docs/YADV_ROUND_16_PLAN.md`, commit `004e4e3`.
 
 ## Setup reference
 

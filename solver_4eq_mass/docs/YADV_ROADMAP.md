@@ -446,7 +446,7 @@ not start a new round.
   recorded as its own category. Flag stays OFF, committed as gated-off research infrastructure
   (round 4/8/21 precedent). `consecutive_failures` NOT incremented. All hard gates held (OFF
   19/19, `ALL GATES OK` unchanged from round 21).
-  → `YADV_RESEARCH.md` §32, `docs/YADV_ROUND_22_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §32, `docs/YADV_ROUND_22_PLAN.md`, commit `ffcd83b`.
 
 ## Setup reference
 

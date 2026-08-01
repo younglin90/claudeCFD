@@ -215,6 +215,94 @@ int main() {
         }
     }
 
+    // --- Phase 2 Stage 3a: the STARRED EOS-chain partials have exact closed forms ----------
+    // With alpha = A(Y,p,T), N == D*(Y*h_a + (1-Y)*h_b) identically (N/D is exactly the
+    // mass-fraction-weighted average, and Y := alpha*rho_a/rho by definition), so
+    // hstat(Y,p,T) = Y*h_a(p,T) + (1-Y)*h_b(p,T) EXACTLY -- and NASG h_k = gamma_k*kv_k*T +
+    // b_k*p + eta_k is LINEAR in T and p. Hence:
+    //     hsT* = Y*cp_a + (1-Y)*cp_b     (strictly positive, in [min cp, max cp])
+    //     hsp* = Y*b_a  + (1-Y)*b_b
+    //     D_p* = rho^2*(Y*zeta_a/ra^2 + (1-Y)*zeta_b/rb^2)
+    //     D_T* = rho^2*(Y*phi_a /ra^2 + (1-Y)*phi_b /rb^2)
+    // hsp*/D_p* validate Stage 1 (round 6, already shipped, never checked this way before);
+    // hsT*/D_T* validate Stage 3a. Grid includes a b!=0 pair (air|water) -- for b==0/eta==0
+    // pairs (every other case) the identities hold trivially since N_T is an algebraic zero.
+    {
+        const auto vapor = denner1d::water_vapor_phase();
+        const denner1d::Phase pairs3[][2] = {{air, water}, {water, air}, {air, vapor}};
+        double worst = 0.0;
+        for (const auto& pr : pairs3) {
+            for (const double p0 : {1.0e4, 1.0e5, 8.0e6, 1.0e9}) {
+                for (const double T0 : {6.942, 78.0, 300.0, 855.0, 3700.0}) {
+                    const auto pa = denner1d::phase_props(p0, T0, pr[0]);
+                    const auto pb = denner1d::phase_props(p0, T0, pr[1]);
+                    for (int k = 1; k <= 19; ++k) {
+                        const double al = 0.05 * static_cast<double>(k);
+                        const double Y = denner1d::mass_fraction_from_alpha(al, pa.rho, pb.rho);
+                        const auto d = denner1d::alpha_derivs_massfrac(
+                            al, pa.zeta, pa.phi, pa.rho, pb.zeta, pb.phi, pb.rho);
+                        const double D = al * pa.rho + (1.0 - al) * pb.rho;
+                        const double D_p = al * pa.zeta + (1.0 - al) * pb.zeta;
+                        const double D_T = al * pa.phi + (1.0 - al) * pb.phi;
+                        const double N_p = al * (pa.zeta * pa.h + pa.rho * pa.dh_dp)
+                                         + (1.0 - al) * (pb.zeta * pb.h + pb.rho * pb.dh_dp);
+                        const double N_T = al * (pa.phi * pa.h + pa.rho * pa.cp)
+                                         + (1.0 - al) * (pb.phi * pb.h + pb.rho * pb.cp);
+                        const double D_ps = D_p + (pa.rho - pb.rho) * d.a_p;
+                        const double D_Ts = D_T + (pa.rho - pb.rho) * d.a_T;
+                        const double N_ps = N_p + (pa.rho * pa.h - pb.rho * pb.h) * d.a_p;
+                        const double N_Ts = N_T + (pa.rho * pa.h - pb.rho * pb.h) * d.a_T;
+                        const double hsT_star = (N_Ts * D - (al * pa.rho * pa.h + (1.0 - al) * pb.rho * pb.h) * D_Ts) / (D * D);
+                        const double hsp_star = (N_ps * D - (al * pa.rho * pa.h + (1.0 - al) * pb.rho * pb.h) * D_ps) / (D * D);
+                        const double hsT_closed = Y * pa.cp + (1.0 - Y) * pb.cp;
+                        const double hsp_closed = Y * pr[0].b + (1.0 - Y) * pr[1].b;
+                        const double D_p_closed = D * D * (Y * pa.zeta / (pa.rho * pa.rho)
+                                                          + (1.0 - Y) * pb.zeta / (pb.rho * pb.rho));
+                        const double D_T_closed = D * D * (Y * pa.phi / (pa.rho * pa.rho)
+                                                          + (1.0 - Y) * pb.phi / (pb.rho * pb.rho));
+                        // hsp_closed is EXACTLY 0 for a b=0/b=0 pair (air|vapor) at every Y --
+                        // a legitimate closed-form zero, not underflow. A pure RELATIVE-error
+                        // ratio blows up to nonsense there (found live, the same class of bug
+                        // round 5's own unit test had). Use absolute-OR-relative combined:
+                        // pass if the absolute difference is within an ABSOLUTE floor sized to
+                        // this division's actual roundoff scale (D~O(1-1e4), N~O(1e5-1e10), so
+                        // eps*N/D^2-family terms land well under 1e-9) OR within 1e-12 relative.
+                        auto close = [](double got, double closed) {
+                            return std::abs(got - closed) <= std::max(1.0e-9, 1.0e-12 * std::abs(closed));
+                        };
+                        auto abserr = [](double a_, double b_) { return std::abs(a_ - b_); };
+                        worst = std::max(worst, abserr(hsT_star, hsT_closed));
+                        worst = std::max(worst, abserr(hsp_star, hsp_closed));
+                        worst = std::max(worst, abserr(D_ps, D_p_closed));
+                        worst = std::max(worst, abserr(D_Ts, D_T_closed));
+                        check(close(hsT_star, hsT_closed), "hsT* == Y*cp_a+(1-Y)*cp_b");
+                        check(close(hsp_star, hsp_closed), "hsp* == Y*b_a+(1-Y)*b_b");
+                        check(close(D_ps, D_p_closed), "D_p* closed form");
+                        check(close(D_Ts, D_T_closed), "D_T* closed form");
+                        check(hsT_star >= std::min(pa.cp, pb.cp) - 1.0e-9,
+                              "hsT* bounded below by min(cp_a,cp_b)");
+                        check(hsT_star <= std::max(pa.cp, pb.cp) + 1.0e-9,
+                              "hsT* bounded above by max(cp_a,cp_b)");
+                    }
+                }
+            }
+        }
+        std::cerr << "  Stage3a closed-form worst abs err = " << worst << "\n";
+        // Pin the defect this stage addresses: the UNSTARRED hsT is negative at case14's
+        // interface-region state (air|water, p=1e5, T=6.942K, alpha=0.5).
+        {
+            const auto pa = denner1d::phase_props(1.0e5, 6.942, air);
+            const auto pb = denner1d::phase_props(1.0e5, 6.942, water);
+            const double D = 0.5 * pa.rho + 0.5 * pb.rho;
+            const double N = 0.5 * pa.rho * pa.h + 0.5 * pb.rho * pb.h;
+            const double N_T = 0.5 * (pa.phi * pa.h + pa.rho * pa.cp)
+                             + 0.5 * (pb.phi * pb.h + pb.rho * pb.cp);
+            const double D_T = 0.5 * pa.phi + 0.5 * pb.phi;
+            const double hsT_unstarred = (N_T * D - N * D_T) / (D * D);
+            check(hsT_unstarred < 0.0, "unstarred hsT is negative at the case14 defect state");
+        }
+    }
+
     std::vector<double> a{1.0, 2.0, 3.0};
     auto g = denner1d::apply_ghost(a, "transmissive", "wall", 2, false);
     check(g.size() == 7, "ghost size");

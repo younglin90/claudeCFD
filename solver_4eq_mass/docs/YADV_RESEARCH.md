@@ -1247,3 +1247,143 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ./build-cpp/cpp/denner_1d/d
 # then compute cj/mj/cc/p_osc/r_osc exactly per validation.cpp's smooth_ok/osc_ok formulas (§17.4)
 python3 scripts/yadv_verify.py
 ```
+
+---
+---
+
+# ROUND 8
+
+## 18. Phase 2 Stage 3a -- T-pathway. Measured regression on case14, gated behind a new flag. A genuine closed-form discovery along the way.
+
+### 18.1 Measure-first: was the round-5 `hsT<0` lead for case14 even real?
+
+Round 5 flagged `hsT = d(hstat_mix)/dT|_{p,alpha} < 0` at a PROBE state (`p=1e5, T=6.94K,
+alpha=0.5`) as a case14 root-cause candidate. Static analysis this round showed `hsT<0` requires
+`T < 78.2K` uniformly over the air|water pair's `(p,Y)` range, and every physically-reachable
+mixture of case14's two IC states sits >= 4.5x above that bound -- the probe's `alpha=0.5` is a
+state no case14 cell actually occupies. Rather than declare the lead dead by inference, a
+temporary default-off diagnostic (`hsT`'s sign, sampled in the J1 loop, gated `yadv &&
+alpha_implicit`, removed after use) was run against case14 and case15 before writing any
+production code.
+
+**Result: `hsT<0` is real, but confined entirely to case14's very first timestep's Newton
+iterations** (a single interface-adjacent cell, `T` pinned near a spurious near-zero root of the
+non-monotone `h(T)` equation), and never recurs at any later step. This is a transient
+interface-formation artifact, not a persistent state the solution trajectory revisits -- the
+condition under which Stage 3a (a Jacobian-only fix) was worth attempting, per the round's own
+decision rule.
+
+### 18.2 What was implemented
+
+Starred the T-pathway (`D_T -> D_Ts`, `N_T -> N_Ts`, via `a_T = d(alpha)/dT|_{p,Y}`) in the J1
+loop, mirroring Stage 1's p-pathway exactly, and computed the TOTAL derivatives (not partial)
+`alp_p = a_p + a_T*dTp`, `alp_h = a_T*dTh`, `alp_u = a_T*dTu` -- `dTp/dTh/dTu` already encode the
+h->T inversion's own sensitivity, so these are complete once computed AFTER them (the ordering
+dependency the round's plan flagged in advance). Extended the J2 diagonal loop with two more
+columns (h, u) mirroring the existing p-column exactly.
+
+### 18.3 A genuine mathematical discovery, independent of whether Stage 3a helps
+
+`hstat_mix = N/D` is EXACTLY `Y*h_a(p,T) + (1-Y)*h_b(p,T)` (an identity of how `Y` is defined, not
+dependent on any of this round's derivative work), and NASG `h_k` is linear in both `T` and `p`.
+Consequently the starred partials have exact closed forms:
+
+```
+hsT* = Y*cp_a + (1-Y)*cp_b     -- strictly positive, bounded in [min cp, max cp], NEVER crosses 0
+hsp* = Y*b_a  + (1-Y)*b_b
+D_p* = rho^2*(Y*zeta_a/rho_a^2 + (1-Y)*zeta_b/rho_b^2)
+D_T* = rho^2*(Y*phi_a /rho_a^2 + (1-Y)*phi_b /rho_b^2)
+```
+
+Verified in the unit test to 6.8e-11 absolute. These retroactively validate Stage 1's already-
+shipped `hsp*`/`D_p*` (never checked this way before) and prove that starring the T-pathway
+REMOVES an existing `1/hsT` near-singularity rather than introducing one -- the unstarred `hsT`
+provably crosses zero for the air|water pair below ~78K; the starred form is provably bounded away
+from zero everywhere.
+
+**A live bug in the round's own new unit test was found and fixed along the way**: the initial
+identity check divided by a `1e-300` floor when comparing against a LEGITIMATELY zero closed form
+(`hsp_closed=0` for the air|vapor pair, both `b=0`), blowing a genuine ~1e-19 roundoff difference
+into a reported error of `1.79e+287` -- the exact same class of bug round 5's own unit test had.
+Fixed with an absolute-or-relative combined tolerance. The derivative formula itself was correct
+throughout; only the test's comparison logic was wrong.
+
+### 18.4 The measurement: a real regression on case14, not a null result
+
+`ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1` alone (Stage 1+2, unaffected): 14/19, bit-identical to
+rounds 6/7. Adding Stage 3a's T-pathway UNCONDITIONALLY does not flip case14's pass/fail (already
+failing either way) but its solution quality collapses:
+
+| metric | round 6/7 (Stage 1+2) | round 8 (+Stage 3a) |
+|---|---|---|
+| `l2_p` | 0.0144718 | 0.511828 |
+| `l2_u` | 0.132392 | 0.663105 |
+| `corr_p` | 0.99956 | 0.594481 |
+| `corr_u` | 0.954309 | 0.227335 |
+| `corr_rho` | 0.979441 | 0.746994 |
+| `amp_ratio_u` | 1.1221 | 4.59619 |
+
+This confirms a risk flagged BEFORE the round's implementation began: giving the Jacobian the
+FIXED-POINT T-derivative while the residual still computes the ONE-CALL-LAGGED map (alpha is
+re-derived from Y at the current iterate's p, but at the PREVIOUS iterate's T, before the h->T
+inversion runs) is a family mismatch -- the mirror image of round 4's original mistake (there, a
+fully-nonlinear residual paired with a zero-derivative Jacobian; here, a Jacobian assuming a
+derivative family the residual does not itself evaluate).
+
+### 18.5 Gating decision
+
+Because this sits inside the already-established, already-validated `ACID_YADV_ALPHA_IMPLICIT`
+flag (round 6/7's genuine win), merging Stage 3a unconditionally would silently degrade that
+configuration. Gated behind a NEW flag, `ACID_YADV_ALPHA_IMPLICIT_T` (default off) -- the same
+precedent round 4 set for its own mixed result. Verified: `ACID_YADV_ALPHA_IMPLICIT=1` alone
+reproduces round 6/7's case14 metrics bit-for-bit; adding `ACID_YADV_ALPHA_IMPLICIT_T=1`
+reproduces the regression table above exactly.
+
+### 18.6 Gates (all held)
+
+```
+OFF (ACID_YADV unset)                          : 19/19, 9/9 byte-identical
+ACID_YADV=1 (plain)                             : 15/19, unchanged
++ALPHA_IMPLICIT ACID_NO_AJAC=1 (FD-invariance)  : 12/19, EXACT SAME failure set as rounds 4-7
++ALPHA_IMPLICIT (new T-flag OFF)                : 14/19, BIT-IDENTICAL to round 6/7
+```
+
+### 18.7 Advisor decision on Stage 3b -- escalated by the round, declined for now
+
+The round's plan surfaced a strong argument for Stage 3b (substituting `alpha(Y,p,T)` inside
+`T_from_hstat`'s own inner Newton, not just the outer Jacobian): §18.3's closed form means the
+h->T inversion becomes EXACTLY linear in T at fixed Y, collapsing the current ~30-iteration inner
+Newton (documented in the code as "the hottest kernel... ~60 EOS evals per cell per compute_R") to
+a single division, and eliminating the non-monotonicity that produces `hsT<0` in the first place.
+Cost: it changes `compute_R` itself (flips the FD-invariance gate, a residual change not just a
+Jacobian change) and touches `T_from_hstat`'s signature and the `ACID_DENSE` debug probe.
+
+**Declined for now.** (1) 3b's own justification is performance/robustness/consistency, explicitly
+NOT a case14 fix -- case14's states don't reach the non-monotone region anyway (§18.1). (2) Phase
+2's goal is already substantially met (13/25 recovered; case15 out of scope since round 7; case14
+now also shown unreachable via T-pathway Jacobian work). (3) 3b is a larger, more invasive change
+for a benefit that isn't blocking any currently-open target. Revisit only if a future need for
+`T_from_hstat` performance, or its separately-noted robustness defect (it returns `true` even for
+an unconverged inner Newton -- observed, not fixed, this round), actually arises.
+
+### 18.8 Verdict
+
+1. Stage 3a correctly implemented, all gates held, but a measured REGRESSION on its target case --
+   an honest negative result, gated off rather than merged unconditionally.
+2. The genuine deliverable is the closed-form identity (§18.3): a real, reusable mathematical fact
+   that validates Stage 1 retroactively and explains exactly why the unstarred T-pathway is
+   ill-conditioned near cold, gas-dominated states.
+3. Phase 2's alpha-implicit-Jacobian investigation (Stages 0-3) is now complete: Stage 1 is a
+   genuine win, Stage 2 a measured no-op with real diagnostic value, Stage 3a a measured
+   regression (gated off), Stage 3b declined. Recommendation: proceed to Stage 4 (consolidation).
+
+### 18.9 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit                                                     # Stage 3a closed-form checks included
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1                              ./build-cpp/cpp/denner_1d/denner1d_validate   # 14/19 (round 6/7, unchanged)
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_YADV_ALPHA_IMPLICIT_T=1 ./build-cpp/cpp/denner_1d/denner1d_validate   # 14/19 but case14 quality regresses (§18.4)
+python3 scripts/yadv_verify.py
+```

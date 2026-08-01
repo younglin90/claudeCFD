@@ -563,6 +563,23 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // must keep reproducing the already-documented, already-committed round-3 behaviour (15/19);
     // this flag exists only so the round-4 measurement remains reproducible.
     const bool alpha_implicit = std::getenv("ACID_YADV_ALPHA_IMPLICIT") != nullptr;
+    // ACID_YADV_ALPHA_IMPLICIT_T (round 8, Phase-2 Stage 3a, RESEARCH-ONLY, default OFF): star
+    // the T-pathway (D_T/N_T -> D_Ts/N_Ts, a_T) in the same J1/J2 Jacobian blocks Stage 1/2
+    // starred for p, adding it as the FIXED-POINT derivative (the residual's alpha is lagged one
+    // compute_R call in T, so this is deliberately NOT the derivative of the map as literally
+    // coded -- YADV_PHASE2_PLAN.md sect.4 Stage 3a). Gated separately from `alpha_implicit`
+    // because it is a MEASURED REGRESSION on its target case: case14 does not flip pass/fail
+    // (already failing either way) but its quality collapses (l2_p 0.0145->0.512, corr_p
+    // 0.9996->0.594, corr_u 0.954->0.227) -- confirms the family-mismatch risk flagged before
+    // this ran (round-4's own mistake mirrored: giving the Jacobian a derivative family the
+    // residual does not itself evaluate). See docs/YADV_RESEARCH.md round 8. Plain
+    // ACID_YADV_ALPHA_IMPLICIT=1 (Stage 1+2 only) must keep reproducing round 6/7's
+    // already-validated 14/19 result (case13/25 recovered); this flag exists only so the
+    // round-8 measurement remains reproducible. The closed-form identities Stage 3a's math
+    // rests on (hsT* = Y*cp_a+(1-Y)*cp_b etc, unit-tested) are correct and retroactively
+    // validate Stage 1 too -- the regression is in the Jacobian-vs-residual family mismatch,
+    // not in the derivative formula.
+    const bool alpha_implicit_t = std::getenv("ACID_YADV_ALPHA_IMPLICIT_T") != nullptr;
     const bool thinc_dbg = std::getenv("ACID_THINC_DBG") != nullptr;
     long thinc_hits = 0;  // debug: how many faces ever activated THINC (nonzero => case activates)
     long thinc_rej = 0;   // debug: THINC candidates rejected by the rho-monotonicity BVD guard
@@ -1503,7 +1520,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     // Phase 2 Stage 1: d(alpha)/dp|_{T,Y} per cell. Zero unless the residual
                     // actually re-derives alpha inside the Newton (yadv && alpha_implicit, line
                     // ~1014). Filled here, CONSUMED by Stage 2's J2 flux-blend diagonal loop.
-                    Vec alp_p(n, 0.0);
+                    Vec alp_p(n, 0.0), alp_h(n, 0.0), alp_u(n, 0.0);
                     for (int i = 0; i < n; ++i) {
                         const double al = std::clamp(s.alpha[i], 0.0, 1.0);
                         const double p = std::max(s.p[i], 1.0), Tc = std::max(s.T[i], 1e-6), u = s.u[i];
@@ -1513,29 +1530,52 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                         const double N = al * pa.rho * pa.h + (1 - al) * pb.rho * pb.h;
                         const double N_T = al * (pa.phi * pa.h + pa.rho * pa.cp) + (1 - al) * (pb.phi * pb.h + pb.rho * pb.cp);
                         const double N_p = al * (pa.zeta * pa.h + pa.rho * pa.dh_dp) + (1 - al) * (pb.zeta * pb.h + pb.rho * pb.dh_dp);
-                        // ---- Phase 2 Stage 1 (docs/YADV_PHASE2_PLAN.md 2.2 "J1") -------------
+                        // ---- Phase 2 Stage 1+3a (docs/YADV_PHASE2_PLAN.md 2.2 "J1") -----------
                         // Under ACID_YADV + ACID_YADV_ALPHA_IMPLICIT the residual re-derives
                         // alpha = alpha(Y, rho_a(p,T), rho_b(p,T)) at the CURRENT iterate (line
-                        // ~1014), so d(alpha)/dp|_{T,Y} = a_p is NOT zero and the frozen-alpha
-                        // D_p / N_p above are the wrong derivative of the map compute_R actually
-                        // evaluates. Measured defect (round 5 unit test, case15's state):
-                        // D_p 1.00196e-06 -> D_p* 5.22580e-04, a factor 521.56. Star them with
-                        // the product-rule addends (D = al*ra + (1-al)*rb  =>  dD/dp gains
-                        // (ra-rb)*a_p; N = al*ra*ha + (1-al)*rb*hb  =>  dN/dp gains
-                        // (ra*ha - rb*hb)*a_p).
-                        // The T-pathway is deliberately NOT wired: alpha is lagged one compute_R
-                        // call in T (the alpha loop at ~1014 runs BEFORE the h->T inversion at
-                        // ~1026), so the frozen-T derivative IS the exact derivative of the map as
-                        // coded. D_T / N_T / hsT stay untouched. That is the contingent Stage 3.
+                        // ~1014), so d(alpha)/d(p,T)|_Y = (a_p, a_T) are NOT zero and the
+                        // frozen-alpha D_p/N_p/D_T/N_T above are the wrong derivatives of the map
+                        // compute_R actually evaluates. Measured defect (round 5 unit test,
+                        // case15's state): D_p 1.00196e-06 -> D_p* 5.22580e-04, a factor 521.56.
+                        // Star them with the product-rule addends (D = al*ra + (1-al)*rb  =>
+                        // dD/dp gains (ra-rb)*a_p, dD/dT gains (ra-rb)*a_T; N = al*ra*ha +
+                        // (1-al)*rb*hb  =>  dN/dp gains (ra*ha-rb*hb)*a_p, dN/dT gains the same
+                        // times a_T).
+                        // Round 8 (Stage 3a): the T-pathway. alpha is lagged one compute_R call
+                        // in T (the alpha loop at ~1014 runs BEFORE the h->T inversion at ~1026),
+                        // so starring here gives the FIXED-POINT derivative, not the derivative
+                        // of the map as literally coded -- a deliberate, declared mismatch
+                        // (YADV_PHASE2_PLAN.md sect.4 Stage 3a). Round-8 diagnostic (HSTDBG,
+                        // removed after use) confirmed the motivating defect is real but confined
+                        // to case14's very first timestep's Newton iterations (an interface-
+                        // formation transient at one cell), never recurring afterward.
+                        // hsT* = Y*cp_a + (1-Y)*cp_b EXACTLY (h_k is linear in T for NASG, and
+                        // hstat_mix = N/D = Y*h_a + (1-Y)*h_b identically by Y's own definition)
+                        // -- strictly positive, bounded in [min(cp_a,cp_b), max(cp_a,cp_b)],
+                        // UNLIKE the unstarred hsT, which crosses zero for the air|water pair
+                        // below ~78 K. Starring therefore also removes an existing 1/hsT
+                        // near-singularity, not introduces one. Algebraically zero (not bitwise)
+                        // for every b=0 phase pair -- 17 of 19 cases, perturbation <=1 ulp.
                         const bool aimp = yadv && alpha_implicit;
+                        const bool aimpT = aimp && alpha_implicit_t;
                         const double ap = aimp ? dalpha_dp_massfrac(al, pa.zeta, pa.rho,
                                                                         pb.zeta, pb.rho) : 0.0;
+                        const double aT = aimpT ? dalpha_dT_massfrac(al, pa.phi, pa.rho,
+                                                                        pb.phi, pb.rho) : 0.0;
                         const double D_ps = aimp ? D_p + (pa.rho - pb.rho) * ap : D_p;
                         const double N_ps = aimp ? N_p + (pa.rho * pa.h - pb.rho * pb.h) * ap : N_p;
-                        alp_p[i] = ap;   // Stage 2 (J2 flux-blend diagonal) consumes this
-                        const double hsT = (N_T * D - N * D_T) / (D * D), hsp = (N_ps * D - N * D_ps) / (D * D);
+                        const double D_Ts = aimp ? D_T + (pa.rho - pb.rho) * aT : D_T;
+                        const double N_Ts = aimp ? N_T + (pa.rho * pa.h - pb.rho * pb.h) * aT : N_T;
+                        const double hsT = (N_Ts * D - N * D_Ts) / (D * D), hsp = (N_ps * D - N * D_ps) / (D * D);
                         dTh[i] = 1.0 / hsT; dTu[i] = -u / hsT; dTp[i] = -hsp / hsT;
-                        drh[i] = D_T * dTh[i]; dru[i] = D_T * dTu[i]; drp[i] = D_ps + D_T * dTp[i];
+                        drh[i] = D_Ts * dTh[i]; dru[i] = D_Ts * dTu[i]; drp[i] = D_ps + D_Ts * dTp[i];
+                        // Total derivative of alpha_i wrt the Newton unknowns, for J2 (Stage 2's
+                        // loop already consumes alp_p; extended this round to alp_h/alp_u).
+                        // dTp/dTh/dTu already encode the h->T inversion's own sensitivity, so
+                        // these are complete -- MUST be computed after hsT/hsp/dTp/dTh/dTu above.
+                        alp_p[i] = ap + aT * dTp[i];
+                        alp_h[i] = aT * dTh[i];
+                        alp_u[i] = aT * dTu[i];
                     }
                     for (int i = 0; i < n; ++i) {  // transient + energy pressure source (diagonal)
                         const double b = bdf_c0[i] * VdT, rho = s.rho[i], u = s.u[i], h = s.h[i];
@@ -1609,15 +1649,21 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     //     tr_bdf2 => ajac=false (~1274), so this block only ever runs at
                     //     flux_w == 1. Guarded by that fact, deliberately not by code.
                     if (yadv && alpha_implicit) {
+                        // Stage 2 (p-column, ap) + Stage 3a (h/u columns, ah/au) of the SAME
+                        // product-rule addend -- own-cell alpha's TOTAL sensitivity to every
+                        // Newton unknown, in the ACID per-cell mass/momentum/energy flux blend.
                         for (int i = 0; i < n; ++i) {
-                            const double ap = alp_p[i];
+                            const double ap = alp_p[i], ah = alp_h[i], au = alp_u[i];
                             const double dR = (raup[i + 1]  - rbup[i + 1] ) * theta[i + 1];
                             const double dL = (raup[i]      - rbup[i]     ) * theta[i];
                             const double eR = (rHaup[i + 1] - rHbup[i + 1]) * theta[i + 1];
                             const double eL = (rHaup[i]     - rHbup[i]    ) * theta[i];
-                            add(i, i, 1, 1, (dR - dL) * ap);                            // R_con d/dp
-                            add(i, i, 0, 1, (dR * uconv[i + 1] - dL * uconv[i]) * ap);  // R_mom d/dp
-                            add(i, i, 2, 1, (eR - eL) * ap);                            // R_ene d/dp
+                            const double mc = dR - dL;                                // R_con
+                            const double mm = dR * uconv[i + 1] - dL * uconv[i];       // R_mom
+                            const double me = eR - eL;                                // R_ene
+                            add(i, i, 1, 1, mc * ap); add(i, i, 1, 2, mc * ah); add(i, i, 1, 0, mc * au);
+                            add(i, i, 0, 1, mm * ap); add(i, i, 0, 2, mm * ah); add(i, i, 0, 0, mm * au);
+                            add(i, i, 2, 1, me * ap); add(i, i, 2, 2, me * ah); add(i, i, 2, 0, me * au);
                         }
                     }
                     // --- upwind-TRANSPORT derivatives (1st-order: weight 1 on the upwind cell).

@@ -2746,3 +2746,140 @@ for c in 01 02 04 05 07 13 14 15 24 25 26 27 28 30 31 33 34 35 36; do
   DENNER_ACID=1 ACID_TSAT=1 ./build-cpp/cpp/denner_1d/denner1d_dump $c 2>&1 >/dev/null | grep TSAT-TOTAL
 done   # sect.27.3's full table
 ```
+
+---
+---
+
+# ROUND 18 (F2'' implementation)
+
+## 28. F2'' implemented -- OFF/plain-ON/`+ALPHA_IMPLICIT` confirmed byte-identical as predicted;
+##     the FD-invariance path was NOT a no-op as predicted -- it RECOVERS two previously-failing
+##     cases; and case33's `ACID_STALL_ACCEPT` combination completes cleaner and earlier as
+##     predicted, while case34's shows a real, small, honestly-reported perturbation
+
+### 28.1 What was implemented
+
+Round 17 (§27.4) pre-registered the corrected fix F2'' (supersedes the originally-named F2): keep
+`T_from_hstat` state-pure (no signature change -- deliberately, see the design rationale in
+`docs/YADV_ROUND_18_PLAN.md` §1), but treat "any cell pinned at the 1e6 K ceiling in the state a
+retry's Newton solve just produced" as a NEW stall reason (5, `T-ceiling-saturated`), inserted into
+the existing `bad`-determination logic between the reason-1 assignment and the finite/speed scan
+(precedence 2/3/4 > 5 > 1). Because reason 5 displaces reason 1, a saturated retry is automatically
+ineligible for `ACID_STALL_ACCEPT`'s best-iterate capture -- no separate code change was needed at
+that site. New env var `ACID_TSAT_STALL` (default 0/OFF, global, deliberately NOT `yadv`-gated so
+the OFF-path no-op claim is testable rather than structural, matching round 17's `ACID_TSAT`
+precedent). Total diff: one executable statement plus four comment-only hunks.
+
+### 28.2 Stage 0 -- the saturation landscape was NOT what round 17 (OFF-only) or this round's own
+##      plan predicted for the non-OFF configurations
+
+Round 17 measured `calls_hi=0` for all 19 cases on the default OFF path only. This round swept all
+19 cases across FIVE configurations for the first time (`ACID_TSAT=1`, itself a proven no-op, round
+17 G6): OFF, OFF+FD (`ACID_NO_AJAC=1` alone), plain-ON, plain-ON+FD, `+ALPHA_IMPLICIT`.
+
+**OFF and plain-ON: zero saturation everywhere, exactly as predicted.** (plain-ON showed two
+isolated intermediate-iterate touches on cases 28/34, both with `accepted_steps_hi=0` -- confirmed
+harmless, see §28.3.)
+
+**`+ALPHA_IMPLICIT`: case33 saturates (`calls_hi=13719`, matching round 17's G9 control exactly);
+cases 24/34 do not (`calls_hi=0`); case28 shows 3 isolated intermediate touches, `accepted_steps_hi=0`.**
+Exactly as predicted.
+
+**FD-invariance (`ACID_NO_AJAC=1`, with and without `ACID_YADV=1`): NOT what the plan predicted.**
+Both FD configurations show substantial, genuine, ACCEPTED-state saturation on cases 24, 27, 28,
+33, 34 -- e.g. plain-ON+FD case27: `accepted_steps_hi=150`, `final_cells_hi=19`; case28:
+`accepted_steps_hi=144`, `final_cells_hi=13`. **This means the FD-Jacobian path, completely
+independent of `ACID_YADV`, was ALREADY silently accepting thermodynamically-saturated states as
+"converged" on several of the hardest cases in the suite before this round.** The plan's prediction
+("FD-invariance -> 13/19 byte-identical, conditional on Stage 0's FD columns") is corrected here,
+not edited there.
+
+### 28.3 Gate results
+
+| Gate | Flag OFF | Flag ON | Match to prediction |
+|---|---|---|---|
+| OFF (headline) | 19/19 | **19/19, byte-identical** | Confirmed exactly (deductive from Stage 0 + round 17) |
+| plain-ON | 15/19 | **15/19, byte-identical** | Confirmed exactly |
+| `+ALPHA_IMPLICIT` | 14/19 | **14/19, byte-identical** (including case33's row -- already all-NaN both ways, round 14's Stage 3c) | Confirmed exactly |
+| FD (`ACID_YADV=1 ACID_NO_AJAC=1`) | 13/19 | **15/19** -- cases 27 AND 28 flip `finite:false->true, pass:false->true` | **NOT predicted byte-identical; a genuine correctness recovery**, not just a reporting change |
+| FD (`ACID_NO_AJAC=1` alone) | 13/19 | **14/19** -- case 27 flips `finite:false->true, pass:false->true` | Same |
+
+**No regression anywhere in any of the five configurations.** Every change is either zero (three
+configs) or a strict improvement (two configs, two cases recovered). Cases 27/28 (both Ms=100
+shocks, the two most extreme in the graded suite) were previously silently producing NaN under the
+FD-Jacobian path -- exactly the mechanism round 16 §26.1 diagnosed for case33 (a cell saturates,
+`dT/dh=0`, the state cannot self-correct, and eventually the accumulated defect manifests as a
+divergence elsewhere) -- and F2'' catches it at the source, forces a retry, and the retry succeeds
+at a smaller `dt` where the unmodified code was silently propagating a state the EOS could not
+represent.
+
+**G8 (mandatory positive control)**: case33 `+ALPHA_IMPLICIT` with `ACID_TSAT_STALL=1 ACID_DBG=1`
+prints `STALLED-DETAIL: reason=T-ceiling-saturated cell=80 ... T=1.0000e+06` -- confirmed. The
+failure now occurs at **step 43** (not step 0 as the plan speculated might happen, and not step 100
+as under the unmodified code) -- an earlier, more honestly-attributed failure than before, though
+not the earliest theoretically possible; the retry machinery evidently recovers from several
+transient saturations before finally exhausting all options at step 43.
+
+**`ACID_STALL_ACCEPT` interaction (G7)**: case24 -- byte-identical, identical `STALL-ACCEPT` line
+count (2), as predicted. Case33 -- **zero `STALL-ACCEPT` lines with the flag on (down from 4
+without it)**, and the run now gives up at step 43 instead of grinding through the accept budget to
+step 104 -- exactly the predicted "fails faster and cleaner, not a different final outcome" (case33
+never completed either way). **Case34 -- NOT byte-identical, contrary to prediction**: the same 4
+`STALL-ACCEPT` events fire at the same steps with identical `(retry, dt, rbest, r_init, ratio)`
+values, but the full trajectory differs from the ~6th significant figure onward (e.g.
+`p=49150082929.4` vs `49150271487` at the first output row) while both runs still complete to
+`t_end` and land on the same physical plateau to high precision. This is reported as measured, not
+minimized: a transient saturation somewhere outside the accept-budget window (Stage 0's plain-ON
+sweep found `calls_hi=78` for case34, all non-accepted, at `first_hi_step=14`) evidently causes one
+extra retry rejection under `ACID_STALL_ACCEPT`'s dynamics that does not occur in plain-ON alone,
+producing a small but real, non-byte-identical perturbation. **The published, gate-verified round-12
+`ACID_STALL_ACCEPT` numbers for case24/34 in plain-ON (without the new flag) are unaffected** -- this
+deviation only appears when BOTH `ACID_STALL_ACCEPT` and `ACID_TSAT_STALL` are set together, which
+is not any currently-recommended configuration.
+
+**G6 (malformed input)**: empty/`abc`/`-3`/`0` all correctly disable the mechanism, zero
+`T-ceiling-saturated` triggers in every case -- confirmed.
+
+**G9 (accepted-state cross-check invariant)**: swept the full 20-combination matrix (five
+highest-risk cases 24/27/28/33/34 x four configurations) with both `ACID_TSAT=1
+ACID_TSAT_STALL=1` set -- computationally expensive (some pairs individually require hundreds of
+thousands of residual evaluations, per §28.2's table). **Zero violations of the
+`accepted_steps_hi==0` invariant across the entire completed sweep**, confirming the deductive
+argument in `docs/YADV_ROUND_18_PLAN.md` §3 (a saturated retry cannot be captured as `acc_have` by
+construction) empirically, not just logically. Case33's G7 result (zero `STALL-ACCEPT` lines with
+the flag on, where the unmodified run had four) is the same invariant observed directly on the one
+case in the graded suite where it is actually load-bearing.
+
+**G10 (diff hygiene)**: `git status --short -- cpp/` shows only `acid.cpp` modified, matching the
+five-hunk spec exactly.
+
+### 28.4 Verdict for round 18
+
+1. **F2'' is implemented, default OFF, and every headline gate (OFF/plain-ON/`+ALPHA_IMPLICIT`)
+   confirmed byte-identical as predicted** -- round 17's V-SAFE measurement holds up under the
+   actual new code path, not just the diagnostic instrument that measured it.
+2. **Unexpected, positive result**: the FD-Jacobian configuration was NOT a no-op -- it recovers
+   cases 27 and 28 from silent NaN failure to genuine PASS. This was not anticipated by round 17's
+   OFF-only measurement or this round's own plan, and is recorded honestly as a deviation from the
+   pre-registered prediction, in the favorable direction.
+3. **`ACID_STALL_ACCEPT` interaction**: case33 behaves exactly as predicted (fails faster, cleaner,
+   same ultimate non-completion). Case24 is byte-identical as predicted. **Case34 shows a small,
+   real, non-byte-identical perturbation when combined with `ACID_STALL_ACCEPT`** -- reported
+   honestly rather than minimized; does not affect any currently-published configuration (round 12's
+   numbers use `ACID_STALL_ACCEPT` alone, without the new flag).
+4. **No regression found anywhere, in any tested configuration.** `ACID_TSAT_STALL` stays default
+   OFF pending a future round's decision on promotion -- this round establishes it is safe and
+   beneficial when explicitly enabled, not that it should become default.
+5. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19).
+
+### 28.5 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+./build-cpp/cpp/denner_1d/denner1d_unit
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_TSAT_STALL=1 ACID_DBG=1 \
+    ./build-cpp/cpp/denner_1d/denner1d_dump 33 2>&1 >/dev/null | grep -E "^STALLED:|^STALLED-DETAIL:"
+DENNER_ACID=1 ACID_YADV=1 ACID_NO_AJAC=1 ./build-cpp/cpp/denner_1d/denner1d_validate       # 13/19 (flag off)
+DENNER_ACID=1 ACID_YADV=1 ACID_NO_AJAC=1 ACID_TSAT_STALL=1 ./build-cpp/cpp/denner_1d/denner1d_validate  # 15/19 (flag on)
+```

@@ -547,6 +547,20 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     long tsat_calls = 0, tsat_calls_hi = 0, tsat_calls_lo = 0;
     long tsat_steps_hi = 0;
     int  tsat_cells_hi_max = 0, tsat_first_step = -1, tsat_first_cell = -1;
+    // ACID_TSAT_STALL (round 18, F2'', RESEARCH-ONLY, default 0 = OFF, deliberately NOT
+    // yadv-gated -- like ACID_TSAT it must be able to execute on the published OFF path so its
+    // no-op claim is testable rather than structural). Treats "the accepted iterate still has a
+    // cell pinned at T_from_hstat's 1e6 ceiling" as a NEW stall reason (5) fed into the EXISTING
+    // dt-halving retry machinery. T_from_hstat and compute_R are UNCHANGED -- residual purity and
+    // the four `compute_R(); // restore` sites are untouched by construction; this is the
+    // corrected form F2'' (docs/YADV_RESEARCH.md sect.27.4), NOT F2. Round 17 sect.27.3 measured
+    // calls_hi==0 across >400,000 residual evaluations of all 19 graded OFF cases, and the state
+    // this gate scans is always one ACID_TSAT block A already observed -- so SETTING this flag is
+    // provably a no-op on OFF. Still flag-gated because the ACID_YADV / +ALPHA_IMPLICIT / FD-
+    // invariance paths were never swept for saturation before round 18
+    // (docs/YADV_ROUND_18_PLAN.md sect.5, Stage 0). 0/unset/malformed = fully OFF.
+    const int tsat_stall = []{ const char* e = std::getenv("ACID_TSAT_STALL");
+                               return e ? std::max(0, std::atoi(e)) : 0; }();
     // THINC (Xiao/Shyue-Xiao tanh) interface sharpening of the VOF face alpha in the colour-
     // function transport (the alpha loop below). ONLY the face alpha `af[]` of the non-conservative
     // alpha update uses it -- the ACID mass/momentum/energy fluxes use the CELL alpha, so THINC
@@ -750,8 +764,10 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // Stage 1 (round 11, DIAGNOSTIC ONLY): carry the last retry's failure reason out of the
         // retry loop so the stall report below can name it. Ints/doubles only -- no FP arithmetic
         // is added, so every accepted step is bit-identical to the pre-change build.
-        int  stall_reason = 0;    // 1=Newton made no progress, 2=non-finite p, 3=non-finite u, 4=|u|>10*uref
-        int  stall_cell   = -1;   // first offending cell for reasons 2-4
+        int  stall_reason = 0;    // 1=Newton made no progress, 2=non-finite p, 3=non-finite u,
+                                  // 4=|u|>10*uref, 5=a cell pinned at the 1e6 K T ceiling
+                                  //   (ACID_TSAT_STALL only; see the flag's declaration above)
+        int  stall_cell   = -1;   // first offending cell for reasons 2-5
         double stall_dt   = 0.0;  // the last dt actually attempted (dt is halved after the check)
         int  stall_retry  = -1;
         bool stall_conv_inner = false;  // rbest/r_init/conv_inner are retry-loop-local; captured
@@ -2295,6 +2311,26 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // iterate like the FD path does -- retrying would just collapse dt and freeze the run.
         bool bad = (ajac && coupled && !conv_inner && rbest >= r_init);
         if (bad) { stall_reason = 1; stall_cell = -1; }
+        // ---- F2'' (round 18, ACID_TSAT_STALL): T-ceiling saturation is a STALL, not a step. ----
+        // A cell at T_from_hstat's 1e6 clamp is not a solution of hmix(T)=hstat: dT/dh is exactly
+        // 0 there, so Newton's energy unknown moves and the thermodynamic state does not respond
+        // (docs/YADV_RESEARCH.md sect.26.1 -- the mechanism behind case33's unrecoverable stall).
+        // Accepting such an iterate silently propagates a state the EOS could not represent.
+        // PLACEMENT is load-bearing, do not move:
+        //   * AFTER the reason-1 assignment above -> reason 5 DISPLACES reason 1, which is what
+        //     makes a saturated retry ineligible for ACID_STALL_ACCEPT below with NO edit there
+        //     (a captured acc_s candidate is thus non-saturated by construction);
+        //   * BEFORE the finite/speed scan below -> a hard non-finite/overspeed failure still
+        //     wins the STALLED-DETAIL report. Precedence: 2/3/4 > 5 > 1.
+        // NOT ajac-gated (unlike the reason-1 term above): saturation is a property of the STATE,
+        // not of the Jacobian mode. `coupled`-gated to match ACID_TSAT block A: on the segregated
+        // path the convex T-update can never REACH 1e6 from below, so this is equivalent, but the
+        // gate states the intent. Integer/compare only -- no FP arithmetic is added, and the whole
+        // block is skipped when the flag is unset.
+        if (tsat_stall > 0 && coupled) {
+            for (int i = 0; i < n; ++i)
+                if (s.T[i] >= 1.0e6) { bad = true; stall_reason = 5; stall_cell = i; break; }
+        }
         for (int i = 0; i < n; ++i)
             if (!std::isfinite(s.p[i]) || !std::isfinite(s.u[i]) ||
                 std::abs(s.u[i]) > 10.0 * uref) {
@@ -2350,6 +2386,10 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // which is exactly "finite everywhere and |u| <= 10*uref". Ranked by the DIMENSIONLESS
         // progress ratio rbest/r_init (rnorm3 is unnormalised and not comparable across cases or
         // across retries once r_init starts scaling as 1/dt, docs/YADV_ROUND_12_PLAN.md sect.1.2).
+        // Round 18 (F2''): and, when ACID_TSAT_STALL is on, also "no cell at the 1e6 K T ceiling"
+        // -- the reason-5 assignment above displaces reason 1, so a saturated retry can never be
+        // captured here nor adopted below. Accepting a state known NOT to solve hmix(T)=hstat is
+        // the "silently accept garbage" mode this mechanism's own safeguard exists to prevent.
         if (stall_accept_lvl > 0) {
             if (stall_reason != 1) only_reason1 = false;
             if (stall_reason == 1 && r_init > 0.0 && std::isfinite(rbest)) {
@@ -2436,7 +2476,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             // condition, and re-run G1 if the OFF path's stepping ever changes.
             diverged = true;   // -> the p/u NaN fill at the end of solve_case_acid
             static const char* const why[] = {"unknown", "newton-no-progress", "nonfinite-p",
-                                              "nonfinite-u", "u>10*uref"};
+                                              "nonfinite-u", "u>10*uref", "T-ceiling-saturated"};
             std::fprintf(stderr,
                 "STALLED: case=%s no admissible step at dt=%.3e after %d retries, step %d, "
                 "t=%.3e of %.3e -> stop (marked DIVERGED: p,u,rho returned as NaN, "

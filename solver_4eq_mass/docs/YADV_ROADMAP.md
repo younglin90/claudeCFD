@@ -390,7 +390,7 @@ not start a new round.
   now recorded in `.claude/rules/denner-pitfalls.md`. `git diff --stat -- cpp/`: one file, one
   executable line changed, rest comment-only. All hard gates held (OFF 19/19, byte-identical to
   `solver_denner` published binary).
-  → `YADV_RESEARCH.md` §30, `docs/YADV_ROUND_20_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §30, `docs/YADV_ROUND_20_PLAN.md`, commit `78a1b12`.
 
 ## Setup reference
 

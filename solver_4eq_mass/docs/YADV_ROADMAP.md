@@ -45,34 +45,28 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 18
+round_counter: 19
 consecutive_failures: 0
 done: false
-next_task: Round 18 implemented F2'' (ACID_TSAT_STALL, default OFF). Confirmed exactly as
-           predicted: OFF/plain-ON/+ALPHA_IMPLICIT all byte-identical with the flag set. NOT
-           predicted, discovered this round: the FD-Jacobian path (ACID_NO_AJAC=1, independent
-           of ACID_YADV) already had substantial silently-accepted T-ceiling saturation on
-           cases 24/27/28/33/34 -- turning the flag on RECOVERS cases 27 and 28 from silent NaN
-           failure to genuine PASS (FD-invariance gates move 13/19->15/19 and 13/19->14/19).
-           No regression found anywhere. ACID_STALL_ACCEPT interaction: case33 fails faster/
-           cleaner as predicted (0 accepts vs 4, step43 vs 104); case24 byte-identical; case34
-           shows a small real (~6th sig fig) non-byte-identical perturbation when BOTH
-           ACID_STALL_ACCEPT and the new flag are set together -- does not affect round 12's
-           published numbers (which use ACID_STALL_ACCEPT alone). Flag stays default OFF --
-           this round establishes safety+benefit when explicitly enabled, not promotion.
-           Live threads for round 19: (a) whether ACID_TSAT_STALL should be promoted toward
-           default given its clean recovery of cases 27/28 on the FD path (would need the
-           analytic-Jacobian path's own behavior re-examined, since Stage 0 found it saturates
-           there too under some conditions -- not yet swept for whether it EVER helps the
-           default/headline config, only that it's a no-op there); (b) the case34+
-           ACID_STALL_ACCEPT perturbation -- understand its exact origin (a transient outside
-           the accept-budget window) before combining the two mechanisms is recommended for any
-           future work; (c) round 13 sect.23.3's harder simultaneous (T,rho,h) reconciliation
-           for case24/34 (a DIFFERENT root cause from case33's); (d) max_steps exhaustion
-           (case15 legitimately uses it and PASSES on OFF -- needs careful design); (e) case29's
-           (excluded) likely-explained blocker (analytic post-shock T=2.93e6K exceeds the 1e6K
-           clamp by 2.93x) -- not pursued, recorded for the record.
-           Grounded in YADV_RESEARCH.md sect.28, docs/YADV_ROUND_18_PLAN.md.
+next_task: Round 19 fully localized round 18's case34+ACID_STALL_ACCEPT+ACID_TSAT_STALL
+           perturbation (no fix needed, no source change made -- existing instrumentation
+           sufficed): channel C1 (a would-be-accepted retry gets rejected for carrying a
+           saturated cell), first divergence at exactly step 325/retry 1 (the step where the
+           baseline's own accepted_steps_hi=3 first fires), dt ratio 1.000000 through step 325
+           then perturbed 0.28-6.05x through step 336, settling to a few percent by step 337,
+           both runs reaching the identical final t to 9 sig figs. Mystery closed. Live threads
+           for round 20, carried from round 18 (untouched by round 19): (a) whether
+           ACID_TSAT_STALL should be promoted toward default given its clean recovery of cases
+           27/28 on the FD path -- needs the analytic-Jacobian/headline path's own saturation
+           behavior swept more thoroughly (round 18 Stage 0 found isolated non-accepted
+           touches there, never a case where turning the flag on changes anything -- but "does
+           it ever HELP the default config" was never directly tested since it's a no-op
+           there); (b) round 13 sect.23.3's harder simultaneous (T,rho,h) reconciliation for
+           case24/34 (a DIFFERENT root cause from case33's, per rounds 15/16); (c) max_steps
+           exhaustion (case15 legitimately uses it and PASSES on OFF -- needs careful design);
+           (d) case29's (excluded) likely-explained blocker (analytic post-shock T=2.93e6K
+           exceeds the 1e6K clamp by 2.93x) -- not pursued, recorded for the record.
+           Grounded in YADV_RESEARCH.md sect.29, docs/YADV_ROUND_19_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -365,6 +359,24 @@ not start a new round.
   violations. Flag stays default OFF (this round establishes safety+benefit when explicitly
   enabled, not promotion). `ACID_YADV` status unchanged (default OFF, 15/19).
   → `YADV_RESEARCH.md` §28, `docs/YADV_ROUND_18_PLAN.md`, commit `207874b`.
+- Round 19: round 18's case34+`ACID_STALL_ACCEPT`+`ACID_TSAT_STALL` perturbation **fully
+  localized, no new source code needed** -- existing round 13/16/17/18 instrumentation sufficed.
+  Channel enumeration (a code property, not case-specific): the new flag can only perturb a
+  trajectory via two channels, C1 (a would-be-accepted retry rejected for carrying a saturated
+  cell) or C2 (an already-rejected retry's exclusion changes the accept-candidate winner) -- C2
+  re-confirmed excluded (all four `STALL-ACCEPT:` events identical, direct diff). **Decisive test**:
+  the unmodified baseline, instrumented, shows `accepted_steps_hi=3` -- three normally-accepted
+  steps (325/326/329) already silently carry a saturated cell today. With the flag added, the two
+  runs are **bit-identical through step 325 exactly** (`dt` ratio 1.000000 at every step), diverge
+  at 326 (ratio 0.28-6.05x through step 336 -- the predicted `cfl_scale` cascade), then settle to a
+  few percent by step 337 and continue damping toward parity. Both runs reach the **identical**
+  final `t` to 9 significant digits (2648 vs 2646 steps). H0 (nondeterminism) and instrument-
+  neutrality controls both pass. Two corrective annotations to round 18 recorded (not edited
+  there): `only_reason1` is dead at `ACID_STALL_ACCEPT` level 1 (edit-free exclusion, not
+  behaviour-free); round 18's own prediction was keyed to the wrong Stage-0 column
+  (`+ALPHA_IMPLICIT` instead of plain-ON). No fix attempted or needed -- affects no published
+  configuration. `ACID_YADV`/`ACID_TSAT_STALL` status unchanged.
+  → `YADV_RESEARCH.md` §29, `docs/YADV_ROUND_19_PLAN.md`, commit `0d0aa13`.
 
 ## Setup reference
 

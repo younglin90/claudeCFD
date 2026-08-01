@@ -20,10 +20,10 @@ reset `consecutive_failures`.
 ## Control state
 
 ```
-round_counter: 4
+round_counter: 5
 consecutive_failures: 0
 done: false
-next_task: docs/YADV_PHASE2_PLAN.md Stage 0
+next_task: docs/YADV_PHASE2_PLAN.md Stage 1
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -79,7 +79,19 @@ not start a new round.
   Stage 0-4 implementation, grounded in 4 papers (Denner 2018 product-rule linearisation, Janodet
   2025 coupled-large-density precedent, Denner/Evrard/vanWachem 2020 barotropic-substitution
   consistency argument, the original ACID paper as historical baseline). → `docs/YADV_PHASE2_PLAN.md`.
-- Round 5+: not yet run. `next_task` above.
+- Round 5 (first run under `yadv-round`): Phase 2 Stage 0 -- `d(alpha)/dp`, `d(alpha)/dT` header
+  helpers in `eos.hpp` (additive, no call sites yet) + unit-test verification. Confirmed Phase-2
+  §1's numeric prediction exactly (case15 diagonal-error ratio 521.558 vs predicted ~500). Found
+  and fixed a bug in the new unit test itself (FD-comparison tolerance floor was 1e6x too strict
+  for the air|vapor pair's algebraic-zero case) -- the derivative formula was correct throughout,
+  independently confirmed against a standalone probe. All four gates unchanged (additive stage):
+  OFF 19/19+9/9, ON 15/19, +ALPHA_IMPLICIT 12/19 both Jacobians, same failure sets as round 4.
+  Also the first real exercise of the round-loop mechanism itself -- found and fixed two
+  infra bugs (worktree default branches from origin/main, invisible to local-only commits, needed
+  `worktree.baseRef:"head"`; the Bash safety hook's substring match blocked its own guarded commit
+  on a heredoc-quoted mention of what it blocks, fixed with heredoc-body stripping). → commit
+  `7cd36ae`, `docs/YADV_ROUND_5_PLAN.md`.
+- Round 6+: not yet run. `next_task` above (Phase 2 Stage 1).
 
 ## Setup reference
 

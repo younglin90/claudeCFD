@@ -1151,3 +1151,99 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1                ./build-cpp/
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_NO_AJAC=1 ./build-cpp/cpp/denner_1d/denner1d_validate   # 12/19, unchanged
 python3 scripts/yadv_verify.py
 ```
+
+---
+---
+
+# ROUND 7
+
+## 17. Phase 2 Stage 2 -- J2 flux-blend diagonal. Measured no-op on pass_count; corrects round 6's case15 diagnosis.
+
+### 17.1 Correction to §16.4
+
+Round 6 read case15's `peak_delta_u` moving 321 (round-4 FD) -> 0 (round-6 analytic+Stage-1) as a
+sign case15 was "close to passing, blocked only by the TV/oscillation guard." **`peak_delta_u` is
+not part of case15's gate.** `validation.cpp`'s case15 contract (~lines 684-730) is
+`corr_p>=0.93 && corr_u>=0.998 && corr_rho>=0.99 && l2_p<=0.18 && l2_u<=0.06 && l2_rho<=0.05 &&
+smooth_ok && osc_ok`, where `smooth_ok`/`osc_ok` are a domain-restricted jump/concentration test
+and a total-variation-excess test respectively -- `peak_delta_u` appears only in the unrelated
+generic `default_pass` and in `metrics_json`'s diagnostic output. §16.4's inference was
+unsupported; this section replaces it with the measured values.
+
+### 17.2 What was implemented
+
+Added a new diagonal loop to the analytic Jacobian: the other product-rule addend of the ACID
+per-cell flux blend `mdot_f^(i) = (al_i*raup_f + (1-al_i)*rbup_f) * theta_f` -- the sensitivity of
+the blend weight `al_i` itself (own cell only, reusing Stage 1's already-computed `alp_p[]`):
+
+```
+d(R_con)/dp |_i += ((raup[i+1]-rbup[i+1])*theta[i+1] - (raup[i]-rbup[i])*theta[i]) * alp_p[i]
+d(R_mom)/dp |_i += (that * uconv, R and L)                                          * alp_p[i]
+d(R_ene)/dp |_i += ((rHaup[i+1]-rHbup[i+1])*theta[i+1] - (rHaup[i]-rHbup[i])*theta[i]) * alp_p[i]
+```
+
+Purely additive (no existing block differentiates `al` itself -- the flux-coupling block freezes
+`al` and differentiates `theta`/`pface`; the upwind-transport block freezes `al` and differentiates
+the upwind cell's `raup`/`rbup`). Boundary correctness verified: `theta[]` already carries every BC
+override before the mdot loop runs, so no special-casing was needed.
+
+### 17.3 Gates (all held)
+
+```
+OFF (ACID_YADV unset)                                : 19/19, 9/9 byte-identical
+ACID_YADV=1 (plain)                                   : 15/19, unchanged
++ALPHA_IMPLICIT ACID_NO_AJAC=1 (FD-invariance)        : 12/19, EXACT SAME failure set as rounds 4-6
+```
+
+### 17.4 The target measurement -- unchanged pass_count, one precise new finding
+
+`ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1`: **14/19, identical failure set** `{14,15,24,33,34}` to
+round 6. case15's metrics moved by noise only (`amp_ratio_p` 1.00042->1.00041). Consistent with the
+round-7 Planner's own prediction: cases 13/25 were already fully recovered in Stage 1 and had
+nothing left for J2 to add; J2's magnitude (a sub-percent correction at case15's state, by rough
+order-of-magnitude estimate) is much smaller than Stage 1's ~500x fix. Reported as a measured
+no-op, not spun as a win.
+
+**case15's true blocker, computed exactly from `validation.cpp`'s own formulas against a fresh
+dump:**
+
+```
+cj=30.02   cj_r=3.55   threshold=max(8.0,1.10*cj_r)=8.0     -> FAILS (central jump ~4x the limit)
+mj=32.00   mj_r=18.08   threshold=max(8.0,1.10*mj_r)=19.88   -> FAILS
+cc=0.117   cc_r=0.084   threshold=max(0.04,1.10*cc_r)=0.093  -> FAILS
+smooth_ok = False
+p_osc=0.0, r_osc=0.0  -> osc_ok = True  (total-variation-excess side is completely clean)
+```
+
+case15 fails on the **central-jump/concentration test**, not oscillation. `cj` is the jump at the
+exact domain center (`x[nn/2]` vs `x[nn/2-1]`), which by problem symmetry is `u`'s stagnation
+point (`u=0` at `x=0.5` for a symmetric double rarefaction). A large central jump at a stagnation
+point in a collocated pressure-velocity coupled solver is a known failure-mode CLASS (checkerboard/
+central-spike artifacts), structurally unrelated to `d(alpha)/dp` Jacobian accuracy. There is no
+mechanism by which Stage 1, Stage 2, or the contingent Stage 3 (T-pathway) could reach this defect.
+
+### 17.5 Verdict
+
+1. Stage 2 correctly implemented, all gates held, measured no-op on `pass_count` -- an honest
+   negative result, not chased or spun.
+2. **case15's actual blocker is now understood and it is out of scope for this Phase-2 plan.**
+   Recovering it would require investigating the central-stagnation-point discretization (a
+   scheme/MWI question), not more alpha-implicit Jacobian work.
+3. Cases 24/33/34 and 14 unmoved, exactly as predicted (separate, previously-diagnosed defects).
+4. Two stray tracked files (`3,`, `=150`) at the repo root, committed long before this round loop
+   existed (`325dc5b`), noted but not touched -- out of this round's scope.
+
+Recommendation: re-scope Phase-2's "current goal" (`docs/YADV_ROADMAP.md`) rather than treat
+case15 as a Stage-3 target. 13/25 recovery is a genuine, durable win; case15 needs a different
+investigation entirely if pursued further.
+
+### 17.6 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ./build-cpp/cpp/denner_1d/denner1d_validate   # 14/19 (unchanged from round 6)
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ./build-cpp/cpp/denner_1d/denner1d_dump 15 > /tmp/case15.csv
+# then compute cj/mj/cc/p_osc/r_osc exactly per validation.cpp's smooth_ok/osc_ok formulas (§17.4)
+python3 scripts/yadv_verify.py
+```

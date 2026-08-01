@@ -1584,6 +1584,42 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                             add(i, cell, 2, 1, rHblR * tpR - rHblL * tpL);            // R_ene d/dp
                         }
                     }
+                    // --- Phase 2 Stage 2 (docs/YADV_PHASE2_PLAN.md 2.2 "J2"): the OTHER
+                    //     product-rule addend of the ACID per-cell flux blend. The residual
+                    //     weights the UPWIND phase densities with cell i's OWN alpha
+                    //     (mdotL/mdotR at ~1172-1179, energy fR/fL at ~1203-1207):
+                    //         mdot_f^(i) = (al_i*raup_f  + (1-al_i)*rbup_f ) * theta_f
+                    //         e_f^(i)    = (al_i*rHaup_f + (1-al_i)*rHbup_f) * theta_f
+                    //     The flux-coupling block ABOVE differentiates theta/pface with al
+                    //     FROZEN; the upwind-transport block BELOW differentiates
+                    //     raup/rbup/rHaup/rHbup at the UPWIND cell with al FROZEN. Neither
+                    //     differentiates al itself. Under ACID_YADV + ACID_YADV_ALPHA_IMPLICIT
+                    //     al_i = alpha(Y_i, rho_a(p_i,T_i), rho_b(p_i,T_i)) (~1014), so
+                    //     d(al_i)/dp_i = a_p != 0. alpha_i depends only on cell i, so this is a
+                    //     purely DIAGONAL addend (aB[i]) -- no stencil growth. Denner 2018
+                    //     Eq.1-2's coefficient*variable Newton template with BOTH factors
+                    //     linearised (the flux-coupling block above is the coefficient-frozen
+                    //     form). a_p is REUSED from J1's alp_p[] (filled at ~1535); never
+                    //     recomputed here. Boundary faces need no special case: theta[] already
+                    //     carries every BC override (theta[0]=uin for inlet, theta[0]/theta[n]=0
+                    //     for reflective, ~1164-1166, set BEFORE the mdot loop), and the
+                    //     mdotL[0]/mdotR[n-1] restatements at ~1177-1179 evaluate to exactly the
+                    //     same product -- so plain theta[f] is the right factor everywhere.
+                    //     TR-BDF2 would need the flux_w scaling on these rows, but
+                    //     tr_bdf2 => ajac=false (~1274), so this block only ever runs at
+                    //     flux_w == 1. Guarded by that fact, deliberately not by code.
+                    if (yadv && alpha_implicit) {
+                        for (int i = 0; i < n; ++i) {
+                            const double ap = alp_p[i];
+                            const double dR = (raup[i + 1]  - rbup[i + 1] ) * theta[i + 1];
+                            const double dL = (raup[i]      - rbup[i]     ) * theta[i];
+                            const double eR = (rHaup[i + 1] - rHbup[i + 1]) * theta[i + 1];
+                            const double eL = (rHaup[i]     - rHbup[i]    ) * theta[i];
+                            add(i, i, 1, 1, (dR - dL) * ap);                            // R_con d/dp
+                            add(i, i, 0, 1, (dR * uconv[i + 1] - dL * uconv[i]) * ap);  // R_mom d/dp
+                            add(i, i, 2, 1, (eR - eL) * ap);                            // R_ene d/dp
+                        }
+                    }
                     // --- upwind-TRANSPORT derivatives (1st-order: weight 1 on the upwind cell).
                     //     d(raup/rbup/rHaup)/d(p,h,u)[uw] via the EOS partials + the h->T chain.
                     //     Needed where the upwind density varies sharply (strong shock-interface

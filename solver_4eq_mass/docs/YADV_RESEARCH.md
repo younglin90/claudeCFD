@@ -4774,3 +4774,267 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT_CAV=2 ./build-cpp/cpp/denner_
     2>/dev/null | grep '"case":"33"'
     # sect.39.6, expect finite:true (post-revert; was finite:false before the revert)
 ```
+
+## 40. case15's core jet, mechanism traced to its immediate cause -- a collocated central-mean
+face-pressure cancellation at a 128:1 density-ratio face, literature-documented (Bartholomew/
+Denner/van Wachem 2018 Eq.90); refinement census run, H-R1 favoured but the specific prediction
+falsified; DIAGNOSTIC-ONLY round, no fix attempted
+
+Fourth round on case15. `docs/YADV_ROUND_30_PLAN.md`. Round 29 left one sharply-defined blocker:
+a 4-cell velocity sign reversal at case15's exact stagnation point, shared identically by
+`B+CAV` and config C, unreachable by anything in the `cav`/alpha-implicit family. This round
+measured its mechanism directly, then instrumented (but did not decide) whether it survives mesh
+refinement. **No code was added anywhere except a diagnostic mesh-resolution override in
+`denner1d_dump.cpp`; no fix was attempted (pre-registered non-goal, §7 of the plan).**
+
+### 40.1 Correction (a): config C's Newton converges quadratically -- the core jet is a property
+of a converged fixed point, not a stall
+
+`ACID_RHIST=1` at steps 0,2,5,20,30,50,60,80,84: every sampled step converges in 3-5 Newton
+iterations with `al=1.000` at every iteration (no line-search backtracking), 12-13 orders of
+residual reduction (`rnorm3` from `~5e6` to `~1e-7`-`3e-7`). A full config-C case15 run is 85
+steps, **zero retries, zero `STALLED`/`STALL-ACCEPT`/`DIVERGED` lines on stderr.** `acid.cpp`'s
+own comment "case15 cavitation: NEVER converges" describes the frozen-alpha path (plain B) only
+-- it does not apply to config C, and rounds 27-28's framing that implicitly generalised it was
+too broad. The accepted momentum balance at the jet is therefore a real, exact statement about
+the discretisation, not an artifact of non-convergence.
+
+### 40.2 The mechanism: `pres_i = ½(p_{i+1}-p_{i-1})`, a 2Δx central gradient whose own cell
+cancels, amplified `1/rho` at a 128:1 density-ratio face
+
+With `use4` provably false for case15 (`lowdiss=false` under config C's regime, verified
+`acid.cpp:1754-1759`), every face pressure is the plain arithmetic mean
+`pface[f] = 0.5*(p_L+p_R)` (`acid.cpp:1786-1788`). The momentum residual's pressure term is
+`pres_i = pface[i+1]-pface[i] = 0.5*(p_{i+1}-p_{i-1})` -- **the cell's own pressure cancels
+identically**, the standard collocated 2Δx central gradient.
+
+At case15's core (final state, N=400): cell 197 has `p=444.96, rho=71.13`; cell 198 has
+`p=3.2432, rho=0.5577` -- a **137:1 pressure ratio and 128:1 density ratio across one face**.
+`pface[198] = 0.5*(444.96+3.2432) = 224.10 Pa` -- **69.1x cell 198's own pressure**, because the
+heavy neighbour dominates the arithmetic mean at a near-discontinuous expansion front. The
+resulting specific pressure force in cell 198 (`pres_i/(dx*rho)`) is `+153920 m/s^2`, **49x** the
+value in cell 197 and **124x** the value in cell 196 -- a pure `1/rho` amplification of the same
+absolute interpolation error. Two independent routes (residual-closure decomposition of
+`trans_m/pres/conv`, and direct re-evaluation of `conv` from the raw mass-flux/upwind-velocity
+arrays) agree to 0.1-0.3%: the accepted balance in the near-vacuum cell is a near-cancellation of
+two ~200 Pa terms (`pres=-214.62`, `conv=+183.07`, net `trans_m=+31.55`), each ~6.6x the net --
+conditioned entirely on a face pressure with no accuracy claim at this density ratio.
+
+This is Bartholomew/Denner/van Wachem (JCP 375, 2018) §5 Eq.90, verbatim
+(`papers/library/md/2018_Bartholomew_Denner_MWI_collocated_main.md:2065`): "the discrete pressure
+gradient is underpredicted in the heavier phase and overpredicted in the lighter phase, which
+leads to an artificial acceleration of the flow in the vicinity of the interface." The mechanism
+this solver exhibits is the paper's own named failure mode, not a novel defect.
+
+By symmetry the innermost cell's balance reduces further: `pres_199 = 0.5*(p_199-p_198)`, driven
+entirely by its outer neighbour -- explaining the measured one-cell-per-side onset (`ACID_TEND_SCALE`
+sweep, plan §2.5): the reversal appears first at exactly `i=N/2-1`, pointing inward whenever the
+outer cell sits at higher pressure, which is true for essentially the whole run until the core has
+evacuated.
+
+### 40.3 Correction (c): the MWI/Rhie-Chow correction is ~2700x too small to act here, and it is
+NOT clamp-saturated -- a distinct mechanism from case25's documented `dhat~dt` small-step defect
+
+At the critical face (cells 198/199, final state): `dhat=3.045e-7`, `dpf-gpbar=-21807` Pa/m, giving
+`mwi_p=+0.00664 m/s` against local velocities of ~18 m/s -- **~2700x too small to influence
+anything**. The sound-speed clamp (`|mwi_p|<af`) does not saturate either: `af` (Denner's mixture
+speed, `acid.cpp:299`, NOT the Wood speed) is `O(10^2-10^3) m/s` here, five orders above `|mwi_p|`.
+
+This settles the question the round 27/29 hand-off asked to re-verify: case15's core jet is a
+**one-sided, non-oscillatory, sign-consistent over-acceleration driven by the momentum equation's
+own face-pressure interpolation**, categorically different from case25's documented defect (a
+*pressure-velocity decoupling oscillation* the MWI is supposed to damp harder at small `dt` and
+doesn't). Round 27's conclusion that these are different mechanisms is **confirmed by direct
+measurement**, but round 27's *stated reason* ("an under-resolved core whose Wood sound speed has
+collapsed, M~40") is **not the operative one** -- `s.a` is not the Wood speed, the clamp never
+engages, and `dt` here is set by the far-field material CFL (`dt=1.125e-5` constant for all 85
+steps, `=cfl*dx/max|u|` with `max|u|=100` at the domain boundary, unrelated to anything local to
+the core).
+
+### 40.4 Correction (b): the "overheating" framing is refuted -- temperature is uniform to 0.02 K
+across a 340x pressure drop
+
+`T_o` at the final step across cells 196-199: `349.3479, 349.3622, 349.3496, 349.3652` K -- spread
+**0.02 K** while `p` falls from 1133 Pa to 3.34 Pa (340x). There is no thermal anomaly at the
+stagnation point of any kind. Noh-type wall/artificial-heat overheating, Petitpas-type relaxation
+artificial-heat corrections, and Bigdelou-type ghost-fluid overheating treatments all target a
+defect that is measurably absent here. The three `*_needed.md` stubs round 29 queued as round 30's
+literature priority (`1987_Noh_...`, `2007_Petitpas_...`, `2021_Bigdelou_...`) have each been
+annotated in-place with this refutation rather than chased further (§40.9). A fourth stub,
+`papers/2014_Denner_vanWachem_fully_coupled_balanced_force_VOF_needed.md`, was added -- the source
+of the density-weighted face-interpolation idea evaluated and killed in §40.5.
+
+### 40.5 Two parameter-free fix candidates derived and killed before proposing anything
+
+**(F-a) Density-weighted face pressure** (Denner's own Eq.93/91 weighting, reusing the harmonic
+`rho_f` already computed at `acid.cpp:1739`): `pface = rho_f * 0.5*(p_L/rho_L + p_R/rho_R)`. At
+case15's critical face this gives `6.68 Pa` instead of `224.10` -- a 33x improvement, right
+direction, and it preserves pressure equilibrium exactly on a uniform-`p` field (case01). But on
+case25's reflected shock the same formula gives `1.82e6 Pa` where central gives `5.88e6 Pa` -- a
+**3.2x under-prediction of the shock face pressure, i.e. a wrong shock speed.** This is exactly the
+pre-existing dead end already on record in `.claude/rules/denner-pitfalls.md` ("Upwinding the face
+PRESSURE ... is NOT valid -- it breaks shock speed/position or diverges. Keep the conservative
+central pface."), reconfirmed by direct measurement rather than by citation.
+
+**(F-b) Acoustic-impedance (Riemann-consistent) face pressure**: evaluates *negative* at case15's
+critical face (`~-44 Pa`, needing an ad hoc floor -- disqualifying on its own) and under-predicts
+case25's shock face pressure by 11x. Also dead.
+
+Denner's own §5.1 remedy in the source paper applies density weighting only to the MWI's
+*advecting velocity* (`gpbar`), not to the momentum equation's pressure term -- and §40.3 already
+shows the MWI term here is 2700x too small for that remedy to matter (recomputing `gpbar` with
+density weighting moves `mwi_p` from `+0.0066` to `+0.0273 m/s`, still negligible). This is a
+genuine faithfulness gap versus the source paper but is measurably not the core-jet fix.
+**No bounded, parameter-free candidate exists on this evidence. None was proposed, per the plan's
+own binding S6-e anti-rescue clause and `consecutive_failures=2` at entry.**
+
+### 40.6 The `ACID_DUMP_CELLS` instrument and its self-tests
+
+The round's sole default code change: `cpp/denner_1d/apps/denner1d_dump.cpp` gains an
+`ACID_DUMP_CELLS=<N>` env override on `c.config.cells`, diagnostic-only (same category as the
+pre-existing `ACID_TEND_SCALE`), never read by `denner1d_validate`/`denner1d_run`, no
+`cases.cpp`/`validation.cpp`/`acid.cpp` touch. Because `reference_state()` still builds
+`computed_reference(c,800)` from the *overridden* case, every `*_ref`-derived number is invalid
+under this var by construction -- only the solver columns are valid, and G4/self-tests exist so
+this cannot be silently misused:
+
+- **Self-test A** (`ACID_DUMP_CELLS=800`): the reference solve becomes bit-identical to the primary
+  solve, so `p==p_ref` and `u==u_ref` bit-for-bit in all 800 rows. Confirmed, zero mismatches.
+- **Self-test B**: pair-averaging the N=800 run's `u`/`p`/`alpha` against the *untouched* N=400
+  run's own `*_ref` columns must agree to >=10 significant digits, and four specific pre-registered
+  sums must match exactly (`u_800[398]+u_800[399]=-3.54553723` etc.). Confirmed exactly, which also
+  independently re-proves §39.8's exact-pair-average claim for the reference construction.
+- **G4(a)**: `ACID_DUMP_CELLS` unset leaves `denner1d_dump`/`denner1d_validate` byte-identical on
+  cases 01/02/13/14/15/24/25 under OFF/B/C. Confirmed.
+
+### 40.7 Refinement census (N=100..3200, config C) -- H-R1 favoured, but the pre-registered
+specific prediction was falsified
+
+| N | `cj` | `mj` | `cc` | `n_rev` | `w_rev` | `nfloor` (p<=1.0 Pa) | `p_min` |
+|---|---|---|---|---|---|---|---|
+| 100 | 47.089 | 47.089 | 0.2367 | 0 | 0.00000 | 0 | 8.916 |
+| 200 | 66.523 | 66.523 | 0.2001 | 1 | 0.00500 | 0 | 5.320 |
+| 400 | 30.018 | 31.998 | 0.1175 | 2 | 0.00500 | 0 | 3.243 |
+| 800 | 27.853 | 31.398 | 0.1144 | 1 | 0.00125 | 2 | 1.000 |
+| 1600 | 18.364 | 18.364 | 0.0763 | 1 | 0.000625 | 2 | 1.000 |
+| 3200 | 3.944 | 3.944 | 0.0186 | 1 | 0.000313 | 2 | 1.000 |
+
+(N=400 row cross-checked against the plan's own independently-derived §2.3 table --
+`mj=31.9982`, `cc=0.11746` there vs `31.998`/`0.1175` here, agreeing to the reported precision;
+confirms this census's `jump_stats` reimplementation matches `validation.cpp:695-707` exactly.)
+
+**The specific pre-registered H-R1 prediction ("`cj_800<8`") is FALSIFIED**: `cj_800=27.853`, over
+3x the limit. **The qualitative H-R1 convergence hypothesis is nonetheless well-supported**: `cj`
+is non-monotone at coarse N (the N=200 bump to 66.5 is a genuine discretisation transient, not
+noise -- `n_rev` goes 0->1 there too) but decreases monotonically for every N>=400
+(30.0->27.9->18.4->3.9), crossing below the gate's own `8.0` threshold between N=1600 and N=3200
+rather than at N=800 as predicted. `n_rev` stays bounded (0-2, never growing with `N`) and the
+**physical width of the reversed region shrinks super-linearly**: `w_rev` drops 4x from N=400 to
+N=800 (0.00500->0.00125) against the 2x a fixed cell-count region would give under `dx` refinement
+alone -- a genuine convergence signal, not merely `dx->0` bookkeeping. Taken together this is closer
+to **H-R1 with a later threshold crossing than predicted**, not H-R2 (structural, no decay) and not
+a clean H-R3 either (the width *and* the amplitude are both trending down, not just the width). The
+falsified specific number is reported as falsified, per the plan's own S6-f rule, not folded
+silently into "H-R1 confirmed."
+
+**New finding, not anticipated by the plan, reported honestly**: at N>=800, exactly **2 cells hit
+the 1.0 Pa pressure floor**, and `nfloor` stays fixed at 2 all the way to N=3200 even as `cj` keeps
+falling sharply between 1600 and 3200. Since `nfloor` is flat while `cj` is not, the floor-hit does
+not appear to be *driving* the `cj` trend, but its persistence at fine `N` complicates §2.5's
+plan-stage claim that "the 1.0 Pa floor is never approached under config C" -- that claim held at
+N=400 (global min 3.24 Pa) but not at N>=800. This is recorded as an open loose end for whichever
+round next touches case15's floor behaviour, not resolved here (touching the floor is an explicit
+non-goal, plan §7.6).
+
+**Anti-rescue note, per the plan's own binding clause (S6-a)**: none of the `cj`/`mj`/`cc`/`nfloor`
+numbers above is or ever becomes a case15 gate result. case15's gate is, and remains, N=400 scored
+against `computed_reference(c,800)`; this table exists only to answer the refinement question.
+
+### 40.8 Corrections to prior-round framings (stated together, per the plan's own S1 rule)
+
+(a) Config C's Newton converges quadratically at every sampled step -- the core jet is a property
+of a converged fixed point, not a solver stall (§40.1; overturns an implicit generalisation of a
+comment about the plain-B frozen-alpha path in rounds 27-28).
+(b) Temperature is uniform to 0.02 K across the core's 340x pressure drop -- the "overheating"
+framing round 29 queued as round 30's literature priority is refuted (§40.4).
+(c) The MWI clamp is inactive by five orders of magnitude and `mwi_p` is 2700x too small to act;
+round 27's conclusion that this is a distinct mechanism from case25 is confirmed, but round 27's
+stated *reason* (Wood-speed collapse, M~40) was not the operative one (§40.3).
+(d) `.claude/rules/denner-pitfalls.md`'s sentence that `ACID_DHK` "remains only as a research env
+knob" is stale -- `ap_advection`/`dhat_scale`/`ACID_DHK` were deleted (`types.hpp:66-69`, confirmed
+by a zero-hit grep over `cpp/`); there is no dhat lever left to sweep.
+(e) Round 29 §39.8's "genuine under-resolution artifact (absent at N=800)" is too strong: the raw
+N=800 reference field is itself already non-monotone in both `p` and `u` at the same location (a
+one-sample local max/min at i=197), because case15's reference is proven to be an *exact pair
+average* of the N=800 solve (§39.-adjacent claim, independently reconfirmed here via Self-test B,
+§40.6) and a pair average cannot manufacture non-monotonicity that was not already present in the
+fine field.
+
+### 40.9 Literature
+
+Annotated in place, not chased further (per §3.6/§8's redirect): `papers/1987_Noh_artificial_heat_flux_needed.md`,
+`papers/2007_Petitpas_Franquet_Saurel_LeMetayer_relaxation_projection_II_artificial_heat_needed.md`,
+`papers/2021_Bigdelou_Liu_Tarey_Ramaprabhu_overheating_ghostfluid_needed.md` -- each now records
+the 0.02 K temperature-uniformity measurement and redirects to the operative mechanism. New stub
+created: `papers/2014_Denner_vanWachem_fully_coupled_balanced_force_VOF_needed.md` (the primary
+source of the density-weighted face-interpolation idea, DOI 10.1080/10407790.2014.856129), recording
+that it was measured, not merely cited, to fail on case25 (§40.5). The operative mechanism reference
+itself, `papers/library/md/2018_Bartholomew_Denner_MWI_collocated_main.md` §5 Eq.90, was already in
+the repo from an earlier round -- no new download was required to close this round's core question.
+
+### 40.10 Verdict: S1 (diagnostic success)
+
+All hard gates held: OFF path 9/9 byte-identical (unchanged from round 29), 7-config sweep matches
+`EXPECTED` (A-G, `ALL GATES OK`), unit tests clean. `git diff --stat -- cpp/` touches exactly
+`apps/denner1d_dump.cpp` (Stage 4's conditional `acid.cpp` instrument was never triggered -- §40.2's
+two independent attribution routes agreed to 0.1-0.3%, well inside the plan's own 5% trigger
+threshold). No new numeric literal on any solution path, no `cases.cpp`/`validation.cpp` touch, the
+1.0 Pa floor untouched (§40.7's nfloor finding is a measurement, not a code change). The refinement
+question was decided with a supporting table (§40.7), and the pre-registered falsification of the
+specific numeric prediction is reported as such rather than smoothed over. Per the plan's own S1
+text, this qualifies as diagnostic success. **`consecutive_failures` resets to 0.**
+
+**`ACID_YADV`'s recommended default status is UNCHANGED (OFF, 15/19).** The core jet remains
+case15's single blocker under every implicit-alpha variant (config C fails case15 on `smooth_ok`
+alone -- all other 7 gate criteria pass with 3-12x margin, per round 29 §39.5/round 30's own §40.7
+reconfirmation).
+
+### 40.11 What round 30 hands to round 31
+
+Per the plan's own §6/S3 framing (deliberately pre-registered even for a favourable H-R1-leaning
+outcome, since no parameter-free in-scheme remedy exists regardless of the refinement verdict): the
+core jet is now fully mechanistically characterised (§40.2-40.3), both obvious parameter-free fixes
+are dead (§40.5), and the refinement census leans toward "converging, not structural" but with a
+falsified specific prediction and a new unresolved `nfloor=2` loose end (§40.7). Three consecutive
+rounds (28, 29, and now 30's own §40.5) have each independently confirmed that nothing bounded and
+parameter-free exists inside the current `pface`/MWI formulation. The honest options for round 31
+are therefore: (i) accept case15 as permanently unreachable under `ACID_YADV=1` at its current
+scheme (a scoped, documented exception, matching this project's treatment of other structurally
+closed cases); (ii) escalate to the user for authorisation of a scheme-level `pface` change with
+explicit, acknowledged shock-case risk (the F-a/F-b candidates are dead, but a *conditional* face
+scheme -- central away from extreme density ratios, something else only at a detected near-vacuum
+interface -- was not derived or evaluated this round and is a legitimate new avenue, not a
+retread of F-a/F-b); or (iii) a user conversation about whether case15's mesh/spec itself should be
+revisited (N=400 sits well inside the regime where the artifact is still visible per §40.7). This
+round does not choose among these -- that choice is deferred to the user per the plan's own
+non-goal 10 ("No attempt to make case15 pass this round").
+
+### 40.12 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RHIST=1 ACID_BLK_STEP=84 \
+    ./build-cpp/cpp/denner_1d/denner1d_dump 15 2>&1 >/dev/null | tail -6
+    # sect.40.1, expect al=1.000 every iteration, rnorm3 -> ~3.6e-7
+
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ./build-cpp/cpp/denner_1d/denner1d_dump 15 \
+    | awk -F, 'NR==199||NR==200{print}'
+    # sect.40.2, expect p[198]=3.2432..., p[197]=444.96... (128:1 rho / 137:1 p ratio, cells 0-indexed row 198/199)
+
+# refinement census (sect.40.7), for N in 100 200 400 800 1600 3200:
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_DUMP_CELLS=800 \
+    ./build-cpp/cpp/denner_1d/denner1d_dump 15 > /tmp/c15_n800.csv
+    # then pair-average u/p columns and diff against the UNSET run's own u_ref/p_ref (self-test B)
+```

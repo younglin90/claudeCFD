@@ -79,10 +79,106 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 29
-consecutive_failures: 2
+round_counter: 30
+consecutive_failures: 0
 done: false
-next_task: Round 29 measured round 28's own open question directly ("why is B+CAV's density
+next_task: Round 30 attacked case15's stagnation-point core jet directly (round 29's own
+           hand-off), diagnostic-only per its own pre-registered non-goal. Traced the mechanism to
+           its immediate, exact cause: with use4≡false for case15 (lowdiss=false under config C's
+           regime), every face pressure is the plain arithmetic mean pface[f]=0.5*(p_L+p_R)
+           (acid.cpp:1786-1788), so the momentum residual's pressure term reduces to
+           pres_i=0.5*(p_{i+1}-p_{i-1}) -- the cell's OWN pressure cancels identically. At case15's
+           core the face straddling the stagnation point has a 137:1 pressure ratio and 128:1
+           density ratio (p=444.96/rho=71.13 vs p=3.2432/rho=0.5577); the arithmetic mean gives
+           pface=224.10 Pa, 69.1x the light cell's own pressure, and the SAME absolute error
+           produces 1/rho MORE acceleration in the light cell -- measured 49x/124x specific-force
+           amplification vs its immediate neighbours, cross-checked two independent ways
+           (residual-closure decomposition and direct mass-flux re-evaluation) agreeing to
+           0.1-0.3%. This is Bartholomew/Denner/van Wachem (JCP 375, 2018) §5 Eq.90 verbatim,
+           already in the repo (papers/library/md/2018_Bartholomew_Denner_MWI_collocated_main.md)
+           -- a literature-documented failure mode, not a novel defect.
+           THREE CORRECTIONS TO PRIOR-ROUND FRAMINGS, each measured directly: (a) config C's
+           Newton converges quadratically at EVERY sampled step (al=1.000, zero backtracking,
+           3-5 its to rnorm3~3e-7, 85 steps/zero retries/zero STALLED lines) -- the core jet is a
+           property of a CONVERGED fixed point, not a solver stall (overturns an over-broad
+           reading of acid.cpp's own "case15 cavitation: NEVER converges" comment, which describes
+           the plain-B frozen-alpha path only); (b) temperature across the entire core is uniform
+           to 0.02 K (349.35-349.37 K) despite a 340x pressure drop -- the "overheating" framing
+           round 29 queued as this round's literature priority (Noh 1987/Petitpas 2007/Bigdelou
+           2021) is REFUTED by direct measurement, all three stubs annotated in place rather than
+           chased further; (c) the MWI/Rhie-Chow correction is ~2700x too small to act at the
+           critical face (mwi_p=+0.0066 m/s vs ~18 m/s local velocities) and is NOT clamp-
+           saturated (the sound-speed clamp sits 5 orders above |mwi_p|) -- confirms round 27's
+           "different mechanism from case25's dt~dhat checkerboard" conclusion by direct
+           measurement, but round 27's STATED reason (Wood-speed collapse, M~40) was wrong: s.a is
+           not the Wood speed and dt here is set by the far-field material CFL, unrelated to
+           anything local to the core.
+           Two parameter-free fix candidates derived and numerically evaluated BEFORE proposing
+           anything: density-weighted pface (Denner's own Eq.93 weighting) improves the critical
+           face 33x (224.10->6.68 Pa) but under-predicts case25's reflected-shock face pressure
+           3.2x (wrong shock speed); acoustic-impedance pface goes NEGATIVE at the critical face
+           and under-predicts case25's shock 11x. Both dead, exactly the pre-existing dead end
+           already on record in .claude/rules/denner-pitfalls.md ("Upwinding the face PRESSURE...
+           is NOT valid"). No bounded parameter-free candidate exists on this evidence; none
+           proposed, per the plan's own binding anti-rescue clause and consecutive_failures=2 at
+           entry (a third harm would have stopped the loop).
+           Built ACID_DUMP_CELLS (the round's ONLY default code change -- a diagnostic mesh-
+           resolution override in denner1d_dump.cpp only, never read by validate/run, no
+           cases.cpp/validation.cpp/acid.cpp touch), verified by two mandatory bit-level
+           self-tests (Self-test A: N=800 gives bit-exact p==p_ref/u==u_ref since the reference
+           solve becomes the primary solve; Self-test B: pair-averaging the N=800 run matches the
+           untouched N=400 run's own *_ref columns to >=10 sig digits, all 4 pre-registered
+           specific sums matched exactly) -- both passed, both also independently re-confirm round
+           29's exact-pair-average claim for the reference construction.
+           Refinement census, N in {100,200,400,800,1600,3200}, config C: cj (the smooth_ok
+           velocity-jump metric) non-monotone at coarse N (47.1->66.5->30.0) then MONOTONICALLY
+           DECREASING from N=400 onward (30.0->27.9->18.4->3.9), crossing the gate's own 8.0
+           threshold between N=1600 and N=3200. **The specific pre-registered prediction
+           "cj_800<8" is FALSIFIED** (measured 27.9, over 3x the limit) but the qualitative H-R1
+           convergence hypothesis is well-supported: n_rev stays bounded (0-2, never growing with
+           N) and the physical width of the reversed region shrinks super-linearly (4x from N=400
+           to N=800, vs the 2x a fixed-cell-count region would give from dx alone). Reported as
+           "H-R1 with a later threshold crossing than predicted," not smoothed into an
+           unconditional confirmation. NEW FINDING, not anticipated by the plan, reported
+           honestly: at N>=800, exactly 2 cells hit the 1.0 Pa pressure floor, staying fixed at 2
+           through N=3200 even as cj keeps falling sharply -- complicates (does not overturn) the
+           plan-stage claim that "the floor is never approached under config C" (true at N=400,
+           false at N>=800); left as an open loose end, not resolved (touching the floor is an
+           explicit non-goal).
+           Anti-rescue note: none of this census's numbers is or becomes a case15 gate result --
+           case15's gate remains N=400 scored against computed_reference(c,800).
+           consecutive_failures RESET TO 0 (S1, diagnostic success -- all hard gates held, refinement
+           question decided with a supporting table, falsified prediction reported as such per the
+           plan's own S6-f rule rather than softened). ACID_YADV's recommended status UNCHANGED
+           (OFF, 15/19); config C still fails case15 on smooth_ok alone, all 7 other criteria pass
+           with 3-12x margin.
+           **Hand-off to round 31 (deliberately pre-registered even under this favourable-leaning
+           H-R1 result, since no parameter-free in-scheme remedy exists regardless of the
+           refinement verdict)**: three consecutive rounds (28, 29, 30) have each independently
+           confirmed nothing bounded and parameter-free exists inside the current pface/MWI
+           formulation. The honest options are: (i) accept case15 as permanently unreachable under
+           ACID_YADV=1 at its current scheme (a scoped, documented exception); (ii) escalate to the
+           user for authorisation of a scheme-level pface change with explicit acknowledged
+           shock-case risk (a CONDITIONAL face scheme -- central away from extreme density ratios,
+           something else only at a detected near-vacuum interface -- was NOT derived or evaluated
+           this round and is a legitimate new avenue, not a retread of the two dead F-a/F-b
+           candidates); or (iii) a user conversation about whether case15's mesh/spec itself should
+           be revisited. Round 30 does not choose among these -- deferred to the user per its own
+           non-goal 10.
+           Also separately live, from the user's own explicit message in this session: whether to
+           re-open a model-extension research track for cases 24/33/34 (round 26 closed them as
+           structurally unreachable under ACID_YADV=1's mass-fraction closure; the user asked to
+           include them anyway "for a truly robust solver"). Not started -- explicitly deferred
+           until the in-flight case15 thread reaches a decision point, which round 30 has now
+           reached (see hand-off above). This should be the FIRST thing surfaced to the user
+           alongside round 30's own hand-off, not run silently as another autonomous round.
+           Grounded in YADV_RESEARCH.md sect.40, docs/YADV_ROUND_30_PLAN.md.
+```
+
+**Superseded control-state history (round 29's own, for provenance):**
+```
+round_counter: 29 (superseded, see above)
+next_task (superseded): Round 29 measured round 28's own open question directly ("why is B+CAV's density
            field worse than config C's despite near-identical mass") and found the answer
            overturns round 28's framing: B+CAV's N=400 solution is ALREADY config-C-grade
            (l2_rho=0.001580, corr_rho=0.999995 vs C's own N=400 field). The reported gap lives
@@ -843,7 +939,39 @@ not start a new round.
   case15 thread (round 27's `REBUILD_ADV`, this round's latch), now **2/3 toward the loop's own
   stop condition**. Round 30 should attack the core jet directly rather than propose a third
   variant adjacent to the alpha-implicit mechanism. All hard gates held.
-  → `YADV_RESEARCH.md` §39, `docs/YADV_ROUND_29_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §39, `docs/YADV_ROUND_29_PLAN.md`, commit `08d3c2e`.
+- Round 30: **DIAGNOSTIC-ONLY**, attacked the core jet directly per round 29's own hand-off.
+  Mechanism traced to its immediate cause: with `use4≡false` for case15, `pres_i=pface[i+1]-
+  pface[i]=0.5*(p_{i+1}-p_{i-1})` (the cell's own pressure cancels), and at the 128:1 density-
+  ratio/137:1 pressure-ratio face straddling the stagnation point, the arithmetic-mean `pface` is
+  69x the light cell's own pressure -- a `1/rho`-amplified interpolation error (49-124x specific-
+  force amplification, measured two independent ways agreeing to 0.1-0.3%). This is
+  Bartholomew/Denner/van Wachem (JCP 375, 2018) §5 Eq.90 verbatim, already in the repo. **Three
+  corrections to prior framings**: (a) config C's Newton converges quadratically at every sampled
+  step -- the jet is a property of a converged fixed point, not a stall; (b) temperature is
+  uniform to 0.02 K across the core's 340x pressure drop -- the "overheating" framing round 29
+  queued as this round's literature priority is refuted; (c) the MWI/Rhie-Chow correction is
+  ~2700x too small to act here and is NOT clamp-saturated -- confirms round 27's "different
+  mechanism from case25" conclusion but not its stated Wood-speed reasoning. Two parameter-free
+  fix candidates (density-weighted and acoustic-impedance face pressure) were derived and killed
+  -- both break case25's shock speed, exactly the pre-existing dead end in
+  `.claude/rules/denner-pitfalls.md`. Built `ACID_DUMP_CELLS` (diagnostic-only mesh-resolution
+  override, `denner1d_dump.cpp` only, two mandatory bit-level self-tests both passed) and ran a
+  refinement census N=100..3200: `cj` non-monotone at coarse N then monotonically decreasing from
+  N=400 (30.0→27.9→18.4→3.9), crossing below the gate's 8.0 threshold between N=1600 and N=3200
+  -- the pre-registered specific prediction `cj_800<8` is **falsified** (27.9 measured) but the
+  qualitative H-R1 convergence hypothesis is well-supported (`n_rev` bounded 0-2, physical width
+  of the reversed region shrinks super-linearly, 4x not 2x, from N=400 to N=800). New,
+  unanticipated finding reported honestly: exactly 2 cells hit the 1.0 Pa floor at N≥800, an open
+  loose end. No fix attempted (pre-registered non-goal); `ACID_YADV`'s recommended status
+  UNCHANGED (OFF, 15/19). All hard gates held; `git diff --stat -- cpp/` touches exactly
+  `apps/denner1d_dump.cpp`. **Verdict S1 (diagnostic success), `consecutive_failures` reset to 0.**
+  Hand-off to round 31: the core jet is fully mechanistically characterised and both obvious
+  parameter-free fixes are dead -- the honest options are (i) accept case15 unreachable under
+  `ACID_YADV=1` at the current scheme, (ii) escalate to the user for a scheme-level `pface` change
+  with explicit shock-case risk, or (iii) a user conversation about case15's mesh/spec. This round
+  does not choose among these.
+  → `YADV_RESEARCH.md` §40, `docs/YADV_ROUND_30_PLAN.md`, commit TBD.
 
 ## Setup reference
 

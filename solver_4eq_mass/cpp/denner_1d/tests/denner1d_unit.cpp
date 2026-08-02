@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -59,7 +60,16 @@ int main() {
                     const double ra = denner1d::phase_props(p0, T0, pr[0]).rho;
                     const double rb = denner1d::phase_props(p0, T0, pr[1]).rho;
                     const double kappa = std::max(ra / rb, rb / ra);
-                    const double tol = 8.0 * 2.220446049250313e-16 * std::max(kappa, 1.0);
+                    // round 24: same function ACID_RECON_NULL uses (eos.hpp) -- both must use
+                    // literally the same bound. The 2.220446049250313e-16 literal this replaced
+                    // is asserted below instead of re-typed, so this test still pins the
+                    // machine-epsilon value the bound is built from.
+                    const double tol = denner1d::alpha_roundtrip_floor(ra, rb);
+                    check(std::abs(tol - 8.0 * std::numeric_limits<double>::epsilon()
+                                          * std::max(kappa, 1.0)) < 1e-30,
+                          "alpha_roundtrip_floor matches its own formula");
+                    check(std::numeric_limits<double>::epsilon() == 2.220446049250313e-16,
+                          "machine epsilon is the expected IEEE-754 double value");
                     for (int k = 0; k <= 1000; ++k) {
                         const double al = static_cast<double>(k) / 1000.0;
                         const double Y = denner1d::mass_fraction_from_alpha(al, ra, rb);

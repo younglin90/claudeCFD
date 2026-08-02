@@ -725,6 +725,24 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // on this).
     const int proj_until = []{ const char* e = std::getenv("ACID_PROJ_UNTIL");
                                return e ? std::atoi(e) : -1; }();
+    // ACID_RECON_NULL (round 24, RESEARCH-ONLY, default OFF; inert unless ACID_YADV_RECON is also
+    // set): the roundoff-null control round 23's ACID_PROJ_UNTIL=1 was BELIEVED to be but is not
+    // -- direct measurement (docs/YADV_ROUND_24_PLAN.md sect.0/F1) showed the exact-skip at this
+    // block's write-gate site fires for ALL cells at step 0 (the IC is already a p-T-equilibrium
+    // state), so ACID_PROJ_UNTIL=1 performs ZERO writes for the entire run and is an exact no-op,
+    // not a roundoff-scale perturbation -- round 23 sect.33.3's "P6'" test could not have
+    // distinguished H-A (state-accuracy) from H-B (Newton-trajectory sensitivity) because nothing
+    // was ever applied. This flag restricts the RECON write to cells where the write is BELOW the
+    // map's own round-trip conditioning floor (eos.hpp:alpha_roundtrip_floor, the SAME
+    // machine-precision bound denner1d_unit.cpp's round-trip test asserts against -- not a new
+    // constant): a cell is written only if |dal|<=floor, |dp|<=8*eps*|p|, and |dT|<=8*eps*|T| all
+    // hold. This is the complement of the exact-skip at this block's own skip site: it applies
+    // exactly where state is consistent to the map's resolution but not bit-exact, which the
+    // exact-skip (an EQUALITY test) does not catch. If plain ACID_YADV=1 with this control still
+    // stalls at the same step/reason/rbest/r_init, H-B is bounded for the first time; if it moves,
+    // H-B is alive and every prior single-realization case24 stall-step number is a noisy sample.
+    // docs/YADV_ROUND_24_PLAN.md sect.2.4.
+    const bool recon_null = std::getenv("ACID_RECON_NULL") != nullptr;
     // ACID_TEND_SCALE (round 11, Phase 3a Stage 2, DIAGNOSTIC ONLY, default 1.0 = byte-identical
     // when unset): multiplies THIS SOLVER's stop time only. It is an OBSERVATION WINDOW, not a
     // physical or tuning parameter -- the standard shock-tube verification convention is to sample
@@ -834,6 +852,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         //      state identically -- compute_R itself is never touched. ----
         if (yadv && (yrecon || recon_dbg)) {
             int ncell = 0, nskip = 0, nrej = 0, ntouch = 0;
+            int nnull = 0, nabove = 0;  // round 24: cells within / above the roundtrip floor
             double worst_dp = 0.0, worst_dp_rel = 0.0; int worst_dp_i = -1;
             double worst_dT = 0.0, worst_dT_rel = 0.0; int worst_dT_i = -1;
             double worst_dal = 0.0; int worst_dal_i = -1;
@@ -854,7 +873,14 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                 if (std::abs(dp) > worst_dp) { worst_dp = std::abs(dp); worst_dp_rel = dp / s.p[i]; worst_dp_i = i; }
                 if (std::abs(dT) > worst_dT) { worst_dT = std::abs(dT); worst_dT_rel = dT / s.T[i]; worst_dT_i = i; }
                 if (std::abs(dal) > worst_dal) { worst_dal = std::abs(dal); worst_dal_i = i; }
-                if (yrecon && (proj_until < 0 || step < proj_until)) {
+                // round 24: is this write within the map's own round-trip conditioning floor?
+                // Complement of the exact-skip above (an equality test) -- catches "consistent to
+                // the map's resolution but not bit-exact". Same bound denner1d_unit.cpp asserts.
+                const bool is_null = std::abs(dal) <= alpha_roundtrip_floor(pa.rho, pb.rho)
+                                   && std::abs(dp) <= 8.0 * std::numeric_limits<double>::epsilon() * std::abs(s.p[i])
+                                   && std::abs(dT) <= 8.0 * std::numeric_limits<double>::epsilon() * std::abs(s.T[i]);
+                if (is_null) ++nnull; else ++nabove;
+                if (yrecon && (proj_until < 0 || step < proj_until) && (!recon_null || is_null)) {
                     s.p[i] = r.p;
                     s.T[i] = r.T;
                     const auto ra2 = phase_props(std::max(r.p, 1.0), std::max(r.T, 1e-6), A);
@@ -877,10 +903,11 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                 if (rstep < 0 || rstep == step)
                     std::fprintf(stderr,
                         "RECON case=%s step=%d ncell=%d nskip=%d nrej=%d ntouch=%d "
-                        "dp=%.4e(rel %.4e)@%d dT=%.4e(rel %.4e)@%d dal=%.4e@%d\n",
+                        "dp=%.4e(rel %.4e)@%d dT=%.4e(rel %.4e)@%d dal=%.4e@%d "
+                        "nnull=%d nabove=%d\n",
                         c.id.c_str(), step, ncell, nskip, nrej, ntouch,
                         worst_dp, worst_dp_rel, worst_dp_i, worst_dT, worst_dT_rel, worst_dT_i,
-                        worst_dal, worst_dal_i);
+                        worst_dal, worst_dal_i, nnull, nabove);
             }
         }
 

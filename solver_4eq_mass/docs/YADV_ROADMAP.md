@@ -45,42 +45,44 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 23
+round_counter: 24
 consecutive_failures: 0
 done: false
-next_task: Round 23 asked whether RECON's larger case24 gain (20x vs RESYNC's 2.6x, round 22's
-           open question) needs the state WRITE itself or just dal_remap removal. New
-           ACID_PROJ_UNTIL (diagnostic sweep knob, caps RECON/RESYNC's write to step<N) gives a
-           decisive but SPLIT answer. The roundoff-null control (N=1, RECON applied only at step 0
-           where it's an identity to ~1e-11) reproduces plain B's stall EXACTLY (step 19, identical
-           rbest/r_init) -- this RULES OUT trajectory-chaos (H-B) as the mechanism. The mechanism IS
-           real and measured (H-A): plain B loses ~500 of a cell's 499.58 true mass at steps 0-2
-           (RMISM's drho, near-total collapse exactly as round 16 sect.26.1 predicts for case24),
-           B+RECON suppresses this to single digits by step 4. BUT the dose-response itself is NOT
-           the predicted monotone curve -- N=2 gives step 6 (worse than N=1!), N=10-100 give no
-           stall at all, N=200 gives step 501 (further than N=400's own 399) -- non-monotone.
-           Unplanned discovery, checked directly not assumed: N=50's "no stall" is NOT a success --
-           denner1d_validate gives pass:false with a severely wrong solution (shock frozen
-           mid-domain, l2_p=1.12). "Completes without STALLED" and "correct answer" are different
-           properties, never distinguished before because B+RECON's own always-applied run never
-           completes either. Verdict: S4 (partial attribution) -- H-B decisively excluded, H-A's
-           mechanism confirmed, but the practical "how much correction is needed" question is
-           harder than a simple dose-response (likely a withdrawal-point compounding effect, not
-           characterized). Section 8 (third projection) explicitly NOT attempted -- its own gate
-           ("only if S1/S2 fires") not met by S4.
-           Live threads for round 24, carried forward: (a) characterize the withdrawal-point
-           compounding effect -- does ACID_PROJ_UNTIL ending AFTER the shock-formation transient
-           (a structural, not tuning-constant, criterion) restore monotonicity+correctness
-           together?; (b) round 22's own carried-forward third-projection idea, now known to need
-           a structural criterion for "transient has cleared", not a fixed step count; (c) case13's
-           Jacobian-approximation-sensitivity finding (round 22 sect.32.1) as its own narrower
-           question; (d) round 21's carried-forward thread -- rho_star continuity predictor and
-           theta_o MWI memory, untouched, may matter for case34/33's residual floor; (e) case33's
-           own difficulty (round 15/16's T-ceiling-saturation-from-advection channel) remains
-           fundamentally unsolved; (f) max_steps exhaustion (case15 legitimately uses it and PASSES
-           on OFF -- needs careful design); (g) case29's (excluded) likely-explained blocker -- not
-           pursued, recorded for the record.
-           Grounded in YADV_RESEARCH.md sect.33, docs/YADV_ROUND_23_PLAN.md.
+next_task: Round 24 discovered round 23's "roundoff-null control" (ACID_PROJ_UNTIL=1) was a
+           COMPLETE NO-OP, not a perturbation -- the exact-skip fires on all 800 cells at step 0
+           (IC already PTE-consistent), so 0 writes occur for the whole run and P6' carried no
+           information about H-B either way (a correction, not a retraction: the conclusion turned
+           out right, the evidence for it was vacuous). Also corrected round 23 sect.33.4's
+           mechanism reading of N=50: the "frozen shock" (from max|u|/maxp freezing in a coarsely-
+           sampled trace) is actually a shock that COMPLETELY EXITED the domain, 84% overstrong,
+           32% overfast, alpha collapsed 0.5->2e-4 -- an over-fast/over-strong/alpha-collapsing
+           shock, not a stalled one. Built the REAL roundoff-null control this round
+           (ACID_RECON_NULL, using the existing unit-tested 8*eps*kappa round-trip conditioning
+           bound as alpha_roundtrip_floor -- no new constant): non-empty (2-4 cells/step genuinely
+           written, never zero) and applied. Result: BYTE-IDENTICAL to plain B anyway --
+           H-B (Newton-trajectory chaos) excluded, this time on solid evidence. Confirmed no
+           GLOBAL withdrawal-point criterion exists (ntouch=0 only at step 0, never again -- the
+           correction is needed continuously wherever the front is inside the domain) AND the
+           always-on family member is itself wrong (stalls on its own round16 sect.26.1 blister at
+           step399) -- so no withdrawal schedule within the ACID_PROJ_UNTIL family has a correct
+           member to find. Verdict: S1 (question was mis-posed, as pre-registered/expected) -- no
+           taper designed or built. ACID_RECON_NULL/alpha_roundtrip_floor committed as inert
+           research infrastructure. consecutive_failures NOT incremented.
+           Live threads for round 25, carried forward: (a) RECOMMENDED -- the recovery-site fix
+           (round16 sect.26.3's F3, made concrete): recover alpha at the NEW Y's own PTE state
+           (p*,T*)=pT_from_v_e_massfrac(1/rho,hstat-p/rho,Y,A,B) instead of the stale (p_o,T_o),
+           writing ONLY s.alpha (never p,T, so it structurally cannot reproduce round22's
+           Abgrall-type pressure perturbation on 13/14) -- pre-registered risk: the Eqs.43-44
+           rebuild would then blend phase densities at (p_o,T_o) with an alpha from (p*,T*),
+           breaking the documented "same triple" invariant -- must measure RMISM's drho before
+           any gate; (b) case13's Jacobian-approximation-sensitivity finding (round22 sect.32.1) as
+           its own narrower question; (c) round21's carried-forward thread -- rho_star continuity
+           predictor and theta_o MWI memory, untouched, may matter for case34/33's residual floor;
+           (d) case33's own difficulty (round15/16's T-ceiling-saturation-from-advection channel)
+           remains fundamentally unsolved; (e) max_steps exhaustion (case15 legitimately uses it
+           and PASSES on OFF -- needs careful design); (f) case29's (excluded) likely-explained
+           blocker -- not pursued, recorded for the record.
+           Grounded in YADV_RESEARCH.md sect.34, docs/YADV_ROUND_24_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -470,6 +472,26 @@ not start a new round.
   `consecutive_failures` NOT incremented. All hard gates held (OFF 19/19, `ALL GATES OK` unchanged
   from round 22).
   → `YADV_RESEARCH.md` §33, `docs/YADV_ROUND_23_PLAN.md`, commit `ed93f71`.
+- Round 24: discovered round 23's "roundoff-null control" (`ACID_PROJ_UNTIL=1`) was a COMPLETE
+  NO-OP -- the exact-skip fires on all 800 cells at step 0, so 0 writes occur and its P6' test
+  carried no information about H-B (a correction to how the result was supported, not a
+  retraction: the conclusion turned out right). Also corrected round 23 §33.4's "frozen shock"
+  reading of `N=50`: the actual final state shows the shock COMPLETELY EXITED the domain (84%
+  overstrong plateau, 32% overfast, alpha collapsed `0.5->2e-4`), not stalled mid-domain -- the
+  coarse 200-step sampling in the trace obscured an over-fast, over-strong, alpha-collapsing
+  shock. **Built the real roundoff-null control this round** (`ACID_RECON_NULL`, using the
+  existing unit-tested `8*eps*kappa` round-trip conditioning bound, `alpha_roundtrip_floor` -- no
+  new constant): non-empty (2-4 cells/step genuinely written, never zero) and applied. **Result:
+  byte-identical to plain B anyway** -- H-B (Newton-trajectory chaos) excluded, this time on solid
+  evidence. Confirmed no global withdrawal-point criterion exists (`ntouch=0` only at step 0, never
+  again) AND the always-on family member is itself wrong (stalls on its own round 16 §26.1 blister
+  at step 399) -- no withdrawal schedule within the `ACID_PROJ_UNTIL` family has a correct member
+  to find. **Verdict: S1** (the question was mis-posed, exactly as pre-registered/expected) -- no
+  taper designed or built. `ACID_RECON_NULL`/`alpha_roundtrip_floor` committed as inert research
+  infrastructure. `consecutive_failures` NOT incremented. All hard gates held (OFF 19/19,
+  `ALL GATES OK` unchanged from round 23, unit-test round-trip numbers unchanged after the
+  `alpha_roundtrip_floor` refactor).
+  → `YADV_RESEARCH.md` §34, `docs/YADV_ROUND_24_PLAN.md`, commit TBD.
 
 ## Setup reference
 

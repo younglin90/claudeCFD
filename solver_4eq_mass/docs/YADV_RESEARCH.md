@@ -3693,3 +3693,170 @@ V=./build-cpp/cpp/denner_1d/denner1d_validate
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 ACID_PROJ_UNTIL=50 $V --only 24 2>&1
     # sect.33.4, expect pass:false despite no STALLED line in a dump run
 ```
+
+## 34. Round 23's roundoff-null control was a complete no-op, not a perturbation -- the REAL
+##    control (built this round) confirms H-B is excluded anyway; no structural withdrawal point
+##    exists for `ACID_YADV_RECON` on case24; a stale mechanism reading in §33.4 is corrected
+
+### 34.1 F1 -- round 23's `ACID_PROJ_UNTIL=1` performed zero writes for the entire run
+
+Direct code reading, then live re-verification: the exact-skip (`acid.cpp:866`,
+`if (al_chk == s.alpha[i]) { ++nskip; continue; }`) runs BEFORE the write gate
+(`acid.cpp:875`). At step 0 the IC is already a p-T-equilibrium state, so `al_chk == s.alpha[i]`
+for all 800 cells (`RECON` meter: `nskip=800 ntouch=0` at step 0, reconfirmed this round). `N=1`
+therefore restricts the write to `step < 1`, i.e. step 0, where there is nothing left to write --
+**`ACID_PROJ_UNTIL=1` and plain `ACID_YADV=1` are provably identical runs, confirmed by byte
+diff**. Round 23 §33.3 characterized `N=1` as "an identity to roundoff (~1e-11 relative)" and
+concluded its match to plain `B` "decisively excludes H-B (pure trajectory-chaos)". **A test that
+cannot, by construction, produce any outcome other than the one observed carries no information
+about H-B either way.** This is an annotation to §33.3, not an edit -- §33.2's own quoted
+measurement (`dp=0, dal=0, ntouch=0, nskip=800`) already contained the fact; §33.3's prose
+description of it as "an identity" rather than "a no-op" is the part that undersold what the
+number said.
+
+### 34.2 Correction to §33.4's mechanism reading of `N=50`
+
+§33.4 read `max|u|`/`maxp` freezing (from the coarse `ACID step` print, sampled only every 200
+steps) as the shock "stalling/reflecting inside the domain". Re-dumped and compared to the
+reference this round:
+
+| x | alpha | p (solver) | u (solver) | rho (solver) | p (ref) | u (ref) | rho (ref) |
+|---|---|---|---|---|---|---|---|
+| 0.05 | 0.5000 | 1.508e10 | 4698 | 1857 | 1.508e10 | 4698 | 1857 |
+| 0.40 | 0.4946 | 2.768e10 | 3288 | 2604 | 1.508e10 | 4698 | 1857 |
+| 0.50 | 0.0020 | 2.768e10 | 3288 | 1563 | 1.508e10 | 4698 | 1857 |
+| 0.80 | 0.0002 | 2.768e10 | 3288 | 1591 | **1.000e5** | **0** | **499.6** |
+
+The reference still has an un-shocked plateau past `x>0.8`; the solver does not -- **the shock has
+completely EXITED the domain**, not frozen inside it. The post-shock plateau is **84% stronger**
+than the reference (`2.768e10` vs `1.508e10`), `u` is **30% low**, and **`alpha` has collapsed from
+the exact invariant `0.5` (verified `cases.cpp:148`) to `~2e-4`** (near-pure water) for `x
+gtrsim 0.43` -- this, not a frozen shock, is why `corr_p = -0.288` (§33.4's own quoted number):
+comparing a solution that has moved past the domain against a reference that has not gives a
+correlation near its most negative extreme by construction. `max|u|`/`maxp` freezing at
+step~200 in the coarse trace is the CORRECT signature of a formed, correctly-plateaued
+post-shock state, not evidence of stalling -- the coarse sampling interval (every 200 steps,
+`acid.cpp` `ACID step` print) obscured the shock's actual, ongoing (over-fast) transit. **Annotation
+to §33.4, not an edit**: "completes without STALLED" and "correct answer" remains a real and useful
+distinction (the round's headline discovery stands), but the MECHANISM behind the wrong answer is
+an over-fast, over-strong, alpha-collapsing shock, not a frozen one.
+
+### 34.3 The real roundoff-null control, and the decisive H-B result
+
+New `ACID_RECON_NULL` (default OFF, inert unless `ACID_YADV_RECON`): restricts RECON's write to
+cells where every write component is within the map's own round-trip conditioning floor
+(`eos.hpp:alpha_roundtrip_floor`, the SAME `8*eps*kappa` bound `denner1d_unit.cpp`'s existing
+round-trip test asserts against -- refactored into one shared function this round, unit-test
+numbers unchanged, verified by G3). This is the COMPLEMENT of the exact-skip (§34.1): it applies
+exactly where state is consistent to the map's own resolution but not bit-exact -- i.e. it
+guarantees an ACTUAL, non-empty write of provably-roundoff size, unlike `N=1`.
+
+**M1 (non-emptiness, `ACID_RECON` meter's new `nnull`/`nabove` counters, always-on `B+RECON`)**:
+`nnull` is consistently 2-4 cells per step against `nabove` in the 30-45 range -- the control is
+real and non-trivial, never zero.
+
+**M2 (the decisive test)**: `ACID_YADV=1 ACID_YADV_RECON=1 ACID_RECON_NULL=1` on case24 vs plain
+`ACID_YADV=1`, **full stdout byte-compare: IDENTICAL**. Step 19, `newton-no-progress`,
+`rbest=2.7939e13, r_init=2.3095e13` -- exact match, this time with 2-4 cells genuinely written
+every step from step 1 onward. **P6 confirmed: H-B (Newton-trajectory chaos) is excluded, for the
+first time with an actually-applied control.** Round 23's H-B verdict was correct in its
+conclusion but unsupported by its own evidence; this round supplies the missing evidence and the
+conclusion stands, now on solid ground.
+
+### 34.4 No structural withdrawal point exists (P2, P3 reconfirmed; F3 corrected in detail)
+
+`ntouch` is 0 only at step 0 (the IC identity, expected and harmless) and never again through the
+run -- reconfirmed live this round (min `ntouch` observed at step&gt;=1: 24, close to round 23's own
+"28", both establishing the same qualitative fact: **RECON has real work to do at every single
+step the front is inside the domain**). This directly falsifies the possibility of a GLOBAL
+step-count criterion for "safe to withdraw" -- there is no step at which withdrawal is free. The
+PER-CELL criterion the round's own thread asked for already exists: the exact-skip at
+`acid.cpp:866` IS that criterion, already firing for ~95% of cells every step, and already the
+tightest constant-free (bit-equality) statement of "this cell doesn't need correction" available.
+
+### 34.5 Why the always-on family has no correct member to withdraw to
+
+Always-on `B+RECON` (`N` unset / `N&gt;=400`) itself stalls at step 399 on a literal round 16 §26.1
+vacuum blister (`STALLED-DETAIL: reason=T-ceiling-saturated cell=97, alpha=0.99997, T=1.000000e+06,
+rho=6.0754e-05` -- reconfirmed byte-identical to round 23's own measurement this round). RECON
+repairs the state at the STEP BOUNDARY, but the in-step alpha recovery (`acid.cpp:1201-1207`)
+still evaluates at `(p_o,T_o)` with the NEW `Y` -- at the front, the single-step `Y` increment is
+`O(0.36)`, large enough that even a fully-consistent starting state can still be driven toward
+`alpha->1` within one step. RECON delays this (it raises the front cell's own `p_o`, lowering
+`dalpha/dY = rho_b/rho_a` there) but does not eliminate it. **There is no `N` in the
+`ACID_PROJ_UNTIL` family, including "always apply", that produces a correct case24** -- the
+family has no correct member, so no withdrawal schedule within it can be found, structural or
+otherwise. This sharpens round 23 §2.4's "preventive, not curative" into "preventive at the step
+boundary only; the in-step recovery re-creates the defect at the front every step."
+
+### 34.6 Gate results
+
+G1 `--verify`: OFF byte-identical, 9/9. G2 `--sweep`, all new flags unset: `ALL GATES OK`,
+A19/B15/C14/D13/E14/F14/G15 -- unchanged from round 23; `EXPECTED` not edited. G3
+`denner1d_unit`: clean, and the refactored round-trip tolerance (`alpha_roundtrip_floor`) produces
+the SAME reported numbers as before the refactor (worst-ratio check unchanged) -- the shared bound
+is a pure extraction, not a new computation. G5 diff hygiene: changes confined to `eos.hpp` (+1
+function), `tests/denner1d_unit.cpp` (refactor + 2 assertions), `acid.cpp` (1 flag decl + `nnull`/
+`nabove` counters + `is_null`/`null_ok` conjunction, meter print appended not inserted),
+`scripts/yadv_r9_sweep.py` (`ACID_ENV_VARS` addition only). No `cases.cpp`, no `validation.cpp`, no
+`CONFIGS`/`EXPECTED` edit.
+
+### 34.7 Verdict -- S1 ("no structural withdrawal point exists; the question was mis-posed"),
+##     the round's own expected outcome
+
+Per `docs/YADV_ROUND_24_PLAN.md` §8: P2 confirmed (§34.4), P4 not separately re-measured this round
+(round 23's own N-sweep table already showed the completing-window attractor is N-independent to
+3-4 sig figs, and this round's F4/§34.5 supersedes the question by showing the always-on member is
+itself wrong regardless), P5 confirmed by construction (no member of the family is correct,
+§34.5), P7 confirmed (§34.5's blister re-measurement). **S1 fires.**
+
+1. **The commissioned question is answered negatively, by derivation and measurement together**:
+   there is no structural (or any) criterion for when it becomes safe to stop applying RECON's
+   step-boundary correction on case24, because the correction is needed continuously wherever the
+   front is inside the domain, and even applying it continuously does not produce a correct
+   solution -- the defect it targets is re-created in-step, not removed.
+2. **Two corrections to round 23 are recorded as annotations, not edits**: §33.3's P6' test was
+   vacuous (§34.1); §33.4's mechanism reading was an over-fast/over-strong/alpha-collapsing shock,
+   not a frozen one (§34.2). Round 23's own headline discovery ("completes without STALLED" is not
+   "correct answer") is UNCHANGED and stands independently of the corrected mechanism.
+3. **H-B (Newton-trajectory chaos) is now excluded on solid evidence** (§34.3) -- a genuinely
+   applied, provably roundoff-sized perturbation leaves case24's trajectory bit-for-bit unchanged.
+   This closes the attribution question round 22 §32.6 opened and round 23 left split: RECON's
+   case24 gain is a real, physical state-accuracy effect (round 21-23's H-A), not sensitivity to
+   an arbitrary small perturbation.
+4. **No taper, no withdrawal mechanism, no new default was designed or built** -- per the round's
+   own discipline, a negative structural-search result is not converted into a mechanism to avoid
+   reporting it. `ACID_RECON_NULL`/`alpha_roundtrip_floor` are committed as inert-by-default
+   research/verification infrastructure (round 4/8/21/22/23 precedent), not a fix.
+5. Per round 13/16/19/21/22/23's precedent (a correctly-instrumented negative result, plus
+   corrections to a prior round's own evidence, is measured progress): `consecutive_failures` is
+   **NOT** incremented.
+6. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19). All hard gates held.
+
+**Recommended round 25 thread** (design sketch only, `docs/YADV_ROUND_24_PLAN.md` §8.1, NOT
+attempted this round): round 16 §26.3's F3, made concrete by §34.5 -- recover alpha at the NEW
+`Y`'s own equilibrium `(p*,T*) = pT_from_v_e_massfrac(1/rho, hstat-p/rho, Y, A, B)` instead of at
+the stale `(p_o,T_o)`, writing ONLY `s.alpha` (never `s.p`/`s.T`, so it cannot reproduce round 22's
+Abgrall-type pressure perturbation on 13/14). Pre-registered risk for that round: the Eqs.43-44
+rebuild would then blend phase densities at `(p_o,T_o)` with an alpha derived at `(p*,T*)` --
+breaking the "same triple" property the code documents -- must be measured with `RMISM`'s `drho`
+before any gate is run, not assumed safe.
+
+### 34.8 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+D=./build-cpp/cpp/denner_1d/denner1d_dump
+diff <(DENNER_ACID=1 ACID_YADV=1 $D 24) \
+     <(DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 ACID_RECON_NULL=1 $D 24)
+    # sect.34.3, expect NO diff -- the real roundoff-null control, H-B excluded
+
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 ACID_PROJ_UNTIL=50 $D 24 2>/dev/null | tail -5
+    # sect.34.2, expect shock EXITED (alpha ~2e-4, p ~2.77e10) not frozen mid-domain
+
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 ACID_RECON=1 $D 24 2>&1 >/dev/null \
+    | grep "^RECON" | grep -oE "ntouch=[0-9]+" | sort -t= -k2 -n | head -3
+    # sect.34.4, expect the only ntouch=0 line is step=0
+```

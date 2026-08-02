@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "denner1d/types.hpp"
 
@@ -61,6 +63,22 @@ inline double alpha_from_mass_fraction(double Y, double rho_a, double rho_b) {
     const double num = Y * rho_b;
     const double den = rho_a * (1.0 - Y) + num;
     return den > 0.0 ? num / den : Y;
+}
+
+// ---- round-trip conditioning floor for the alpha<->Y map -- round 24 ------------------------
+// The alpha->Y->alpha round trip at a FIXED (p,T) is exact at Y in {0,1} and, in between,
+// accurate to machine eps times the CONDITION NUMBER of the map, kappa = max(rho_a/rho_b,
+// rho_b/rho_a) -- measured (denner1d_unit.cpp) to track eps*kappa within 2x over 48 sampled
+// (p,T,phase-pair) states. Below this bound two alpha values are not distinguishable given the
+// map's OWN conditioning -- a machine-precision statement, not a tuning coefficient. Single
+// definition shared by the unit test and by ACID_RECON_NULL (round 24, acid.cpp) so both use
+// literally the same bound. Fails closed (returns 0, i.e. "not indistinguishable") on
+// non-finite/non-positive input rather than dividing by a bad density.
+inline double alpha_roundtrip_floor(double rho_a, double rho_b) {
+    if (!(rho_a > 0.0) || !(rho_b > 0.0) || !std::isfinite(rho_a) || !std::isfinite(rho_b))
+        return 0.0;
+    const double kappa = std::max(rho_a / rho_b, rho_b / rho_a);
+    return 8.0 * std::numeric_limits<double>::epsilon() * std::max(kappa, 1.0);
 }
 
 // ---- closed-form NASG p-T-equilibrium inversion, given (v, e, Y) -- round 21 -----------------

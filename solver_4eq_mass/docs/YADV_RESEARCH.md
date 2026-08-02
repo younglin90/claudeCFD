@@ -3860,3 +3860,165 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 ACID_RECON=1 $D 24 2>&1 >/dev/null \
     | grep "^RECON" | grep -oE "ntouch=[0-9]+" | sort -t= -k2 -n | head -3
     # sect.34.4, expect the only ntouch=0 line is step=0
 ```
+
+## 35. `ACID_YADV_F3` -- alpha recovered at the NEW Y's own PTE state moves case24/33/34 without
+paying case13/14 or conservation, but does not flip any case's pass/fail gate (S2 partial)
+
+Round 24 §34.7 recommended thread, `docs/YADV_ROUND_25_PLAN.md` (Advisor-verified Stage-0 hand
+tables, §3): round 16 §26.3's F3, made concrete. At the alpha recovery site (`acid.cpp`, right
+after `Yv = anew;`), instead of recovering alpha from the transported `Y` at the STALE
+`(p_o,T_o)` (what the code has always done), also compute the NEW `Y`'s own equilibrium
+`(p*,T*) = pT_from_v_e_massfrac(1/rho, hstat-p_o/rho, Y, A, B)` (round 21's closed-form inversion)
+and recover `alpha_F3` there instead. Two new flags: `ACID_F3` (diagnostic, writes nothing) and
+`ACID_YADV_F3` (applies `alpha_F3`), both default OFF, both inert unless `ACID_YADV`. **Exactly one
+`s.*` write in the whole block** (`s.alpha[i] = al_f3;`) -- verified this round by grepping the diff
+hunk for `s\.`, not merely asserted: the block only READS `s.rho`/`s.hstat`/`s.alpha` and writes
+`s.alpha` alone. This makes both of round 22's harm channels structurally impossible, not just
+unlikely: the Abgrall-type pressure perturbation needed a written `s.p` (never happens); the
+phase-mass drift needed a written `Yv` (never happens -- the conservative `rY` update at `Yv =
+anew` runs strictly BEFORE this block, so `Y`'s own transport is untouched by F3 regardless of
+outcome).
+
+### 35.1 P0 -- live meter reproduces the plan's hand-computed alpha_F3 to 5 significant digits
+
+Plan §3.1 hand-computed `alpha_F3` at case24/33/34 step 0 cell 80 from `pT_from_v_e_massfrac` by
+hand, before this round's code existed. The new `ACID_F3` meter's `dal@i` (= `|alpha_F3 -
+alpha_stale|`) reproduces it:
+
+| case | plan's `|alpha_F3-alpha_stale|` | live meter `dal@80` | match |
+|---|---|---|---|
+| 24 | 0.432133 | 4.3213e-01 | 5 sig figs |
+| 33 | 0.202050 | 2.0205e-01 | 5 sig figs |
+| 34 | 0.688342 | 6.8834e-01 | 5 sig figs |
+
+Confirms the implementation matches the hand derivation, not a coincidentally-plausible but
+differently-wrong formula.
+
+### 35.2 T3 -- the round24-mandated drho/dh measurement, live `RMISM` at step 0 cell 80
+
+| case | drho now | drho w/F3 | improvement | dh now | dh w/F3 | improvement |
+|---|---|---|---|---|---|---|
+| 24 | 4.9509e2 | 6.4324e1 | 7.7x | 7.1850e4 | 9.6207e1 | 747x |
+| 33 | 2.4721e2 | 4.5794e1 | 5.4x | 1.0157e5 | 2.9077e2 | 349x |
+| 34 | 7.4005e2 | 5.3882e1 | 13.7x | 3.6783e4 | 3.3677e1 | 1092x |
+
+`drho` matches the plan's hand table to every shown digit; `dh` is within ~0.1% of the hand table
+(9.6207e1 vs the plan's 9.6302e1, etc.) -- the small gap is the hand calculation's own rounding,
+not a code discrepancy (P0 already confirms the underlying `alpha_F3` values are exact). **T3
+result: the round24-flagged "same triple" break makes the recovery-site mass/enthalpy defect
+smaller, not larger** -- round24 §34.7's unmeasured risk did not materialize as harm; S6 does not
+fire.
+
+### 35.3 T1/T4/T6 -- case24/33/34 under F3, alone and combined (T1/T2 discipline: mode, not just
+distance, is the outcome that matters)
+
+| run | case | baseline (no F3) | with F3 | reading |
+|---|---|---|---|---|
+| B alone | 24 | STALLED step 19 (NaN) | STALLED step 130 (NaN) | 6.8x further, same failure mode |
+| B alone | 33 | FAIL finite, l2_p=1.573, corr_p=+0.351 | FAIL finite, l2_p=1.034 (-34%), corr_p=**-0.817** | magnitude better, correlation sign flips -- mixed |
+| B alone | 34 | STALLED step 229 (NaN) | **FAIL finite** (l2_p=0.697) | **mode change**: STALLED-NaN to finite completion |
+| B+RECON | 24 | RECON alone stalls step 399 (round24 §34.5) | **FAIL finite** (l2_p=0.625) | **mode change**, confirms round24 §34.5's prediction that F3 removes RECON's own in-step recreation of the defect |
+| C (implicit) | 33 | STALLED (NaN, all metrics nan) | **FAIL finite** (l2_p=0.916) | **mode change**, same pattern as B/34 under a different config |
+
+F3 repeatedly converts a STALLED-to-NaN failure into a finite-but-inaccurate completion --
+consistently, across two different configs (B, C) and two different cases (24 via RECON, 33, 34)
+-- but in no observed run does it cross into `validate pass:true`. Case33's correlation-sign flip
+under plain B+F3 is a new, previously-unobserved failure texture (worth flagging for a future
+round, not investigated further here -- out of this round's scope).
+
+### 35.4 T2 -- case13/14 (round25's real risk, per §3.3) confirmed measured, not harmful
+
+| case | metric | baseline B | B+F3 | delta | plan's §3.3 prediction |
+|---|---|---|---|---|---|
+| 13 | pass | true | true | unchanged | -- |
+| 13 | l2_p | 0.020732 | 0.022275 | +7.4% | "6-8% worse" -- **matches** |
+| 13 | l2_rho | 0.022677 | 0.021391 | -5.7% (better) | -- |
+| 13 | `u_shock_delta_cells` | 1 | 2 | +1 cell | S4 trigger is `>3` -- not reached |
+| 14 | pass | true | true | unchanged | -- |
+| 14 | l2_rho | 0.076906 | 0.067330 | -12.5% (better) | "case14 drho/dh IMPROVED 3-6x at interface cells" -- direction matches |
+| 14 | corr_rho | 0.971774 | 0.978023 | better | -- |
+
+Case13's predicted risk materialized exactly at the predicted magnitude and did not cross the
+pre-registered S4 threshold (`u_shock_delta_cells>3`); case14 improved. Neither 13 nor 14 changes
+pass/fail status. S4/S5 do not fire.
+
+### 35.5 T8 -- phase-mass conservation, verified structurally (not by a live integral)
+
+Round 22's real cost (16.1% phase-mass drift on case14) came from `ACID_YADV_RESYNC` writing
+`Yv` directly. F3 never touches `Yv` -- the conservative `rY` update (`Yv = anew`) completes
+strictly before the F3 block runs, and the diff hunk (verified by grep, §above) contains no write
+to `Yv`, `s.p`, `s.T`, `s.rho`, or `s.hstat` anywhere. Phase-mass conservation for F3 is therefore
+excluded from drifting by construction, not merely measured absent on the cases tried -- a stronger
+guarantee than round 22's own case-by-case measurement could offer.
+
+### 35.6 Hard gates
+
+G1 (`--verify`, OFF byte-identical): PASS -- 9/9 cases byte-identical vs `solver_denner` published
+binary, case01 `ACID_YADV=1` vs unset also byte-identical.
+G2 (`--sweep`, unset configs unchanged): PASS -- `ALL GATES OK`, configs A-G exactly match
+`EXPECTED` (`B`/`C`/`G` all still 15/14/15 out of 19 respectively, unchanged fail sets).
+G3 (`denner1d_unit`): PASS, clean, `pT_from_v_e_massfrac`'s own numbers unchanged (worst
+rel_p=4.7e-11, unchanged from round 21/24's own runs).
+G4 (new-flag no-op): implied by G1/G2 -- `ACID_F3`/`ACID_YADV_F3` unset in every gate run, and
+`scripts/yadv_r9_sweep.py`'s `base_env()` purges both from the caller's shell (round 22 hygiene
+fix), so G1/G2 passing at unchanged EXPECTED values IS the no-op proof.
+G5 (diff hygiene): only `cpp/denner_1d/src/acid.cpp` and `scripts/yadv_r9_sweep.py` touched; no
+new numeric literal beyond reusing the already-unit-tested `alpha_roundtrip_floor` and
+`pT_from_v_e_massfrac`.
+
+### 35.7 Verdict: S2 (substantial partial)
+
+Per `docs/YADV_ROUND_25_PLAN.md` §6's pre-registered rules: T5 full sweep with `ACID_YADV_F3=1`
+gives `pass_count=15/19`, the exact same fail set `{15,24,33,34}` as plain `B` -- **no case flips
+its pass/fail gate**, so S1 (full success, requires >=16/19) does not fire. But T1 shows a genuine
+**mode change** on case34 (STALLED-NaN -> finite completion) under plain `B+F3`, corroborated by
+the same mode change on case24 under `B+RECON+F3` (T4, direct confirmation of round24 §34.5's
+prediction) and on case33 under `C+F3` (T6) -- satisfying S2's "mode change" clause. 13/14 pass
+throughout, with case13's predicted risk (§3.3) landing at the predicted magnitude and well short
+of the pre-registered harm threshold. S3 (unmoved), S4/S5 (harm), S6 (same-triple break judged
+harmful by T3's own numbers), and S7 (hard gate failure) all do not fire.
+
+**S2 consequence, applied**: `ACID_YADV_F3`/`ACID_F3` are committed as gated-off (default OFF)
+research/verification infrastructure, same precedent as `ACID_YADV_RECON`/`ACID_YADV_RESYNC`/
+`ACID_RECON_NULL` before them -- not promoted to any default. `ACID_YADV`'s own recommended
+default status is UNCHANGED (OFF, 15/19). Per round 13/16/19/21/22/23/24's precedent (a
+correctly-instrumented result with measured structural progress, even without a pass/fail flip,
+is measured progress): `consecutive_failures` is **NOT** incremented.
+
+**Headline, stated plainly**: this round found the first mechanism that measurably moves
+case24/33/34 (mode change: NaN-divergence to finite-but-inaccurate completion, reproduced across
+3 independent run combinations) without paying case13/14's pass/fail gate or introducing a
+conservation cost -- but "moves without regressing" is not the same as "solves." The binding
+constraint that keeps 24/33/34 from reaching `validate pass:true` is not this recovery-site defect
+alone; something else (still unidentified) keeps the finite-but-inaccurate completions inaccurate.
+
+**Corrections to prior sections**: none. Round 24 §34.7's unmeasured risk (same-triple break) was
+measured this round (§35.2/§35.6-G3) and found beneficial, not harmful -- this is new evidence
+resolving an open flag, not a correction to a stated fact.
+
+**Not built this round**: F3b (`docs/YADV_ROUND_25_PLAN.md` §8, same-triple restoration via
+evaluating Eqs.43-44 at `(p*,T*)` on F3-applied cells) -- its trigger condition ("T5 shows F3a
+harmless AND T1 shows 24/33/34 still fail AND T3 shows the residual drho is the plausible
+remaining obstacle") is only partially met (F3a is harmless, 24/33/34 still fail) and the middle
+clause is unclear from this round's evidence (T3's drho is now small, 5-14x reduced, so it reads
+less like "the plausible remaining obstacle" than before) -- left as an open thread for a future
+round, not attempted here.
+
+### 35.8 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+D=./build-cpp/cpp/denner_1d/denner1d_dump
+V=./build-cpp/cpp/denner_1d/denner1d_validate
+
+DENNER_ACID=1 ACID_YADV=1 ACID_F3=1 ACID_BLK_STEP=0 $D 24 2>&1 >/dev/null | grep "^F3"
+    # sect.35.1, expect dal=4.3213e-01@80
+
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_F3=1 $D 24 2>&1 >/dev/null | grep STALLED
+    # sect.35.3, expect step=130 (vs plain B's step=19)
+
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 ACID_YADV_F3=1 $V 2>/dev/null | grep '"case":"24"'
+    # sect.35.3 T4, expect finite:true (vs RECON-alone's stall at step 399)
+```

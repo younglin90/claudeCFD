@@ -45,44 +45,45 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 24
+round_counter: 25
 consecutive_failures: 0
 done: false
-next_task: Round 24 discovered round 23's "roundoff-null control" (ACID_PROJ_UNTIL=1) was a
-           COMPLETE NO-OP, not a perturbation -- the exact-skip fires on all 800 cells at step 0
-           (IC already PTE-consistent), so 0 writes occur for the whole run and P6' carried no
-           information about H-B either way (a correction, not a retraction: the conclusion turned
-           out right, the evidence for it was vacuous). Also corrected round 23 sect.33.4's
-           mechanism reading of N=50: the "frozen shock" (from max|u|/maxp freezing in a coarsely-
-           sampled trace) is actually a shock that COMPLETELY EXITED the domain, 84% overstrong,
-           32% overfast, alpha collapsed 0.5->2e-4 -- an over-fast/over-strong/alpha-collapsing
-           shock, not a stalled one. Built the REAL roundoff-null control this round
-           (ACID_RECON_NULL, using the existing unit-tested 8*eps*kappa round-trip conditioning
-           bound as alpha_roundtrip_floor -- no new constant): non-empty (2-4 cells/step genuinely
-           written, never zero) and applied. Result: BYTE-IDENTICAL to plain B anyway --
-           H-B (Newton-trajectory chaos) excluded, this time on solid evidence. Confirmed no
-           GLOBAL withdrawal-point criterion exists (ntouch=0 only at step 0, never again -- the
-           correction is needed continuously wherever the front is inside the domain) AND the
-           always-on family member is itself wrong (stalls on its own round16 sect.26.1 blister at
-           step399) -- so no withdrawal schedule within the ACID_PROJ_UNTIL family has a correct
-           member to find. Verdict: S1 (question was mis-posed, as pre-registered/expected) -- no
-           taper designed or built. ACID_RECON_NULL/alpha_roundtrip_floor committed as inert
-           research infrastructure. consecutive_failures NOT incremented.
-           Live threads for round 25, carried forward: (a) RECOMMENDED -- the recovery-site fix
-           (round16 sect.26.3's F3, made concrete): recover alpha at the NEW Y's own PTE state
-           (p*,T*)=pT_from_v_e_massfrac(1/rho,hstat-p/rho,Y,A,B) instead of the stale (p_o,T_o),
-           writing ONLY s.alpha (never p,T, so it structurally cannot reproduce round22's
-           Abgrall-type pressure perturbation on 13/14) -- pre-registered risk: the Eqs.43-44
-           rebuild would then blend phase densities at (p_o,T_o) with an alpha from (p*,T*),
-           breaking the documented "same triple" invariant -- must measure RMISM's drho before
-           any gate; (b) case13's Jacobian-approximation-sensitivity finding (round22 sect.32.1) as
-           its own narrower question; (c) round21's carried-forward thread -- rho_star continuity
-           predictor and theta_o MWI memory, untouched, may matter for case34/33's residual floor;
-           (d) case33's own difficulty (round15/16's T-ceiling-saturation-from-advection channel)
-           remains fundamentally unsolved; (e) max_steps exhaustion (case15 legitimately uses it
-           and PASSES on OFF -- needs careful design); (f) case29's (excluded) likely-explained
-           blocker -- not pursued, recorded for the record.
-           Grounded in YADV_RESEARCH.md sect.34, docs/YADV_ROUND_24_PLAN.md.
+next_task: Round 25 implemented ACID_YADV_F3 (default OFF, round16 sect.26.3's F3 made concrete) --
+           at the recovery site, recover alpha at the NEW Y's own PTE equilibrium
+           (p*,T*)=pT_from_v_e_massfrac(1/rho,hstat-p_o/rho,Y,A,B) instead of the stale (p_o,T_o).
+           Exactly one s.* write in the whole block (s.alpha[i]=al_f3, grep-verified), so both
+           round22 harm channels (written s.p, written Yv) are structurally impossible, not just
+           unlikely. P0 self-check: live ACID_F3 meter reproduces the plan's hand-computed
+           alpha_F3 to 5 sig figs on case24/33/34. T3: drho/dh at case24/33/34's step-0 front cell
+           improve 5.4-13.7x / 349-1092x -- round24's flagged "same-triple break" risk did NOT
+           materialize as harm. T1/T4/T6: F3 repeatedly converts a STALLED-to-NaN failure into a
+           finite-but-inaccurate completion (case34 under plain B, case24 under B+RECON -- directly
+           confirms round24 sect.34.5's own prediction, case33 under C) -- but T5's full sweep still
+           reads pass_count=15/19, the SAME fail set {15,24,33,34} as plain B: no case flips its
+           pass/fail gate. T2: case13's predicted risk (sect.3.3, l2_p +7.4%, matches the plan's
+           "6-8% worse" prediction) lands well short of the pre-registered harm threshold
+           (u_shock_delta_cells 1->2, not >3); case14 improves (l2_rho -12.5%). T8: phase-mass
+           conservation excluded from drifting BY CONSTRUCTION (Yv never written by F3), stronger
+           than round22's own case-by-case measurement. Verdict: S2 (substantial partial) -- first
+           mechanism moving 24/33/34 without paying 13/14 or conservation, but "moves without
+           regressing" != "solves" (something else, still unidentified, keeps the finite
+           completions inaccurate). consecutive_failures NOT incremented (round13/16/19/21/22/23/24
+           precedent). ACID_YADV_F3/ACID_F3 committed as gated-off research infrastructure.
+           Live threads for round 26, carried forward: (a) F3b (conditional, plan sect.8) --
+           same-triple restoration (Eqs.43-44 at (p*,T*) on F3-applied cells) -- trigger condition
+           only partially met this round (F3a harmless, 24/33/34 still fail, but T3's residual drho
+           is now small so "the plausible remaining obstacle" reading is unclear) -- open, not
+           built; (b) identify the actual binding constraint keeping 24/33/34's now-finite F3
+           completions from `validate pass:true` -- unidentified, this round's own open question;
+           (c) case33's correlation-sign flip under plain B+F3 (corr_p +0.351->-0.817) -- a new
+           failure texture, flagged not investigated; (d) case13's Jacobian-approximation-
+           sensitivity finding (round22 sect.32.1) as its own narrower question; (e) round21's
+           carried-forward thread -- rho_star continuity predictor and theta_o MWI memory,
+           untouched; (f) case33's own difficulty (round15/16's T-ceiling-saturation-from-advection
+           channel) remains fundamentally unsolved; (g) max_steps exhaustion (case15 legitimately
+           uses it and PASSES on OFF -- needs careful design); (h) case29's (excluded)
+           likely-explained blocker -- not pursued, recorded for the record.
+           Grounded in YADV_RESEARCH.md sect.35, docs/YADV_ROUND_25_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -492,6 +493,24 @@ not start a new round.
   `ALL GATES OK` unchanged from round 23, unit-test round-trip numbers unchanged after the
   `alpha_roundtrip_floor` refactor).
   → `YADV_RESEARCH.md` §34, `docs/YADV_ROUND_24_PLAN.md`, commit `fccbb54`.
+- Round 25: implemented `ACID_YADV_F3` (default OFF, round16 §26.3's F3 made concrete) -- recovers
+  alpha at the NEW Y's own PTE state `(p*,T*)=pT_from_v_e_massfrac(1/rho,hstat-p_o/rho,Y,A,B)`
+  instead of the stale `(p_o,T_o)`. **Exactly one `s.*` write** (`s.alpha[i]=al_f3`, grep-verified
+  against the diff hunk), structurally excluding both of round 22's harm channels. **P0 confirmed**:
+  live meter reproduces the plan's hand-computed `alpha_F3` to 5 sig figs. **T3**: `drho`/`dh` at
+  the step-0 front cell improve 5.4-13.7x/349-1092x -- round 24's flagged same-triple-break risk did
+  NOT materialize as harm. **T1/T4/T6**: F3 repeatedly converts STALLED-NaN into finite-but-
+  inaccurate completions (case34/B, case24/B+RECON -- directly confirms round 24 §34.5's own
+  prediction, case33/C) -- but **T5's full sweep is still `15/19`, the SAME fail set `{15,24,33,34}`
+  as plain B** -- no case flips pass/fail. **T2**: case13's predicted risk lands exactly at the
+  predicted magnitude (`l2_p` +7.4%, matches "6-8% worse") and well short of the pre-registered harm
+  threshold (`u_shock_delta_cells` 1->2, not >3); case14 improves. **T8**: phase-mass conservation
+  excluded from drifting BY CONSTRUCTION (`Yv` never written). **Verdict: S2 (substantial partial)**
+  -- first mechanism moving 24/33/34 without paying 13/14 or conservation, but the finite
+  completions stay inaccurate -- something else, still unidentified, is the actual binding
+  constraint. `consecutive_failures` NOT incremented. Flag committed gated-off. All hard gates held
+  (OFF 19/19, `ALL GATES OK` unchanged from round 24, unit-test numbers unchanged).
+  → `YADV_RESEARCH.md` §35, `docs/YADV_ROUND_25_PLAN.md`, commit TBD.
 
 ## Setup reference
 

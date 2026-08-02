@@ -707,6 +707,44 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // ACID_YADV_HREINIT (same exclusion rationale as RECON's). Skipped with a one-line stderr
     // notice if ACID_YADV_RECON is also set. docs/YADV_ROUND_22_PLAN.md sect.3.3.
     const bool yresync = std::getenv("ACID_YADV_RESYNC") != nullptr;
+    // ACID_F3 (round 25, DIAGNOSTIC ONLY, default OFF, stderr only, applies nothing): measures
+    // what ACID_YADV_F3 would write to s.alpha at the recovery site without writing it.
+    // ACID_YADV_F3 (round 25, Phase 3a, RESEARCH-ONLY, default OFF; inert unless ACID_YADV):
+    // round 16 sect.26.3's "F3", made concrete (docs/YADV_ROUND_25_PLAN.md). The recovery site
+    // (below, right after `Yv = anew;`) recovers alpha from the NEW Y at the STALE old-level
+    // (p_o,T_o) -- when dalpha/dY is large (case24 pre-shock: rho_b/rho_a~859) a single step's Y
+    // increment drives alpha toward a pure phase, and the Eqs.43-44 rebuild right after then
+    // deletes most of the cell's true mass at that spurious alpha (round 16 sect.26.1's vacuum
+    // blister, reproduced arithmetically for case24 in round 24 sect.34.5).
+    // F3 instead recovers alpha at the NEW Y's OWN p-T-equilibrium state: solve
+    // (p*,T*) = pT_from_v_e_massfrac(1/rho, hstat-p_o/rho, Y, A, B) (round 21's closed-form
+    // inversion, eos.hpp) holding the cell's ACTUAL specific volume and specific internal energy
+    // fixed, then alpha* = alpha_from_mass_fraction(Y, rho_a(p*,T*), rho_b(p*,T*)). By
+    // construction alpha*'s implied density AT (p*,T*) equals the cell's true rho exactly (to the
+    // inversion's ~1e-11 accuracy) -- unlike the stale recovery, which conserves nothing.
+    // ONLY s.alpha is written -- s.p, s.T, s.rho, s.hstat, s.h, Yv are all untouched, so this
+    // CANNOT reproduce round 22's Abgrall-type pressure perturbation on cases 13/14 (that failure
+    // needs a written s.p) or round 22's phase-mass-drift channel (that needs a written Yv) --
+    // both are structurally impossible here, not merely unlikely.
+    // Deliberate trade-off, stated plainly: the Eqs.43-44 rebuild right after this block still
+    // evaluates phase densities at the OLD (p_o,T_o), so writing alpha* here breaks the "same
+    // (alpha,p_o,T_o) triple" invariant the code documents two blocks below ("alpha stays a
+    // DERIVED quantity ... so the two use the same (alpha,p_o,T_o) triple"). Round 24 sect.8.1
+    // flagged this as an unmeasured risk; round 25's own Stage-0 hand calculation (verified
+    // against this code, docs/YADV_ROUND_25_PLAN.md sect.3) found the break REDUCES the mass the
+    // Eqs.43-44 rebuild deletes on cases 24/33/34's front cell by 5-14x, not increases it -- but
+    // that claim is re-verified live by this round's own gates (P0/T3), not trusted blindly.
+    // Fail-safe: pT_from_v_e_massfrac's ok=false (inadmissible/non-finite/outside T_from_hstat's
+    // own (1e-6,1e6) range) leaves the cell at its stale alpha exactly -- no fallback, no
+    // clamp-and-continue. Skip predicate uses alpha_roundtrip_floor (round 24's existing,
+    // unit-tested 8*eps*kappa bound, eos.hpp) -- a machine-precision indistinguishability
+    // statement, not a tolerance constant.
+    // Legal and intentional to combine with ACID_YADV_RECON (unlike RESYNC, which is mutually
+    // exclusive with RECON by construction) -- B+RECON+F3 is this round's direct test of round 24
+    // sect.34.5's claim that RECON's own step-399 failure is caused by this very recovery site
+    // re-creating the defect in-step even when RECON keeps the step BOUNDARY consistent.
+    const bool f3_dbg = std::getenv("ACID_F3") != nullptr;
+    const bool yadv_f3 = std::getenv("ACID_YADV_F3") != nullptr;
     // ACID_PROJ_UNTIL (round 23, DIAGNOSTIC SWEEP PARAMETER, default unset = always-apply,
     // byte-identical to the pre-round-23 build): caps ACID_YADV_RECON/ACID_YADV_RESYNC's WRITE to
     // steps < N (0/unset -> negative -> "always apply", matching every prior round's behaviour
@@ -1232,6 +1270,49 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                                                                      phase_props(pu, Tu, A).rho,
                                                                      phase_props(pu, Tu, B).rho),
                                             0.0, 1.0);
+                }
+
+                // ---- Round 25 (ACID_YADV_F3 / ACID_F3): recover alpha at the NEW Y's own PTE
+                //      state instead of the STALE (p_o,T_o) just used above. See the flag
+                //      declarations (top of function) for the full rationale; this block only
+                //      writes s.alpha[i] -- never s.p/s.T/s.rho/s.hstat/Yv -- so it structurally
+                //      cannot reproduce round 22's Abgrall pressure perturbation (needs a written
+                //      s.p) or its phase-mass-drift channel (needs a written Yv). Deliberately
+                //      breaks the "same (alpha,p_o,T_o) triple" statement two comments above --
+                //      the Eqs.43-44 rebuild right after this block still evaluates phase
+                //      densities at (p_o,T_o), now paired with an alpha computed at a DIFFERENT
+                //      (p*,T*); docs/YADV_ROUND_25_PLAN.md sect.2.3/3 measures what that costs.
+                if (yadv_f3 || f3_dbg) {
+                    int ncell = 0, nok = 0, nrej = 0, ntouch = 0;
+                    double worst_dal = 0.0; int worst_dal_i = -1;
+                    for (int i = 0; i < n; ++i) {
+                        ++ncell;
+                        const double v_t = 1.0 / std::max(s.rho[i], 1e-300);
+                        const double e_t = s.hstat[i] - p_o[i] * v_t;
+                        const auto r = pT_from_v_e_massfrac(v_t, e_t, Yv[i], A, B);
+                        if (!r.ok) { ++nrej; continue; }  // fail-safe: cell keeps the stale alpha
+                        ++nok;
+                        const double pu = std::max(r.p, 1.0), Tu = std::max(r.T, 1e-6);
+                        const double al_f3 = std::clamp(
+                            alpha_from_mass_fraction(Yv[i], phase_props(pu, Tu, A).rho,
+                                                            phase_props(pu, Tu, B).rho), 0.0, 1.0);
+                        const double dal = al_f3 - s.alpha[i];
+                        if (std::abs(dal) > worst_dal) { worst_dal = std::abs(dal); worst_dal_i = i; }
+                        if (yadv_f3) {
+                            s.alpha[i] = al_f3;
+                            ++ntouch;
+                        }
+                    }
+                    if (f3_dbg) {
+                        const char* se = std::getenv("ACID_BLK_STEP");
+                        const int rstep = se ? std::atoi(se) : -1;
+                        if (rstep < 0 || rstep == step)
+                            std::fprintf(stderr,
+                                "F3 case=%s step=%d ncell=%d nok=%d nrej=%d ntouch=%d "
+                                "dal=%.4e@%d\n",
+                                c.id.c_str(), step, ncell, nok, nrej, ntouch,
+                                worst_dal, worst_dal_i);
+                    }
                 }
             }
         }

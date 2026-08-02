@@ -37,19 +37,34 @@ own documented caveat (`.claude/rules/denner-pitfalls.md`: "case15 (double raref
 is a grid self-consistency test, not exact validation; the 4-eq model has no phase change, so the
 expansion-core pressure hits the EOS floor, not a physical vapour pressure").
 
-## case15 status after round 30 (PAUSED, pending a user risk decision — not abandoned)
+## case15 status after round 31's user decision (2026-08-02): pursue (iii), mesh/spec revisit —
+NOT a `pface` scheme change
 
 Round 30 (`YADV_RESEARCH.md` §40) fully characterised case15's remaining blocker (the
 stagnation-point core jet, mechanism = collocated central-mean face pressure at a 128:1
 density-ratio face, literature-documented) and found **no parameter-free fix exists**: both
-candidate `pface` schemes evaluated break case25's shock speed. Further progress needs one of:
-(i) accept case15 unreachable at the current scheme, (ii) a scheme-level `pface` change with
-explicit acknowledged risk to already-passing shock cases (case25 named specifically), or (iii) a
-mesh/spec conversation about case15 itself. **This is a decision only the user can make** — round
-30 deliberately did not choose among these (pre-registered non-goal), and no future round may
-silently pick option (ii) and risk case25 without that authorization being given first. Do not
-re-target case15 under `ACID_YADV=1` with a new `pface` candidate until the user picks (ii)
-explicitly, or picks (iii) and redefines the target.
+candidate `pface` schemes evaluated break case25's shock speed. It presented three options: (i)
+accept unreachable, (ii) a scheme-level `pface` change with explicit risk to case25, (iii) a
+mesh/spec conversation about case15 itself. **The user explicitly chose (iii)** (asked directly
+after round 31, AskUserQuestion). **Option (ii) remains explicitly NOT authorized** — no future
+round may touch `pface`/`ubar`/`gpbar`/`dhat`/the MWI clamp for case15 without a separate,
+explicit authorization; that door stays closed.
+
+**What (iii) authorizes**: an investigation into whether `N=400` (case15's current primary
+resolution, `cases.cpp:496`) and its `computed_reference(c,800)` pairing (`cases.cpp:754-756`) is
+the *principled* choice for this case, or an arbitrary one inherited without justification —
+grounded in round 30's own refinement census (`YADV_RESEARCH.md` §40.7): the core-jet's `cj`
+metric decreases monotonically from N=400 (30.0→27.9→18.4→3.9 at N=400/800/1600/3200), crossing
+the gate's own 8.0 threshold somewhere between N=1600 and N=3200. **This is NOT authorization to
+simply raise N until the gate passes** — that would be exactly the "move the goalposts to force a
+pass" pattern this project's absolute rules forbid (no gate changes to pass a case; `cases.cpp`/
+`validation.cpp` edits require the round's *stated goal* to explicitly require it, and the stated
+goal here is "determine the principled resolution," not "make case15 pass"). Any resolution/spec
+change must be justified on its own terms (e.g.: is `N=400` consistent with how other cases in
+the suite chose their resolution? Does Denner's own paper specify a resolution for this test? Is
+there a genuine, honest convergence-order argument, not merely "N=3200 happens to clear the
+threshold"?) and reported as such even if the honest answer is "no principled justification for a
+change exists, case15 stays at N=400 and stays failing."
 
 ## Phase 3a (cases 24/33/34) REOPENED as a model-extension research thread (2026-08-02, explicit
 user authorization)
@@ -74,6 +89,22 @@ and killed (any `cav`/alpha-implicit-family variant, `REBUILD_ADV`, or re-derivi
 closed-form mismatch already proven in §36). Any round working this thread must design and
 implement an actual new physics term, gated OFF by default, with the OFF path staying
 byte-identical exactly like every other flag in this project.
+
+**STATUS after round 31 (2026-08-02): ON HOLD, explicit user deferral.** Round 31
+(`YADV_RESEARCH.md` §41) found the named remedy above ("interphase mass transfer / relaxation
+source") is actually the WRONG one — the real gap is thermal disequilibrium, and the extension
+that genuinely works is a single-p/two-T Allaire/Kapila 5-equation model, honestly scoped at
+**4-8 rounds at high blast radius to all 19 currently-passing cases**. Presented to the user as a
+decision (commit to the rewrite / accept `ACID_YADV` scoped to 15/19 with this now-documented
+exception); **the user chose to defer both this and case15's decision for now** ("일단 보류, 둘
+다 나중에 결정" — hold off, decide both later, AskUserQuestion response). **No round may start
+any M3/Allaire-5eq implementation work, nor any further mass-transfer-family candidate, without a
+fresh explicit user go-ahead.** This thread is not a `next_task` target until that go-ahead
+arrives.
+
+**Round 32's job**: the mesh/spec revisit for case15 above (the one thread the user DID
+authorize this session) — grounded in `YADV_RESEARCH.md` §40.7's refinement census, `cases.cpp:
+493-496,754-756`, and the honest-negative-result discipline stated above. Do not touch Phase 3a.
 
 **Round 31's job**: a fresh Planner call (per the `yadv-round` skill's own Step 3) scoped to
 *design only* for this round — survey the literature this project hasn't yet pulled for

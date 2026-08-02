@@ -129,10 +129,82 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 30
+round_counter: 31
 consecutive_failures: 0
 done: false
-next_task: Round 30 attacked case15's stagnation-point core jet directly (round 29's own
+next_task: Round 31, first round on the reopened Phase 3a thread (24/33/34 model-extension
+           research, user-authorized this session). DIAGNOSTIC-ONLY per the plan's own binding
+           anti-rescue clause -- zero C++ touched (git diff --stat -- cpp/ empty at merge).
+           HEADLINE FINDING, which OVERTURNS round 26's own named remedy: round 26 attributed
+           cases 24/33/34's O(1) closure mismatch to "interphase mass transfer" and the user
+           authorized pursuing that. This round proved the mismatch is actually a THERMAL-
+           disequilibrium split, not a mass-transfer one. For these three cases both phases have
+           NASG covolume b=0 and enthalpy reference eta=0, which makes the mixture's volumetric
+           internal energy EXACTLY independent of temperature at frozen alpha (verified,
+           rel<=2.22e-16 at every pre/post-shock state) -- so the SAME (p,rho) state the
+           validation reference already computes is SIMULTANEOUSLY the single-temperature
+           alpha-held Hugoniot (closure A) and the two-temperature (pressure-equilibrium-only,
+           Allaire/Kapila-family) Hugoniot in which BOTH alpha and Y are conserved (verified:
+           both phases compress by exactly the mixture ratio, rel<=1.11e-12, while T_air/T_water
+           diverge by 3-4 orders of magnitude). Kapila et al. (2001, Phys. Fluids 13(10)
+           3002-3024) already states this exact mechanism in its own abstract.
+           The required composition target IS unique and IS known in closed form
+           (Y/(1-Y)=[alpha/(1-alpha)]*(Rb/Ra)*(p+Pia)/(p+Pib), verified rel<=2.22e-16 against the
+           existing round-26 instrument) -- confirmed two independent ways (a 1D sensitivity
+           estimate and a genuinely independent 2D reachability scan, both landing within ~30% of
+           each other, both confining the gate-passing set to a ~1% band around the target). But
+           the required transfer is LIQUID WATER CONVERTING INTO AIR at 63-93% of the entire
+           through-shock mass flux -- no entropy-admissible mass-transfer closure can transmute
+           one chemical species into another (the physically correct rate for an air/water pair
+           is identically zero), and independently the solver's own Phase struct
+           (types.hpp:8-14) has no entropy-reference constant q', so a Gibbs-equilibrium target
+           cannot even be EXPRESSED for this EOS (confirmed: a purpose-built check fails closed
+           exactly as designed, "Phase has no entropy reference q'"). The one source term that
+           WOULD hit the target is algebraically just alpha-transport (the OFF path) in disguise
+           -- confirmed empirically (max|alpha_impl - alpha_OFF| = 0.000e+00 exactly, all three
+           cases, using existing solver dumps only, zero new C++/env var).
+           The extension that DOES work -- retains ACID_YADV's entire premise (conservative
+           per-phase mass transport) AND reproduces the reference exactly -- is a MODEL-CLASS
+           change: single-pressure, two-temperature Allaire/Kapila 5-equation (Allaire/Clerc/Kokh
+           2002). Needs ZERO cases.cpp/validation.cpp edits (the reference already IS this
+           model's own shock answer -- a genuine de-risking finding). Honest cost, itemised: a
+           second conserved scalar (~1 round), a duplicated EOS closure that must never modify
+           the OFF-reachable original (~1-2 rounds), and a two-temperature sibling of the coupled
+           (u,p,h) Newton + its analytic pentadiagonal Jacobian shared by all 19 cases under unic
+           -- the dominant cost/risk (~2-4 rounds). TOTAL: 4-8 rounds at high blast radius to all
+           19 currently-passing cases, not "adding a source term."
+           Built scripts/yadv_r31_relax.py (the round's only new file), six independently
+           falsifiable modes, all executed and matching pre-registration: --identity (P0) PASS,
+           --twoT (P1) PASS, --target (T1) informative (dip-tolerance bands ~0.5-1.3%, differs
+           from the plan's own pre-registered table by up to ~30% due to a different
+           linearisation method -- reported honestly, not reconciled to one preferred number),
+           --scan2d (T2) PASS (independently confirms uniqueness via a genuinely different
+           numerical method after fixing a real bug found while building it: round 26's own
+           hugoniot_b solves a DIFFERENT physical question, Y-held-both-sides, and was misused
+           at first -- caught immediately by a sanity check, fixed with a purpose-built
+           two-composition RH solver), --gibbs (T3) fails closed exactly as designed, --offequiv
+           (T4) PASS. All hard gates held: git diff --stat -- cpp/ EMPTY, OFF 19/19 unchanged,
+           ACID_YADV=1 15/19 fail-set {15,24,33,34} unchanged, unit tests unchanged.
+           Five new literature stubs saved (Kapila 2001, Allaire 2002, Linga 2018 OA-but-not-yet-
+           fetched, Pelanti 2022 arXiv, Le Metayer/Massoni/Saurel 2004); the plan's C1 finding
+           (papers/md/33_saurel_relaxation_multiphase.md, cited by rounds 28-30 with line
+           numbers, is ABSENT from the tree -- evidently deleted by a round's own worktree
+           cleanup) was confirmed but NOT recovered this round (not load-bearing for any of this
+           round's own conclusions; flagged as an open follow-up, not resolved).
+           Verdict S1 (round 26's own precedent -- resolving a definitive open question is
+           measured progress independent of pass_count). consecutive_failures NOT incremented.
+           **ESCALATED TO THE USER, no model code written and none recommended for round 32
+           without further explicit authorization**: the decision is not "mass transfer yes/no"
+           (settled: no) but "commit to a 4-8 round, all-19-case-blast-radius 5-equation
+           rewrite, or accept ACID_YADV scoped to 15/19 with this now fully-documented,
+           physically-explained exception for the air/liquid-water species pair."
+           Grounded in YADV_RESEARCH.md sect.41, docs/YADV_ROUND_31_PLAN.md.
+```
+
+**Superseded control-state history (round 30's own, for provenance):**
+```
+round_counter: 30 (superseded, see above)
+next_task (superseded): Round 30 attacked case15's stagnation-point core jet directly (round 29's own
            hand-off), diagnostic-only per its own pre-registered non-goal. Traced the mechanism to
            its immediate, exact cause: with use4≡false for case15 (lowdiss=false under config C's
            regime), every face pressure is the plain arithmetic mean pface[f]=0.5*(p_L+p_R)
@@ -1021,7 +1093,35 @@ not start a new round.
   `ACID_YADV=1` at the current scheme, (ii) escalate to the user for a scheme-level `pface` change
   with explicit shock-case risk, or (iii) a user conversation about case15's mesh/spec. This round
   does not choose among these.
-  → `YADV_RESEARCH.md` §40, `docs/YADV_ROUND_30_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §40, `docs/YADV_ROUND_30_PLAN.md`, commit `0a4cb67`.
+- Round 31: first round on the reopened Phase 3a thread (24/33/34 model-extension research,
+  user-authorized this session). **DIAGNOSTIC-ONLY, zero C++ touched.** Headline finding, which
+  OVERTURNS round 26's own named remedy: the O(1) closure mismatch is a THERMAL-disequilibrium
+  split, not a mass-transfer one -- for these three cases both phases have NASG covolume `b=0`
+  and enthalpy reference `eta=0`, making the mixture's volumetric internal energy exactly
+  independent of `T` at frozen `alpha` (verified `rel<=2.22e-16`), so the SAME `(p,rho)` state the
+  reference already computes is simultaneously the single-`T` alpha-held Hugoniot and the
+  two-`T` (pressure-equilibrium-only) Hugoniot in which both `alpha` and `Y` are conserved
+  (verified: both phases compress by exactly the mixture ratio). Kapila et al. (2001) states this
+  mechanism in its own abstract. The required composition target IS unique and known in closed
+  form (verified two independent ways, ~1% band) -- but the required transfer is **liquid water
+  converting into air at 63-93% of the through-shock mass flux**: no entropy-admissible closure
+  can transmute one species into another, and independently the solver's `Phase` struct has no
+  entropy-reference constant `q'`, so a Gibbs target cannot even be expressed (a purpose-built
+  check fails closed exactly as designed). The one source term that WOULD hit the target is
+  algebraically just the OFF path in disguise (confirmed empirically, exact match). **The
+  extension that DOES work is a model-CLASS change**: single-pressure, two-temperature
+  Allaire/Kapila 5-equation -- needs zero `cases.cpp`/`validation.cpp` edits, but costs **4-8
+  rounds at high blast radius to all 19 currently-passing cases** (a duplicated EOS closure plus
+  a two-temperature sibling of the coupled Newton/Jacobian being the dominant risk). Built
+  `scripts/yadv_r31_relax.py`, six modes all run and matching pre-registration (one real bug
+  found and fixed while building T2: round 26's own `hugoniot_b` solves a different physical
+  question and was initially misused, caught by a sanity check). All hard gates held (`git diff
+  --stat -- cpp/` EMPTY, OFF 19/19, `ACID_YADV=1` 15/19 fail-set unchanged). Verdict S1;
+  `consecutive_failures` NOT incremented. **Escalated to the user, no model code written**: the
+  decision is "commit to the 4-8 round rewrite, or accept `ACID_YADV` scoped to 15/19 with this
+  now fully-documented exception."
+  → `YADV_RESEARCH.md` §41, `docs/YADV_ROUND_31_PLAN.md`, commit TBD.
 
 ## Setup reference
 

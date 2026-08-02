@@ -5038,3 +5038,214 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_DUMP_CELLS=800 \
     ./build-cpp/cpp/denner_1d/denner1d_dump 15 > /tmp/c15_n800.csv
     # then pair-average u/p columns and diff against the UNSET run's own u_ref/p_ref (self-test B)
 ```
+
+## 41. Phase 3a reopened by explicit user authorization -- the model extension round 26 named
+("interphase mass transfer") is the WRONG remedy for cases 24/33/34; the correct one is a
+model-CLASS change (single-p/two-T Allaire-5eq), scoped at 4-8 rounds; round 31 is DIAGNOSTIC-ONLY,
+no model-affecting code, escalated to the user per its own pre-registered rule
+
+First round on the reopened Phase 3a thread. The user explicitly authorized pursuing "a genuine
+model extension" for cases 24/33/34 (round 26, `YADV_ROADMAP.md`'s reopening note, 2026-08-02),
+after case15's own thread paused pending a separate user risk decision (round 30). This round
+measured what that extension actually has to be before writing a line of model code, and the
+measurement overturns the remedy round 26 itself named.
+
+### 41.1 The mechanism: round 26's "closure A vs closure B" is a THERMAL-disequilibrium split,
+not a mass-transfer one (E1/E2)
+
+For cases 24/33/34, both phases (`air_phase()`, `denner_water`) have NASG covolume `b=0` and
+enthalpy reference `eta=0` (`eos.cpp:11-13`, `cases.cpp:446`). At frozen volume fraction the
+mixture's volumetric internal energy collapses to an equivalent stiffened-gas form that is
+**exactly independent of temperature**:
+
+```
+e_vol(p, alpha) = alpha*(p + gamma_a*Pi_a)/(gamma_a-1) + (1-alpha)*(p + gamma_b*Pi_b)/(gamma_b-1)
+```
+
+Verified live (`scripts/yadv_r31_relax.py --identity`): `e_vol` computed via the full single-`T`
+mixture EOS (`eos.cpp`) matches this closed ESG form to `rel <= 2.22e-16` at every pre-/post-shock
+state of all three cases -- i.e. round 26's exact reference (`cases.cpp:105-151`) never actually
+depends on `T` at all, only on `(p, alpha)`.
+
+Consequence: reading the reference's own post-shock `(p_post, rho_post, alpha_pre)` phase-wise
+under `alpha` AND `Y` both held constant (the Allaire/Kapila two-temperature jump conditions)
+gives a state with **exactly** the same graded `(p, u, rho)` as the reference, because the
+temperature dependence cancelled identically. `--twoT` confirms: both phases compress by the
+*exact same* ratio as the mixture (case24: `3.717647` all three, to `rel <= 1.11e-16`), while the
+two temperatures diverge by 3-4 orders of magnitude (`T_air/T_water = 4276.3 / 4094.5 / 4340.6`
+for cases 24/33/34).
+
+**Reading**: round 26's "closure A" (volume fraction held, the validation reference) and "closure
+B" (mass fraction held, `ACID_YADV=1`) are not two different mass-transfer answers to the same
+question. Closure A is the `tau_T -> infinity` (frozen thermal) limit and the OFF/alpha-transport
+path is the `tau_T -> 0` (instant thermal equilibrium) limit of a **thermal relaxation**
+continuum -- Kapila et al. (2001, *Phys. Fluids* 13(10) 3002-3024, DOI `10.1063/1.1398042`)
+already state exactly this in the abstract: reduced single-velocity/pressure models "cannot be
+expressed in conservation form and hence require a regularization... [dissipation from]
+eliminated degrees of freedom is restricted to thin layers and accounted for by the jump
+conditions." Round 26's "+268x to +1621x interphase mass transfer" reading of the same post-shock
+state (`YADV_RESEARCH.md` §36.7) is what a two-temperature physical state looks like when forced
+through a single-temperature EOS -- an artifact of the closure, not evidence of an actual
+mass-transfer requirement.
+
+### 41.2 The required composition target IS unique and IS known in closed form (E3) -- and it is
+physically inadmissible for this species pair (R3-R4)
+
+At frozen `alpha` with `b=0`: `Y/(1-Y) = [alpha/(1-alpha)]*(R_b/R_a)*(p+Pi_a)/(p+Pi_b)`,
+`R_k = kv_k*(gamma_k-1)`. Verified (`--identity`): reproduces `closure_a_shock`'s own
+`Y_pre`/`Y_post` to `rel <= 2.22e-16` for all three cases:
+
+| case | `Y_pre` | `Y_post` | required conversion (fraction of through-shock mass flux) |
+|---|---|---|---|
+| 24 | 1.158045e-03 | 0.832154 | 83.10% |
+| 33 | 3.466107e-03 | 0.934388 | 93.09% |
+| 34 | 3.863132e-04 | 0.626515 | 62.61% |
+
+**Uniqueness, confirmed two independent ways**: (i) a 1D sensitivity of `rho_post` to `Y*` at
+fixed `p_post` (`--target`) gives a `dip<=0.02`-admissible band of roughly `+/-0.5-1.3%` around
+`Y_A`; (ii) a genuinely independent 2D `(p1, Y*)` reachability scan at the reference shock speed
+(`--scan2d`, solving the full mixture mass/momentum/energy RH jump with a FREE downstream
+composition against the FIXED, true upstream state -- not round 26's Y-HELD-both-sides
+`hugoniot_b`, which was the wrong tool for this question and had to be re-derived, see §41.5)
+finds the gate-passing set confined to `Y*/Y_A in [0.9920,1.0080]` / `[0.9940,1.0060]` /
+`[0.9840,1.0150]` for cases 24/33/34 -- i.e. a band of order 1%, narrow and centred on `Y_A`,
+confirming the target is not merely sufficient but effectively unique. Both independent estimates
+agree with each other and with the plan's own pre-registered table to within a factor of ~1.3x
+(exact figures differ slightly by method -- reported honestly, not forced to match, §41.6).
+
+The required transfer is **liquid water converting into air**, 63-93% of the entire through-shock
+mass flux. No entropy-admissible mass-transfer closure can transmute one chemical species into
+another; the physically correct rate for an air/water pair is identically zero. Independently, the
+`Phase` struct (`types.hpp:8-14`) has exactly five fields (`gamma, pinf, b, kv, eta`) and no
+entropy-reference constant `q'`, so a Gibbs-equilibrium mass-transfer target
+(`g_k = h_k - T*s_k`) cannot even be expressed for this EOS -- confirmed by `--gibbs`, which
+fails closed exactly as designed: `"Phase has no entropy reference q' (types.hpp:8-14)"`, exit
+code 1. The canonical 4-eq-with-phase-change paper already in this repo
+(`papers/library/md/2026_recent/[2026] 4eq + phase change.md`, Collis/Mirjalili/Khanwale/Mani/
+Iaccarino) confirms the same conclusion from the outside: its own air-dominated shock-tube
+verification case holds `Y_air = 0.98` **inert** throughout, deducing only the liquid-water/
+water-vapour split from thermochemical equilibrium (quoted verbatim, spot-checked live in the
+repo file at line 258: *"the mass fraction `Yg[air] = 0.98` everywhere in the domain, and the mass
+fractions of liquid water and water vapor are deduced from satisfying thermochemical
+equilibrium"*).
+
+### 41.3 The one source term that WOULD hit the target is provably just the OFF path in disguise
+(E4, confirmed by --offequiv)
+
+Requiring `D(alpha)/Dt = 0` in `Y`-space, using the already-existing `alpha` partial derivatives
+(`eos.hpp:182-198`) and the already-documented fact that `phi_k/rho_k = -1/T` exactly whenever
+`b_k=0` (`eos.hpp:170-176`, true for both phases in 17 of 19 cases including these three), gives a
+parameter-free evolution `DY/Dt = Y(1-Y)*[1/(p+Pi_a) - 1/(p+Pi_b)]*Dp/Dt`, whose first integral is
+exactly the closed form of §41.2. This is attractive-looking (parameter-free, uses only existing
+`PhaseProps` fields) but is algebraically just a restatement of "`alpha` is materially
+advected" -- i.e. the OFF path, not a new physics term. **Confirmed empirically** (`--offequiv`):
+for all three cases, the composition this source term would imply at every cell of the OFF
+dump's own pressure field reproduces the OFF dump's own `alpha` to **exactly** `0.0`
+(`max|alpha_impl - alpha_OFF| = 0.000e+00` in all three cases, well inside the round-trip
+conditioning floor). Any finite-rate version needs a relaxation time `tau` that has no physical
+referent for this species pair (§41.2) -- a pure numerical tuning constant, forbidden by this
+project's absolute rules. **This candidate is dead, and its deadness is now measured, not just
+argued.**
+
+### 41.4 The extension that DOES work is a model-class change, not a source term (R4d) -- scoped
+at 4-8 rounds, high blast radius
+
+Retaining conservative phase-mass transport (the entire premise of `ACID_YADV`) while reproducing
+the reference requires dropping the single-temperature closure: the single-pressure, two-
+temperature Allaire/Kapila 5-equation model (Allaire, Clerc & Kokh 2002, JCP 181(2) 577-616, DOI
+`10.1006/jcph.2002.7143`; Murrone & Guillard 2005, JCP 202(2) 664-698, DOI
+`10.1016/j.jcp.2004.07.019`) -- conserve `alpha_a*rho_a` and `alpha_b*rho_b` separately, advect
+`alpha` non-conservatively, drop `T`-equilibrium. By §41.1 this reproduces the 24/33/34 reference
+*exactly*, and needs **zero** `cases.cpp`/`validation.cpp` edits (the reference already IS this
+model's own shock answer) -- a genuine de-risking finding, not merely a hopeful one.
+
+The honest cost, itemised (plan §5): a second conserved scalar and non-conservative `alpha`
+update (~1 round); a duplicated EOS closure (`mixture_density`, `mixture_enthalpy`,
+`mixture_internal_energy_density`, `mixture_sound_speed`,
+`recover_pressure_temperature_from_density_energy`, `pT_from_v_e_massfrac` -- all `(p,T,alpha)`-
+signature and all reachable from the OFF path, so they must be duplicated, never modified, to
+protect byte-identity) (~1-2 rounds); a two-temperature sibling of the coupled `(u,p,h)` Newton
+and its analytic pentadiagonal Jacobian, shared by all 19 cases under `unic` -- the dominant cost
+and dominant risk (~2-4 rounds). **Total: 4-8 rounds at high blast radius to all 19 cases**, not
+"adding a source term." One genuine silver lining: the second temperature can live as a
+solver-local `Vec` exactly the way `Yv` already does (`acid.cpp:915`), a pattern already proven
+safe across 27 rounds -- no `PrimitiveState` change needed.
+
+### 41.5 Correction to round 26's own instrument, made in the course of building T2
+
+`scripts/yadv_r26_closure.py`'s `hugoniot_b(p0,T0,Y,p1,a,b)` solves the Y-HELD Rankine-Hugoniot
+jump -- the SAME composition on both sides of the shock (that is what "closure B" means). This
+round's initial `--scan2d` implementation misused it by plugging a candidate downstream `Y*` in
+as if it were the (unchanged) upstream composition too, which silently evaluates a physically
+different, wrong shock (caught immediately: the sanity check "`Y*=Y_A` must reproduce the
+reference" failed by orders of magnitude, `Vs` off by 19x). Fixed by writing a new, genuinely
+different RH solve (`_downstream_state`) that fixes the TRUE upstream state at `Y_pre` and solves
+for a downstream state at a prescribed, independent `Y*`, holding the mass flux `mdot = rho_pre *
+Vs_reference` fixed -- exactly the "how much conversion happened" question T2 needs to ask. This
+is not a criticism of round 26's own instrument (`hugoniot_b` is correct and sufficient for what
+round 26 used it for); it is a note that `yadv_r31_relax.py` needed its own RH solver rather than
+reusing `hugoniot_b` for a question it was never built to answer, recorded so a future round does
+not repeat the mistake.
+
+A second implementation issue, also fixed: the two-composition RH residual `(p1-p0) -
+mdot^2*(v0-v1(p1))` has a spurious pole where its own algebraic solve-for-`T1`-first denominator
+crosses zero, which a naive two-point bisection can straddle and mistake for a sign-changing root.
+Fixed with a log-spaced scan for the LAST (highest-pressure) sign change rather than a blind
+two-point bracket -- the physical shock root sits at large compression; any lower-pressure sign
+change found is the pole, not a root.
+
+### 41.6 Minor numeric discrepancy between this round's own measurement and the Planner's
+pre-registered table, reported per this project's own honesty discipline
+
+The Planner's own `--target`-equivalent table (plan §3.3) predicted `dip`-tolerance bands of
+`0.90%/0.67%/1.61%` for cases 24/33/34; this round's independently-executed `--target` mode
+computed `0.74%/0.56%/1.25%` via a slightly different linearisation (finite-difference of
+`rho_post(Y)` at fixed `p_post` and `T_post`, vs. the Planner's own method, not fully specified in
+the plan's prose). The independently-derived `--scan2d` bands (§41.2, a materially different
+numerical method -- a full 2D RH reachability solve, not a 1D sensitivity) land in between:
+`0.80%/0.60%/1.50%` (using the wider of the +/- edges). All three estimates agree to within
+~30% of each other and support the same qualitative conclusion (a band of order 1%, confined near
+`Y_A`) -- the discrepancy does not change §41.2's uniqueness claim, and is recorded rather than
+silently reconciled to one preferred number.
+
+### 41.7 Verdict: S1 (round 26's own precedent) -- the wrong remedy identified, the right one
+scoped, `consecutive_failures` NOT incremented; escalated to the user, no model code written
+
+Per the plan's own pre-registered S1 rule: P0 (`--identity`) and P1 (`--twoT`) both PASS exactly;
+T1/T2/T4 confirm §41.1-§41.3's derivations (with the honest numeric discrepancy of §41.6); T3
+fails closed exactly as designed. All hard gates held: `git diff --stat -- cpp/` is **empty**
+(zero C++ touched this round -- the plan's own binding anti-rescue clause, §8, forbade proposing
+any model-affecting candidate even if Stage 0 landed cleanly, and it did land cleanly, so nothing
+was proposed); OFF path 19/19 unchanged; `ACID_YADV=1` 15/19 with fail set exactly
+`{15,24,33,34}` unchanged; unit tests unchanged. Exactly one new file:
+`scripts/yadv_r31_relax.py`.
+
+Resolving a definitive, previously-open question (what does the authorized model extension
+actually require, and does it exist) is measured progress independent of `pass_count`, matching
+this project's own established precedent (rounds 5/9/11/26). **`consecutive_failures` is NOT
+incremented.**
+
+**This round writes no model-affecting code and recommends none for round 32 without further user
+authorization.** The scope estimate (§41.4) is materially larger than what "an interphase
+mass-transfer source term" implies, and per this project's own culture (round 26's own escalation
+pattern, repeated here for the same reason) that difference must be surfaced to the user before
+any implementation round begins, not discovered partway through a multi-round commitment. See the
+session's own escalation message to the user for the decision this hands off (accept `ACID_YADV`
+scoped to 15/19 with a documented, physically-explained exception for this family; or authorize
+the 4-8 round Allaire/Kapila extension with its stated blast-radius risk to all 19 cases).
+
+### 41.8 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+python3 scripts/yadv_r31_relax.py --identity   # P0, expect all rel <= 2.22e-16, "PASS"
+python3 scripts/yadv_r31_relax.py --twoT       # P1, expect comp_air==comp_water==comp_mix, "PASS"
+python3 scripts/yadv_r31_relax.py --target     # T1, expect dip-band ~0.5-1.3%, frac_of_mdot table
+python3 scripts/yadv_r31_relax.py --scan2d     # T2, expect narrow Y*/Y_A band, "PASS"
+python3 scripts/yadv_r31_relax.py --gibbs      # T3, expect exit 1, "Phase has no entropy reference q'"
+python3 scripts/yadv_r31_relax.py --offequiv   # T4, expect max|alpha_impl-alpha_OFF|=0.000e+00
+
+git diff --stat -- cpp/                        # G1, expect EMPTY output
+```

@@ -73,6 +73,12 @@ verified facts — do not delete and do not retry the documented dead-ends blind
 - case15 (double rarefaction) reference is a grid self-consistency test, not exact
   validation; the 4-eq model has no phase change, so the expansion-core pressure hits the
   EOS floor, not a physical vapour pressure. Do not present it as cavitation validation.
+  **EXCLUDED from the registered suite since round 34** (user decision, applying the same
+  sub-floor-state criterion `cases.cpp:599-602` already applies to case32): the exact
+  double-rarefaction star pressure is `p*=9.05e-14 Pa`, 13 orders of magnitude below the
+  1.0 Pa floor -- no grid-converged solution exists at any resolution (`YADV_RESEARCH.md`
+  §42.3, §44). Config/IC/reference/gate code remains intact, unreachable, same status as
+  cases 29/32.
 - THINC interface sharpening (DEFAULT ON, `ACID_NO_THINC` opts out) tanh-reconstructs the VOF
   FACE alpha in the colour-function transport (`acid.cpp` alpha loop) — only the face alpha,
   never the cell alpha the mass/mom/energy fluxes use, so it cannot break pressure

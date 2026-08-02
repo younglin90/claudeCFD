@@ -6,7 +6,43 @@ document — round counter, stop conditions, next-task pointer, one-line-per-rou
 put derivations or measurement tables here; put them in `YADV_RESEARCH.md` (or a per-round plan
 doc) and link to them.
 
-## Current goal — Phase 3c: case15's central-jump defect (redirected from Phase 3a, round 26)
+## case15: CLOSED (round 34, 2026-08-02) — EXCLUDED from the registered suite by explicit user
+decision
+
+The sections below (case15's "Current goal"/status history through round 33) are now **historical
+context**, kept exactly as written for provenance — not deleted, not superseded in the sense of
+being wrong, just no longer the active thread. **case15 is excluded from the registered suite**
+(`cases.cpp:582`'s table entry commented out, same pattern as case32), applying the identical
+sub-floor-state criterion already used for case32 (`cases.cpp:599-602`). Round 32 proved case15's
+exact solution requires `p*=9.05e-14 Pa`, 13 orders below the solver's 1.0 Pa floor — no
+grid-converged solution exists at any resolution. Presented to the user as a choice (exclude, like
+case32 / replace the reference with an exact solution / defer both); **user chose exclusion**.
+config/IC/reference/gate code all remain intact and unreachable, matching cases 29/32's own
+status. New headline numbers: OFF path **18/18** (was 19/19 through round 33), `ACID_YADV=1`
+**15/18** (was 15/19), fail set now exactly `{24,33,34}`. Full reasoning, harm-gate table, and the
+`solver_denner`-coordination adjudication: `docs/YADV_RESEARCH.md` §44, `docs/YADV_ROUND_34_PLAN.md`.
+
+**Consequence for the sections below**: every `19/19`/`15/19` figure in the "Current goal" and
+"case15 status" sections that follow is a **historical snapshot as of the round it was written**,
+not a live number — do not "fix" them to 18/18, that would misrepresent what those rounds actually
+measured at the time. Round 30's option (ii) (a `pface` scheme change) is now **moot** — case15 is
+no longer in the suite to fix — but remains explicitly not authorized as a general precedent for
+any other case.
+
+## Current status — the only live thread is Phase 3a's model-extension scope
+
+With case15 closed (above), the **only remaining open escalation in the entire investigation** is
+Phase 3a (cases 24/33/34): commit to the 4-8 round, all-18-case-blast-radius single-pressure/
+two-temperature Allaire/Kapila 5-equation rewrite (round 31), or accept `ACID_YADV` scoped to
+15/18 with the now fully-explained `{24,33,34}` exception. The user explicitly deferred this
+decision ("일단 보류, 둘 다 나중에 결정", round 31/32 session). **No round may start without a
+fresh, explicit user decision on this.** See "Phase 3a (cases 24/33/34) REOPENED..." below for the
+full reasoning (still accurate, still the live status text for that thread).
+
+---
+
+## Current goal (historical, through round 33) — Phase 3c: case15's central-jump defect
+(redirected from Phase 3a, round 26)
 
 **Redirected 2026-08-02, by explicit user decision (round 26's escalation, `YADV_RESEARCH.md`
 §36).** Phase 3a (cases 24/33/34) is **CLOSED, not solved**: round 26 proved, two independent
@@ -160,10 +196,62 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 33
+round_counter: 34
 consecutive_failures: 0
 done: false
-next_task: Round 33, literature/data housekeeping -- four items rounds 31/32 explicitly deferred
+next_task: Round 34, case15 excluded from the registered suite (explicit user decision, "case32
+           처럼 suite에서 제외" chosen over exact-reference-replacement and over deferring
+           further). Applies the identical sub-floor-state criterion cases.cpp:599-602 already
+           applies to case32 -- case15's exact solution requires p*=9.05e-14 Pa (round 32),
+           13 orders below the 1.0 Pa floor, unrepresentable at any resolution.
+           IMPLEMENTATION: cases.cpp:582's table entry commented out (identical pattern to
+           case29/32 -- EXCLUDED comment + commented entry + (void)c15;), nothing else in
+           cases.cpp touched, ZERO edits to validation.cpp (case15's gate block becomes
+           unreachable the same way case32's already was). CORRECTED ARITHMETIC (this round's
+           own charter initially guessed 14/18, wrong): case15 PASSED under OFF, so removing it
+           drops both counters (19/19->18/18); case15 FAILED under ACID_YADV=1, so removing it
+           drops only the total (15/19->15/18, NOT 14/18) -- every other config in the 7-config
+           sweep follows the same pattern, losing only "15" from its fail set.
+           HARM GATE (all measured, all held): G-A OFF pass_count=18 total=18; G-A2 exact 18-id
+           set confirmed; G-B (strongest) per-case JSON byte-identity vs pre-edit baseline is
+           EMPTY across all 18 remaining OFF cases; G-C ACID_YADV=1 pass_count=15 total=18 fail
+           set exactly {24,33,34}, same empty byte-identity diff; G-D yadv_verify.py 8/8
+           BYTE-IDENTICAL vs solver_denner (case "15" dropped from CASES, since
+           denner1d_dump 15 now exits 2 with empty stdout here); G-E unit tests unchanged
+           (case15 references there are inline literals, structurally immune); G-F confirmed
+           denner1d_dump/run 15 both exit 2 "unknown Denner 1D case: 15"; G-G git diff --stat
+           -- cpp/ exactly one file (cases.cpp, 8 insertions/3 deletions); G-G2 solver_denner
+           completely untouched (published binary unchanged, Jul 14 06:22, 244304 bytes) --
+           the absolute rule constrains BEHAVIOUR not case-table identity, and solver_denner's
+           own build-cpp is a gitignored frozen artifact the loop never rebuilds, so editing or
+           rebuilding it would be both ineffective and wrong.
+           consecutive_failures NOT incremented (delivered, user-authorized change with the
+           strongest possible numerics-neutrality proof -- G-B/G-C's empty byte-identity diffs).
+           Updated: absolute-rule text (19/19->18/18, with an explicit non-precedent clause),
+           yadv_verify.py's CASES list, yadv_r9_sweep.py's EXPECTED/ALL_CASES/VERIFY_CASES,
+           AGENTS.md, .claude/skills/yadv-round/SKILL.md, .claude/rules/denner-pitfalls.md's
+           case15 bullet, validation/1D/15_E_Cavitation.md (banner, NOT deleted -- no exclusion
+           precedent existed for a spec doc since neither case29 nor case32 ever had one, so
+           this round set the precedent: annotate, keep the physical/spec record).
+           NOT touched, per this round's own non-goals: any other model/numerics/scheme code;
+           pface/ubar/gpbar/dhat/MWI clamp (round 30 option (ii) now moot, still not
+           authorized); Phase 3a/24/33/34 (still on hold); the exact-reference alternative
+           (user chose exclusion, not that); any historical content in YADV_RESEARCH.md §1-43
+           or any prior YADV_ROUND_*_PLAN.md.
+           **case15's exclusion-vs-exact-reference question is now DECIDED and IMPLEMENTED.
+           case15's pface-scheme-risk question (round 30) is now MOOT (case no longer in
+           suite). The ONLY remaining live escalation in the entire investigation is Phase 3a's
+           model-extension scope** (round 31: 4-8 round, all-18-case-blast-radius single-p/
+           two-T Allaire/Kapila 5-eq rewrite, vs accepting ACID_YADV scoped to 15/18 with the
+           {24,33,34} exception) -- explicitly deferred by the user, round 35 must not start
+           without a fresh decision on it.
+           Grounded in YADV_RESEARCH.md sect.44, docs/YADV_ROUND_34_PLAN.md.
+```
+
+**Superseded control-state history (round 33's own, for provenance):**
+```
+round_counter: 33 (superseded, see above)
+next_task (superseded): Round 33, literature/data housekeeping -- four items rounds 31/32 explicitly deferred
            (not blocked on a decision, just not load-bearing for those rounds' own conclusions).
            Touches NONE of the three currently-blocked threads. DIAGNOSTIC-ONLY, zero cases.cpp/
            validation.cpp edit.
@@ -710,10 +798,15 @@ not start a new round.
 - No `git push`, no `git reset --hard`, no `rm -rf`. Local commit + local merge to `main` only.
 - No tuning constants, no per-case coefficients. Global physical constants only.
 - No edits to `cases.cpp` / `validation.cpp` unless the round's stated goal explicitly requires it
-  (none of the current roadmap does).
-- The OFF path (`ACID_YADV` unset) must stay 19/19 and byte-identical to the published
+  (round 34 was the one exception to date — an explicit, user-authorized case exclusion; see
+  below. No other round's stated goal currently does.)
+- The OFF path (`ACID_YADV` unset) must stay **18/18** and byte-identical to the published
   `solver_denner` binary at the end of every round that merges to `main`. A round that breaks this
-  does not merge.
+  does not merge. **(Was 19/19 through round 33. case15 was removed from the registered suite in
+  round 34 by explicit user decision, applying the suite's own existing sub-floor-state criterion
+  — `docs/YADV_RESEARCH.md` §44, §42.3, §42.6. This amendment is a record of that one decision and
+  is NOT a precedent: no round may change the registered case set, a gate threshold, a case
+  resolution, or a reference construction to make any case pass.)**
 - Report negative/partial results honestly — this project's established culture (rounds 1-4) keeps
   failed experiments in the history, not just wins.
 
@@ -1324,7 +1417,34 @@ not start a new round.
   (`git diff --stat -- cpp/` empty, OFF 19/19, `ACID_YADV=1` 15/19 unchanged, reconfirmed fresh).
   `consecutive_failures` NOT incremented. **Round 34's entry condition is now strictly true — no
   housekeeping backlog remains, only the three user decisions.**
-  → `YADV_RESEARCH.md` §43, `docs/YADV_ROUND_33_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §43, `docs/YADV_ROUND_33_PLAN.md`, commit `2176a19`.
+- Round 34: **case15 EXCLUDED from the registered suite** (explicit user decision, "case32처럼
+  suite에서 제외" chosen over an exact-reference replacement). Applies the identical sub-floor-
+  state criterion `cases.cpp:599-602` already applies to case32 — round 32 proved case15's exact
+  solution requires `p*=9.05e-14 Pa`, 13 orders below the 1.0 Pa floor, unrepresentable at any
+  resolution. **Implementation**: `cases.cpp:582`'s table entry commented out, exactly the
+  case29/32 pattern (`EXCLUDED` comment + `(void)c15;`) — nothing else in `cases.cpp` touched,
+  **zero** `validation.cpp` edits (its case15 gate block becomes unreachable the same way
+  case32's already was). **Corrected arithmetic** (this round's own charter initially guessed
+  wrong): case15 passed under OFF, so removing it drops both counters (**19/19 → 18/18**);
+  case15 failed under `ACID_YADV=1`, so removing it drops only the total (**15/19 → 15/18, not
+  14/18** — every other config in the sweep loses only `"15"` from its fail set). **Harm gate,
+  all held**: G-B/G-C (the strongest — per-case JSON byte-identity vs the pre-edit baseline) are
+  **empty diffs** across all 18 remaining cases in both configs, proving zero numerics changed
+  anywhere; G-D confirms 8/8 byte-identical vs `solver_denner`; G-F confirms the exclusion is
+  real (`denner1d_dump 15` exits 2); G-G2 confirms `solver_denner` completely untouched (the
+  absolute rule constrains behaviour, not case-table identity, and its own binary is a
+  gitignored frozen artifact the loop never rebuilds). `consecutive_failures` NOT incremented.
+  Updated the absolute-rule text (18/18, with an explicit non-precedent clause), `yadv_verify.py`,
+  `yadv_r9_sweep.py`, `AGENTS.md`, `SKILL.md`, `denner-pitfalls.md`'s case15 bullet, and
+  `validation/1D/15_E_Cavitation.md` (annotated, not deleted — no exclusion precedent existed
+  for a spec doc, so this round set one: keep the physical/spec record). No historical content
+  in `YADV_RESEARCH.md` §1-43 or any prior round's plan doc touched. **case15's
+  exclusion-vs-exact-reference question is now decided and implemented; its `pface`-risk
+  question is now moot. The only remaining live escalation in the entire investigation is Phase
+  3a's model-extension scope** (round 31, explicitly deferred by the user) — round 35 needs a
+  fresh decision on it.
+  → `YADV_RESEARCH.md` §44, `docs/YADV_ROUND_34_PLAN.md`, commit TBD.
 
 ## Setup reference
 

@@ -9,8 +9,8 @@
 >
 > | | env | transported variable | status |
 > |---|---|---|---|
-> | volume fraction (baseline) | `ACID_YADV` unset | `alpha` | default; **byte-identical** to the paper build, 19/19 PASS |
-> | mass fraction (variant) | `ACID_YADV=1` | `Y = alpha*rho_a/rho` | 15/19 PASS; `alpha` is recovered algebraically for all output |
+> | volume fraction (baseline) | `ACID_YADV` unset | `alpha` | default; **byte-identical** to the paper build, 18/18 PASS |
+> | mass fraction (variant) | `ACID_YADV=1` | `Y = alpha*rho_a/rho` | 15/18 PASS; `alpha` is recovered algebraically for all output |
 >
 > ```bash
 > DENNER_ACID=1                ./build-cpp/cpp/denner_1d/denner1d_validate   # alpha path
@@ -18,7 +18,9 @@
 > ```
 >
 > Case definitions, reference solutions and pass/fail gates are unchanged and still expressed in
-> `alpha`; only the solver's internal transported variable changes. Full derivation, A/B
+> `alpha`; only the solver's internal transported variable changes, **except** that case15 is
+> de-registered in this tree as of round 34 (user decision, applying the suite's own existing
+> sub-floor-state exclusion criterion — `docs/YADV_RESEARCH.md` §44, §42.3). Full derivation, A/B
 > measurements and verdict: **`docs/YADV_RESEARCH.md`**.
 
 Isolated Denner C++ solver workspace: a faithful Denner ACID (acoustically-conservative

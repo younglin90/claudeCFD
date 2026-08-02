@@ -1,5 +1,15 @@
 # Validation Case — 1D Cavitation Problem in Air–Water Mixture
 
+> **round 34 (2026-08-02) -- EXCLUDED FROM THE REGISTERED SUITE.** 사용자 명시적 결정
+> (round 30-32의 세 옵션 중 "case32처럼 suite에서 제외" 선택)에 따라 `cases.cpp`의 case
+> table entry가 주석 처리됨 (`cases.cpp:582` 인근) -- `cases.cpp:599-602`가 case32에 이미
+> 적용한 것과 동일한 기준(1.0 Pa 압력 floor 미만 상태 = 표현 불가): case32는 IC가, case15는
+> **solution**이 floor 13자리 아래(`p*=9.05e-14 Pa`, round 32 `YADV_RESEARCH.md` §42.3)라는
+> 차이만 있음. config/IC/reference/gate 코드는 전부 그대로 유지(향후 솔버 작업용, 29/32와
+> 동일 상태) -- 이 문서도 **삭제하지 않고** 물리/스펙 기록으로 유지. 새 헤드라인 수치:
+> OFF path **18/18**, `ACID_YADV=1` **15/18** (fail set `{24,33,34}`). 상세:
+> `docs/YADV_RESEARCH.md` §42.3, §42.6, §44, `docs/YADV_ROUND_34_PLAN.md`.
+>
 > **목적**: 공기 1%를 포함한 물–공기 혼합물에서 대칭 발산 유동에 의해 발생하는 rarefaction wave와 cavitation-like 저압/저밀도 영역을 검증한다.  
 > **출처 위치**: §4.1.3 공동 문제, Fig. 6–7. **저자/서지 확정(round 33, CrossRef DOI 직접
 > 조회로 재확인)**: Young-Lin Yoo, Hong-Gye Sung, "Numerical investigation of an interaction

@@ -59,18 +59,24 @@ CONFIGS = [
 #   D: (12, {"14", "15", "24", "27", "28", "33", "34"})
 #   E: (13, {"15", "24", "27", "28", "33", "34"})
 #   (config G did not exist before round 20)
+# Round 34: case15 excluded from the registered suite (docs/YADV_RESEARCH.md §44 -- exact
+# double-rarefaction star pressure is 13 orders of magnitude below the solver's 1.0 Pa floor,
+# unrepresentable at any resolution, same criterion cases.cpp:599-602 already applies to case32).
+# Only config A's pass_count moves (19->18, since case15 PASSED under OFF); every other config
+# merely loses "15" from its own fail set, since case15 already failed there (removing a failing
+# case drops only the total, not the pass count).
 EXPECTED = {
-    "A": (19, set()),
-    "B": (15, {"15", "24", "33", "34"}),
-    "C": (14, {"14", "15", "24", "33", "34"}),
-    "D": (13, {"14", "15", "24", "27", "33", "34"}),
-    "E": (14, {"15", "24", "28", "33", "34"}),
-    "F": (14, {"14", "15", "24", "33", "34"}),
-    "G": (15, {"15", "24", "33", "34"}),
+    "A": (18, set()),
+    "B": (15, {"24", "33", "34"}),
+    "C": (14, {"14", "24", "33", "34"}),
+    "D": (13, {"14", "24", "27", "33", "34"}),
+    "E": (14, {"24", "28", "33", "34"}),
+    "F": (14, {"14", "24", "33", "34"}),
+    "G": (15, {"24", "33", "34"}),
 }
-ALL_CASES = ["01", "02", "04", "05", "07", "13", "14", "15", "24", "25", "26", "27", "28",
+ALL_CASES = ["01", "02", "04", "05", "07", "13", "14", "24", "25", "26", "27", "28",
              "30", "31", "33", "34", "35", "36"]
-VERIFY_CASES = ["01", "02", "13", "14", "15", "24", "25", "33", "34"]
+VERIFY_CASES = ["01", "02", "13", "14", "24", "25", "33", "34"]
 
 
 def base_env(overlay=None):

@@ -5643,3 +5643,141 @@ sha256sum results/1D/15_E/reference_digitized_15.csv
 python3 scripts/yadv_r33_smooth.py
     # expect Leg B "exactly == 8.0? True", VERDICT "NO-OP: CONFIRMED"
 ```
+
+## 44. case15 EXCLUDED from the registered validation suite (user decision, round 34) -- applies
+the suite's own existing sub-floor-state criterion, already used for case32; zero numerics
+change for any remaining case, proven by per-case byte-identity
+
+Round 34. `docs/YADV_ROUND_34_PLAN.md`. Round 30 presented three options for case15: accept
+unreachable, a risky `pface` scheme change, or a mesh/spec conversation. Round 32's mesh/spec
+investigation (§42) sharpened this into a concrete new choice: exclude case15 from the suite
+(applying the identical criterion `cases.cpp:599-602` already applies to case32), or replace its
+reference with an exact solution. **The user chose exclusion**, explicitly, via a structured
+decision: *"case32처럼 suite에서 제외 (Recommended)"*.
+
+### 44.1 The decision and its justification
+
+Round 32 (§42.3) proved case15's exact double-rarefaction star pressure is `p* = 9.05e-14 Pa` --
+thirteen orders of magnitude below the solver's own 1.0 Pa pressure floor. No grid-converged
+solution exists inside the 4-equation frozen-composition model at any resolution; refinement
+converges toward an unrepresentable state and hits the floor, not toward the exact answer.
+`cases.cpp:599-602` already excludes case32 for the identical physical reason: *"middle state
+0.01 Pa is below the solver's 1.0 Pa pressure floor -- IC not representable."* The only
+difference between the two cases is whether the sub-floor state lives in the IC (case32) or in
+the solution (case15) -- the underlying criterion is the same criterion, applied consistently.
+
+### 44.2 Corrected arithmetic -- the pre-round expectation of "14/18" was wrong
+
+Removing a case changes `total` always, but changes `pass` only if the removed case was itself
+counted as passing. case15 **passes** under OFF (`ACID_YADV` unset) -- degenerately, per round
+29's own note (`nfloor=400/400`, the frozen path floors the entire domain and still clears the
+gate) -- so removing it drops both `pass` and `total`: **OFF goes from 19/19 to 18/18.** Under
+`ACID_YADV=1`, case15 is in the fail set, so removing it drops only `total`: **`ACID_YADV=1`
+goes from 15/19 to 15/18** (not 14/18, which was this round's own charter's first, uncorrected
+guess -- corrected during planning before any code was touched). Every config in the project's
+7-config sweep (`scripts/yadv_r9_sweep.py`) follows the same pattern: only config A's
+`pass_count` moves; B through G merely lose `"15"` from their own fail sets, since case15 already
+failed there.
+
+**A pleasant consequence, not engineered for**: after this round, `ACID_YADV=1`'s entire
+remaining gap is exactly `{24,33,34}` -- the single, fully-explained, user-deferred thermal-
+disequilibrium/5-equation-model thread (§41, §36). No unexplained case15 residue remains
+anywhere in the reported numbers.
+
+### 44.3 Implementation -- exactly the case32 precedent, nothing else
+
+`cases.cpp:582`'s case15 table entry commented out, preceded by an `// EXCLUDED (blocker): ...`
+comment citing the exact `p*` figure and this section; `(void)c15;` added to the existing
+`(void)c29;`/`(void)c32;` suppression block (renamed "cases 15/29/32"). **Nothing else in
+`cases.cpp` touched** -- `c15`'s construction, `initial_state()`'s case15 branch,
+`reference_state()`'s case15 early return, and the pre-existing unreachable `cases.cpp:911-914`
+dead branch all remain exactly as before, unreachable, matching cases 29/32's own status.
+**`validation.cpp` required zero edits** -- its case15 `smooth_ok`/`osc_ok` gate block becomes
+unreachable the same way case32's own gate block already was, and stays in the file.
+
+### 44.4 Harm gate -- all measured, all held
+
+| gate | result |
+|---|---|
+| G-A (OFF count) | `pass_count=18 total=18`, exit 0 |
+| G-A2 (id set) | exactly the 18 remaining ids; `15` absent, nothing else absent |
+| **G-B (per-case byte-identity, OFF, the strongest gate)** | `diff` against the pre-edit baseline (minus its case15 line) is **EMPTY** -- proves the exclusion changed zero numerics for any remaining case |
+| G-C (ON count + byte-identity) | `pass_count=15 total=18`, fail set exactly `{24,33,34}`; per-case diff vs baseline (minus case15) **EMPTY** |
+| G-D (`yadv_verify.py`, `"15"` dropped from `CASES`) | 8/8 byte-identical vs `solver_denner` (section 1); case01 byte-identical under `ACID_YADV` on/off, others `differs` matching the expected per-case pattern (section 2) |
+| G-E (unit tests) | pass, output byte-identical to baseline (case15 references there are inline literals -- structurally immune, confirmed) |
+| G-F (exclusion is real) | `denner1d_dump 15` / `denner1d_run 15`: stderr `unknown Denner 1D case: 15`, empty stdout, exit 2 |
+| G-G (diff shape) | `git diff --stat -- cpp/` exactly one file, `cases.cpp`, 8 insertions/3 deletions -- only comment lines and one `(void)c15;` |
+| G-G2 (`solver_denner` untouched) | `git diff --stat -- solver_denner/` empty; published dump binary unchanged (`Jul 14 06:22`, 244304 bytes) |
+
+### 44.5 `solver_denner` coordination -- deliberately left untouched
+
+The project's absolute rule constrains **behaviour** ("OFF path... byte-identical to the
+published `solver_denner` binary"), not the two trees' case tables. `solver_denner/build-cpp` is
+gitignored and frozen (a `2026-07-14` artifact the round loop never rebuilds); editing
+`solver_denner/cpp/.../cases.cpp` would have zero effect on G1 as currently constructed, and
+rebuilding that binary would mutate the very baseline the whole project is measured against. Both
+would be wrong. **`solver_denner` was left completely untouched** -- it keeps case15 registered
+and continues validating 19/19 against itself; `solver_4eq_mass` simply no longer has anything to
+compare for that one case, which is a reduction in G1's coverage (§44.6), not a violation of the
+rule.
+
+### 44.6 Honest costs, recorded rather than glossed over
+
+- **G1 coverage drops from 9 cases to 8, permanently.** Nothing will again mechanically detect an
+  unintended change to case15's IC/reference/gate code, which stays compiled-in but unreachable
+  -- the identical situation cases 29 and 32 have already been in.
+- **`denner1d_validate --only 15` now reports `pass_count=0 total=0` and exits 0** -- an empty
+  selection silently looks like success. Any future harm gate must check the exact count AND the
+  exact id set, never the count alone (this round's own G-A2 does so).
+- A short list of root-level dev/report helper scripts (never round-loop gates) will now dump
+  nothing for case15 if invoked with their old case lists: `run_metrics.py`, `gen_report.sh`,
+  `plot_report.py`, `t1.sh`, `bisect15.sh`, `verify.py` (root), `scripts/yadv_dumps.py`,
+  `scripts/yadv_alpha_drift.py`, and assorted `mk15.sh`/`up15.sh`/`plot15.py`/`sweep_*.sh`
+  case15-specific dev scratch. None are gates; none were touched.
+
+### 44.7 What was deliberately NOT touched
+
+Per this round's own non-goals: no other model/numerics/scheme change (`git diff --stat --
+cpp/` lists exactly one file); `pface`/`ubar`/`gpbar`/`dhat`/the MWI clamp untouched (round 30's
+option (ii) is now moot, not exercised); no Phase 3a work (still on hold, round 31's user
+deferral unchanged); the exact-reference alternative was not built (the user chose exclusion, not
+that); no historical content rewritten -- `YADV_RESEARCH.md` §1-43 and every prior
+`YADV_ROUND_*_PLAN.md` stand exactly as written, since they are the evidence record that
+justifies this exclusion, not something this decision supersedes.
+
+### 44.8 Verdict and what round 34 hands to round 35
+
+All hard gates held (§44.4). `consecutive_failures` **NOT incremented** -- this is a delivered,
+user-authorized change with the strongest possible proof of numerics-neutrality (G-B's empty
+diff), the same standard rounds 26/30/31/32/33 used for their own negative/neutral results.
+
+**case15's exclusion-vs-exact-reference question is now DECIDED and IMPLEMENTED.** case15's
+`pface`-scheme-risk question (round 30's option (ii)) is now **moot** -- case15 is no longer in
+the registered suite, and `pface`/`ubar`/`gpbar`/`dhat`/the MWI clamp remain explicitly not
+authorized regardless. **The only live escalation remaining in the entire investigation is Phase
+3a's model-extension scope** (round 31: a 4-8 round, all-18-case-blast-radius single-pressure/
+two-temperature Allaire/Kapila 5-equation rewrite, vs. accepting `ACID_YADV` scoped to 15/18 with
+the now fully-explained `{24,33,34}` exception, explicitly deferred by the user). Round 35 must
+not start without a fresh user decision on that.
+
+### 44.9 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+DENNER_ACID=1 ./build-cpp/cpp/denner_1d/denner1d_validate 2>/dev/null | tail -1
+    # expect pass_count=18 total=18
+
+DENNER_ACID=1 ACID_YADV=1 ./build-cpp/cpp/denner_1d/denner1d_validate 2>/dev/null | tail -1
+    # expect pass_count=15 total=18
+
+./build-cpp/cpp/denner_1d/denner1d_dump 15; echo $?
+    # expect stderr "denner1d_dump: unknown Denner 1D case: 15", exit 2
+
+python3 scripts/yadv_verify.py
+    # expect section (1) 8/8 BYTE-IDENTICAL, section (2) case01 BYTE-IDENTICAL
+
+git diff --stat -- cpp/    # expect exactly one file: cases.cpp
+git diff --stat -- ../solver_denner/    # expect EMPTY
+```

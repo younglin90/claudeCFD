@@ -11,7 +11,11 @@ import os, subprocess
 
 MINE = "/home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass"
 REF = "/home/younglin90/work/claude_code/claudeCFD/solver_denner"
-CASES = ["01", "02", "13", "14", "15", "24", "25", "33", "34"]
+CASES = ["01", "02", "13", "14", "24", "25", "33", "34"]
+# "15" removed round 34: case15 was excluded from the registered suite in solver_4eq_mass
+# (docs/YADV_RESEARCH.md §44), so denner1d_dump 15 now exits 2 with empty stdout here, while
+# solver_denner still has it registered and dumps a full CSV -- leaving "15" in this list would
+# report a spurious "case15: DIFFERS" that is not a real byte-identity break.
 
 
 def dump(root, case, yadv=False):

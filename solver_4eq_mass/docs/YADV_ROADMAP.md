@@ -160,10 +160,88 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 31
+round_counter: 32
 consecutive_failures: 0
 done: false
-next_task: Round 31, first round on the reopened Phase 3a thread (24/33/34 model-extension
+next_task: Round 32, case15's mesh/spec revisit (user-authorized this session, option (iii) from
+           round 30's hand-off, chosen explicitly over option (ii)'s pface risk). DIAGNOSTIC-
+           ONLY, zero C++ touched (git diff --stat -- cpp/ empty).
+           SUITE-WIDE CENSUS: of 19 registered cases, 18 use an exact/exact-analytic reference;
+           case15 is the SOLE exception, using a self-convergence solve with NO provenance
+           comment (case32, the only sibling, is excluded from the suite and uses 8x with a
+           documented rationale vs case15's undocumented 2x). Resolution N=400 is unremarkable
+           (the suite's modal value, spec-doc-stated, shared lack-of-comment pattern with
+           13/14/04/05) -- the REFERENCE CONVENTION is the genuine outlier, not the resolution.
+           THRESHOLD PROVENANCE, verified: the spec doc's own text admits the 8.0 m/s / 0.04
+           thresholds were calibrated "so the then-current result passes with a little margin,"
+           not derived from literature. Verified live: 0.04 == 8.0/200 EXACTLY (one tolerance
+           written twice, not two independent numbers); H-T1 confirmed (config A/OFF's own
+           measured cj at N=400 = 6.044064, inside the predicted [5,8) band). No external anchor
+           exists to recalibrate against (smooth_ok used by no other case, no literature source
+           attributed, exact solution gives ~0 which would make it STRICTER not looser).
+           HEADLINE FINDING (Python script scripts/yadv_r32_exact.py, 4 self-tests all passing,
+           cross-validated against the solver's own measured output independently): case15-as-
+           specified has an EXACT star pressure of p* = 9.05e-14 Pa -- THIRTEEN ORDERS OF
+           MAGNITUDE below the solver's own 1.0 Pa pressure floor. There is NO grid-converged
+           solution of this problem inside the 4-eq frozen-composition model at ANY resolution;
+           refinement converges toward an unrepresentable state and hits the floor -- this
+           RESOLVES round 30's own explicitly-unresolved nfloor=2-at-N>=800 loose end (higher-N
+           case15 solves are LESS trustworthy as a reference, not more; the 2x self-convergence
+           pairing puts the two sides of the gate in qualitatively different floor-contamination
+           regimes). smooth_ok's FAIL is a TRUE POSITIVE: exact stagnation-point velocity is
+           u=0, config C's measured cj=30 is a genuine 15 m/s pointwise error at a point where
+           physics says zero -- the 8.0 tolerance is generous by ~400x relative to exactness.
+           EXPLAINS round 30's own unexplained sect.40.4 finding: the mixture is 99.994% water
+           by mass, so its isentrope IS an isotherm to within 0.05K over 11 decades of pressure
+           -- derived in closed form, not just observed.
+           CORRECTION C1 to round 30 sect.40.3 (verified by direct code read): s.a
+           (acid.cpp:318-325) IS the Wood (FROZEN) mixture sound speed; the doc-comment at
+           acid.cpp:299 describing a different Eqs.57-58 form is stale. Two downstream
+           corrections: the MWI clamp margin claim survives but its magnitude was overstated by
+           ~2-3 orders (af~2.85 m/s at the core, not O(1e2-1e3)); round 27's "Wood-speed
+           collapse, M~40" framing was closer to right than round 30 credited (round 30's
+           dismissal partly rested on the mis-citation). Round 30's core-jet MECHANISM finding
+           (pface cancellation) is UNAFFECTED -- it never depended on s.a's exact value. A new,
+           genuine physics finding surfaced while building the exact-solution self-tests: the
+           model's TRUE (alpha-relaxed, "equilibrium") sound speed is LOWER than the Wood/frozen
+           speed used for CFL (43.75 vs 51.76 m/s at the IC), satisfying the subcharacteristic
+           condition a_eq<=a_frozen exactly (Linga 2018, round 31's own citation) -- caught when
+           a naive equality self-test failed by 15% with a fully step-size-converged FD, correctly
+           diagnosed as physics rather than "fixed."
+           SEVEN-WAY ADJUDICATION of cases.cpp/validation.cpp interactions: ZERO are both
+           legitimate and permissible. Raising N and changing the reference multiplier are both
+           mechanically blocked by G1 (denner1d_dump stdout byte-identity vs solver_denner
+           includes the row count and *_ref columns) regardless of justification. Recalibrating
+           thresholds has no external anchor. A mesh-invariant smooth_ok restatement is genuinely
+           gate-blind but answers a hazard that hasn't occurred and adds a fitted constant --
+           deferred, recorded, not built. Documentation-only spec-doc corrections (validation/1D/
+           15_E_Cavitation.md: 3 mutually-contradictory CFL values across 3 docs resolved to the
+           code's actual 0.45; the nonexistent DENNER_CASE15_CFL flagged; the rho0 945.0715-vs-
+           949.3660 discrepancy recorded; the absent digitized-CSV path recorded; probable source
+           Yoo & Sung 2018 tentatively attributed) -- APPLIED this round, the one legitimate
+           deliverable. Excluding case15 from the suite (case32's own precedent, cases.cpp:599-
+           602) and replacing its reference with an exact double-rarefaction solution are both
+           PRINCIPLED but explicitly NOT decisions an autonomous round may make --
+           ESCALATED to the user, neither built.
+           consecutive_failures NOT incremented (round 26/30/31 precedent -- resolving a
+           definitive open question, including a prior round's own unresolved loose end, is
+           measured progress independent of pass_count). All hard gates held: git diff --stat --
+           cpp/ EMPTY, OFF 19/19 unchanged, ACID_YADV=1 15/19 fail-set {15,24,33,34} unchanged,
+           unit tests unchanged.
+           **case15's mesh/spec question is now ANSWERED, not open -- no principled correction
+           exists, re-litigating it without new information would violate this project's own
+           anti-rescue discipline.** NO AUTONOMOUS-LOOP THREAD CURRENTLY HAS AUTHORIZED,
+           UN-ESCALATED WORK REMAINING: case15 needs a user decision on exclusion vs exact-
+           reference (this round) or on the pface risk (round 30, still not chosen); 24/33/34
+           needs a user decision on the 4-8 round model-class rewrite (round 31, deferred).
+           Round 33 should not start without a fresh user decision on one of these three threads.
+           Grounded in YADV_RESEARCH.md sect.42, docs/YADV_ROUND_32_PLAN.md.
+```
+
+**Superseded control-state history (round 31's own, for provenance):**
+```
+round_counter: 31 (superseded, see above)
+next_task (superseded): Round 31, first round on the reopened Phase 3a thread (24/33/34 model-extension
            research, user-authorized this session). DIAGNOSTIC-ONLY per the plan's own binding
            anti-rescue clause -- zero C++ touched (git diff --stat -- cpp/ empty at merge).
            HEADLINE FINDING, which OVERTURNS round 26's own named remedy: round 26 attributed
@@ -1152,7 +1230,39 @@ not start a new round.
   `consecutive_failures` NOT incremented. **Escalated to the user, no model code written**: the
   decision is "commit to the 4-8 round rewrite, or accept `ACID_YADV` scoped to 15/19 with this
   now fully-documented exception."
-  → `YADV_RESEARCH.md` §41, `docs/YADV_ROUND_31_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §41, `docs/YADV_ROUND_31_PLAN.md`, commit `76ad15c`.
+- Round 32: case15's mesh/spec revisit (user-authorized, option (iii) chosen explicitly over
+  option (ii)'s `pface` risk). **DIAGNOSTIC-ONLY, zero C++ touched.** Suite-wide census: 18 of 19
+  registered cases use an exact/exact-analytic reference; **case15 is the sole exception**,
+  using an undocumented 2x self-convergence solve (the only sibling, case32, is excluded from
+  the suite and documents its own 8x). Resolution `N=400` itself is unremarkable — the reference
+  *convention* is the genuine outlier. Threshold provenance verified live: the spec doc's own
+  text admits the `8.0`/`0.04` thresholds were calibrated to pass with a little margin, not
+  derived from literature; `0.04 == 8.0/200` exactly (one tolerance written twice); config A's
+  own measured `cj=6.044` at N=400 confirms the "passes with margin" story directly. **Headline
+  finding**: solving case15-as-specified exactly (closed-form NASG mixture isentrope, 4
+  self-tests all passing, cross-validated against the solver's own measured output) gives a star
+  pressure `p* = 9.05e-14 Pa` — **13 orders of magnitude below the solver's 1.0 Pa floor**. No
+  grid-converged solution exists at any resolution; refinement approaches an unrepresentable
+  state and hits the floor — **resolving round 30's own unexplained `nfloor=2` loose end** and
+  explaining round 30's unexplained 0.02K-isotherm observation in closed form (the mixture is
+  99.994% water by mass, an effectively infinite thermal reservoir). `smooth_ok`'s FAIL is a
+  **true positive**: exact stagnation velocity is `u=0`, the measured `cj=30` is a genuine 15
+  m/s pointwise error. **Correction C1 to round 30 §40.3** (verified): `s.a` IS the Wood/frozen
+  speed, not the stale Eqs.57-58 comment — a genuine new physics finding surfaced while building
+  the self-tests (the model's true *equilibrium* sound speed is measurably lower than the frozen
+  one used for CFL, satisfying the subcharacteristic condition exactly). Seven-way adjudication
+  of every possible `cases.cpp`/`validation.cpp` interaction: **zero legitimate and permissible**
+  — raising N or the reference multiplier are mechanically blocked by G1 regardless of
+  justification; recalibrating thresholds has no external anchor. Documentation-only spec-doc
+  corrections applied (3 contradictory CFL values resolved, a nonexistent env var flagged, the
+  `rho0` discrepancy recorded). Excluding case15 from the suite and replacing its reference with
+  an exact solution are both principled but escalated to the user, neither built.
+  `consecutive_failures` NOT incremented. **Case15's mesh/spec question is now answered, not
+  open.** No autonomous-loop thread currently has authorized, un-escalated work — round 33 needs
+  a fresh user decision on one of three threads (case15 exclusion/exact-reference, case15's
+  `pface` risk, or Phase 3a's model-extension scope).
+  → `YADV_RESEARCH.md` §42, `docs/YADV_ROUND_32_PLAN.md`, commit TBD.
 
 ## Setup reference
 

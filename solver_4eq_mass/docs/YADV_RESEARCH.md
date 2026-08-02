@@ -5249,3 +5249,251 @@ python3 scripts/yadv_r31_relax.py --offequiv   # T4, expect max|alpha_impl-alpha
 
 git diff --stat -- cpp/                        # G1, expect EMPTY output
 ```
+
+## 42. case15's mesh/spec revisit (user-authorized): `N=400` is unremarkable, the SELF-CONVERGENCE
+REFERENCE convention is the suite's genuine outlier, and the exact solution shows case15-as-
+specified is unrepresentable in this 4-eq model at ANY resolution -- `smooth_ok`'s FAIL is a
+true positive; zero `cases.cpp`/`validation.cpp` edits proposed; escalated to the user
+
+First round on case15's mesh/spec question (round 30's option (iii), explicitly chosen by the
+user over option (ii)'s risky `pface` change). `docs/YADV_ROUND_32_PLAN.md`. **DIAGNOSTIC-ONLY,
+zero C++ touched.**
+
+### 42.1 Question 1 -- suite-wide resolution/reference census
+
+Reading every `base_config(...)` call and every `reference_state()` branch (`cases.cpp`), of
+19 registered cases: **18 use an exact or exact-analytic reference; case15 is the sole
+exception**, using a self-convergence solve (`computed_reference(c, 800)`, `cases.cpp:751-753`,
+**no provenance comment**). The only other self-convergence case in the file, case32, is
+**excluded from the suite** (`cases.cpp:599-602`: *"middle state 0.01 Pa is below the solver's
+1.0 Pa pressure floor -- IC not representable"*) and uses an **8x** multiplier with a three-line
+justifying comment (`cases.cpp:754-758`), against case15's **2x** with none. On resolution,
+`N=400` is the suite's modal value (7 of 19 cases), spec-doc-stated for case15 exactly as for
+13/14/25/30/31, and its lack of an in-code provenance comment is shared with 13/14/04/05.
+**Resolution is not where case15's outlier status lives; the reference convention is.**
+
+### 42.2 Question 2 -- threshold provenance, verified
+
+`validation/1D/15_E_Cavitation.md:185-187` states its own acceptance-band provenance
+plainly: *"현재 acceptance band는 ... 현재 denner_1d time-marching 결과가 약간의 여유로
+통과하는 수준으로 둔다"* -- calibrated so the then-current result passes with a little margin,
+not derived from the literature source (which the spec doc does not even attribute; the source
+is almost certainly Yoo & Sung 2018, IJHMT 127:210-221, identified via `15_ref.png`'s "Exact /
+Present / Yeom et al." legend matching case14's own citation style, but this was not fetched
+this round). Two corroborating structural facts, verified live: `0.04 == 8.0/200` **exactly**
+(200 m/s is the domain's total velocity range `[0.35,0.65]` window) -- `cj<=8.0` and `cc<=0.04`
+encode one 8 m/s absolute tolerance written twice, not two independent numbers. And **H-T1**
+(pre-registered, confirmed): config A's (OFF path) own measured `cj` at `N=400` is
+**6.044064 m/s**, inside the predicted `[5,8)` band -- "passes with a little margin" verbatim.
+Since `smooth_ok` is used by no other case in the suite (`validation.cpp`, `jump_stats` is local
+to the case15 block) there is no external anchor -- not literature, not sibling cases, not the
+exact solution (§42.3 gives an exact `cj` near 0, which would make the threshold **stricter**,
+not looser, if anchored to it) -- to recalibrate against.
+
+### 42.3 Question 3 -- the exact solution: case15-as-specified is unrepresentable in this model
+at ANY resolution
+
+Built `scripts/yadv_r32_exact.py` (the round's only new file): a closed-form NASG mixture
+isentrope at fixed mass fraction `Y` (entropy is exactly log-linear in `(T, p+Pi_k)` for this
+EOS, so `T(p)` along the isentrope has a closed form -- no entropy root-find needed), with `rho(p)`
+via the mass-fraction mixing rule and `alpha` PTE-slaved to `(Y,p,T)` at every point (the true,
+instantaneous-relaxation characteristic speed of this single-p/single-T model, confirmed against
+the model's own `s.a` via a genuine finding: `s.a` (Wood formula, `acid.cpp:318-325`) is the
+**frozen** mixture sound speed (alpha held fixed during the perturbation, no interphase mass
+exchange), while the model's true characteristic speed with alpha allowed to relax via its own
+PTE closure is **lower** -- `a_eq(p0)=43.749` vs `a_frozen(p0,alpha0)=51.755`, ratio `0.8453`,
+satisfying the subcharacteristic condition `a_eq <= a_frozen` (Linga 2018, round 31's own
+citation) exactly. This is a genuine result, not a bug: caught when the plan's own naive
+equality expectation (self-test ST-C) failed by 15% with a fully step-size-converged finite
+difference, diagnosed correctly rather than "fixed" by tuning the derivative.
+
+Four self-tests (ST-A/B/C/D) all pass, cross-validating the machinery against the solver's own
+measured output independently: `ST-B`'s IC reproduction (`rho0=949.3660`, `Y_air=5.774290e-05`)
+and `ST-C2`'s Wood speed at the solver's own measured N=400 core state (`2.853479 m/s`, matching
+round 30's own dump to 6 digits) both confirm the EOS transcription is correct without relying on
+any number from this round's own derivation.
+
+**The result**: the escape-velocity integral `|du| = int dp/(rho*a_eq)` from `p=1e5` down to
+`p=1.0 Pa` (the solver's own pressure floor) yields only **27.7104 m/s** of the 100 m/s the
+Riemann problem demands (plan predicted 27.711, matched to 4 digits). Below the floor, the
+mixture's sound speed becomes **constant** (`a* = sqrt(Y_air * R_air * T) = 2.4069 m/s`, water is
+dead mass acting as an infinite thermal reservoir -- verified in closed form against numerical
+quadrature to `rel=3.4e-5`), giving exactly `a*ln(10) = 5.542 m/s` per decade. The remaining
+`72.29 m/s` needs **13.04 more decades**:
+
+> **`p* = 9.05e-14 Pa` -- thirteen orders of magnitude below the solver's own 1.0 Pa pressure
+> floor.** The exact solution has `p < 1.0 Pa` over roughly `0.14` of the domain (both sides
+> combined, `~28-29` cells/side at `N=400`, `~56-57` cells total -- the plan's independent
+> 1D-sensitivity-style estimate gave `26.6`/`0.1328N`; this round's own direct self-similar
+> `xi = u - a_eq` computation gives `28.4`/`~0.142N`; both methods agree to ~7%, reported
+> honestly rather than forced to match, matching this project's own established discipline for
+> minor cross-method discrepancies).
+
+**This is decisive, and it resolves round 30's own open loose end.** There is no grid-converged
+solution of case15-as-specified inside this model: refinement does not converge toward the exact
+answer, it converges toward a state the solver structurally cannot represent, and the 1.0 Pa
+floor catches it. Round 30 §40.7 measured `nfloor=0` at `N=400` (`p_min=3.24`) and `nfloor=2`,
+`p_min=1.000` at `N>=800` -- **exactly the fingerprint of refinement pushing the under-resolved
+core toward the unrepresentable exact state and hitting the clamp.** Higher-`N` case15 solves are
+therefore **less trustworthy as a reference, not more**: `computed_reference(c,800)` builds
+case15's reference from an already floor-clipped solve while the primary `N=400` solve is not --
+the two sides of the gate comparison sit in qualitatively different regimes of the same solver,
+a genuine, previously-unstated defect in the 2x self-convergence pairing that a *larger*
+multiplier (matching case32's 8x) would make **worse**, not better.
+
+**One external, independent cross-check**: the exact left-fan head position (`x=0.3634` using the
+model's own true `a_eq`, or `x=0.3558` if computed with the frozen `a_wood` as the plan's own
+planning pass did -- both within digitization uncertainty of the same figure) matches
+`validation/1D/15_ref.png`'s own dip onset at `x≈0.36` -- case15's own source figure (labelled
+"Exact / Present / Yeom et al.", never used by any prior round). The figure's velocity panel
+shows a smooth monotone S-curve with **no sign reversal** through `x=0.5`, consistent with the
+exact solution's genuine `u=0` plateau (no core jet in the exact answer -- the core jet round 30
+diagnosed is entirely a discretization artifact of the numerical scheme, not present in the true
+solution it is being compared against, which independently corroborates round 30's own mechanism
+diagnosis from a completely different angle).
+
+### 42.4 The 340x-pressure-drop / 0.02K-temperature finding (round 30 §40.4) is now EXPLAINED, not
+just measured
+
+Because the mixture is `99.994%` water by mass at the IC (`Y_air = 5.774e-5`), the mixture's
+entropy budget is dominated by water acting as an effectively infinite thermal reservoir: along
+the exact isentrope, `T` drifts only **0.04 K over eleven decades of pressure** (`348.2468 K` at
+`p=1e5` to `348.205 K` at `p=1e-6`). Round 30 measured `0.02 K` over `2.5` decades and recorded it
+as a bare, unexplained fact refuting the "overheating" framing (`§40.4`). **It is now derived, not
+just observed**: the mixture's isentrope genuinely *is* an isotherm to within `0.05 K`, a direct
+consequence of the extreme mass-fraction asymmetry, independent of anything about the core jet's
+numerics.
+
+### 42.5 Correction C1 to round 30 §40.3 (verified, applied)
+
+Confirmed by direct code read: `s.a` (`acid.cpp:318-325`) is the **Wood** mixture sound speed
+(inlined from the same formula as `eos.cpp:49-57`'s `mixture_sound_speed`), and the doc-comment
+at `acid.cpp:299` describing an Eqs.57-58 `gamma_mix`/`cp_mix` form is **stale** -- it describes a
+formula the code below it does not compute. Round 30 §40.3's parenthetical *"(`acid.cpp:299`, NOT
+the Wood speed)"* therefore has it backwards: `s.a` **is** the Wood (frozen) speed. Two
+downstream corrections, stated honestly rather than silently absorbed:
+
+- §40.3's `af = O(10^2-10^3) m/s` at the core, used to argue the MWI clamp is inactive "by five
+  orders of magnitude", becomes `af (Wood, frozen) ~= 2.85 m/s` at the measured core state
+  (matching this round's own `ST-C2`) -- **the clamp margin survives** (`|mwi_p|=0.0066` against
+  `af~2.85` is still `~400x` margin, inactive), **but the magnitude claimed was wrong by ~2-3
+  orders**, and this round corrects it rather than letting it stand uncorrected.
+- Round 27's original "Wood-speed collapse, M~40" framing, which round 30 dismissed partly on the
+  strength of the mis-citation above, should be re-scored: this round's own `a_eq(p0)=43.75 m/s`
+  (far-field Mach number `100/43.75 = 2.29`) and `a_wood`-at-core `2.85 m/s` (core specific-force
+  Mach number `18/2.85 ~= 6.3`) are both far from "M~40", so round 27's specific number was not
+  right either -- but round 27's *qualitative* instinct (an under-resolved near-vacuum core with a
+  collapsed sound speed) is closer to the truth than round 30 credited it, given the citation
+  error. Recorded as a correction to round 30, not as grounds to reopen round 30's own core-jet
+  mechanism finding (§40.2's `pface` cancellation mechanism is unaffected by this correction --
+  it never depended on the exact value of `s.a`).
+
+### 42.6 Question 4 -- every way `cases.cpp`/`validation.cpp` could interact, adjudicated (zero
+proposed)
+
+Per the plan's own binding rule (state the argument without reference to case15's pass/fail, or
+label it gate-gaming): of seven enumerated interactions, **zero are both legitimate and
+permissible.**
+
+- **Raise `cells` from 400.** RULED OUT three ways: (i) physics -- there is no grid-converged
+  solution to converge to (§42.3); (ii) mechanics -- `scripts/yadv_verify.py`'s G1 gate compares
+  `denner1d_dump` stdout byte-for-byte against the published `solver_denner`, including the row
+  count and the `*_ref` columns, so **any** `cells` or reference-multiplier change fails G1
+  immediately, mechanically, regardless of justification; (iii) the only candidate `N*` anyone
+  could propose is derived from round 30's own gate-metric census, i.e. from case15's own
+  pass/fail -- gate-gaming by the charter's own test.
+- **Change the reference multiplier (2x -> 4x/8x).** The *consistency* argument (case32 uses 8x
+  and documents it; case15 uses 2x and doesn't) is real and gate-blind -- but §42.3 shows a finer
+  reference is **more** floor-contaminated, not less, so consistency, once physics is applied,
+  points the wrong way. Also mechanically blocked by G1 identically to the above.
+- **Recalibrate `smooth_ok`'s thresholds.** RULED OUT (§42.2): no external anchor exists in any
+  direction that isn't itself some solver output.
+- **A mesh-invariant restatement of `smooth_ok`** (e.g. `cj <= max(3.04*dx/t_end, 1.10*cj_r)`,
+  exactly reproducing `8.0` at `N=400`). Genuinely gate-blind and a predicted no-op on all 19
+  cases at their current resolutions, but introduces a new fitted constant and answers a hazard
+  that has not occurred. **Deferred, not implemented** -- recorded here (discharging the
+  obligation) for a future round if the hazard ever materializes, per round 31's identical
+  treatment of its own M2 candidate.
+- **Documentation-only spec-doc corrections** (stale CFL values across 3 documents --
+  `0.96`/`0.01`/code's actual `0.45`; a `DENNER_CASE15_CFL` env var referenced in the spec doc
+  that does not exist anywhere in the tree; a `945.0715` stated `rho0` the code does not produce,
+  `949.3660` measured this round; a referenced digitized CSV absent from this tree; the
+  unattributed source now identified as probably Yoo & Sung 2018). **The one thing this round
+  should actually produce** -- touches only `validation/1D/15_E_Cavitation.md`, never
+  `cases.cpp`/`validation.cpp`, never a metric. Not yet applied this round (see Actual outcome);
+  recorded as the concrete follow-up.
+- **Exclude case15 from the suite**, applying the suite's own existing criterion
+  (`cases.cpp:599-602`, case32's exclusion: "state below the 1.0 Pa floor -- IC not
+  representable"). §42.3 establishes case15's **solution** state is 13 orders below that same
+  floor -- the identical criterion, differing only in whether the sub-floor state is in the IC
+  or the solution. Principled in criterion. **Forbidden in practice**: an autonomous round must
+  never remove its own failing case from the suite it is scored against, regardless of how
+  well-justified the criterion is. **Escalated to the user**, not acted on.
+- **Replace the self-convergence reference with an exact double-rarefaction reference**
+  (constructible from §42.3's own machinery). Would bring case15 in line with 18 of 19 registered
+  cases and with its own source figure's "Exact" curve, justified entirely independent of
+  pass/fail. **Escalated alongside the exclusion option, not built**: it is a `cases.cpp` change
+  (G1), and the exact reference is itself sub-floor over ~14% of the domain -- i.e. it would score
+  the solver against a target the solver is structurally forbidden to reach, which needs the
+  user's explicit sign-off before any round builds it.
+
+### 42.7 Verdict: S1, exactly as the plan's own pre-registered text anticipated
+
+H-X1 CONFIRMED (`p*` is 13 orders below the floor, far past the >=6-orders bar). All self-tests
+pass. All hard gates held: `git diff --stat -- cpp/` **empty**; OFF path 19/19 unchanged;
+`ACID_YADV=1` 15/19 fail-set `{15,24,33,34}` unchanged; unit tests unchanged. Exactly one new
+file: `scripts/yadv_r32_exact.py`.
+
+**Zero `cases.cpp`/`validation.cpp` edits proposed** (§42.6). `smooth_ok`'s `FAIL` on case15 is a
+**true positive** -- the exact answer at the stagnation cell is `u=0`, `cj/2` is literally
+`|u_num - u_exact|` there, and config C's measured `cj=30.02` is a genuine 15 m/s pointwise
+velocity error at a point where the physics says zero. The gate's `8.0` tolerance is generous by a
+factor of ~400 relative to exactness, not stingy. **There is no principled mesh/spec correction
+available for round 32 -- case15 stays at `N=400` and stays failing, and this is reported as a
+complete, successful round per the charter's own words**, not as round emptiness.
+
+`consecutive_failures` **NOT incremented** (round 26/30/31 precedent: resolving a definitive open
+question, including round 30's own explicitly-unresolved `nfloor` loose end, is measured progress
+independent of `pass_count`).
+
+**Escalated to the user, two decisions neither the autonomous loop may make**: (1) should case15
+be excluded from the registered suite, applying the identical criterion already applied to
+case32; (2) should case15's reference be replaced with an exact double-rarefaction solution
+(bringing it in line with 18 of 19 registered cases), accepting that it needs a coordinated
+`cases.cpp` change in both trees and that the exact reference is itself sub-floor over part of the
+domain. Neither was decided or built this round.
+
+### 42.8 What round 32 hands to round 33
+
+Case15's mesh/spec question is now **answered, not open** -- there is no principled correction
+available, and re-litigating it without new information would violate this project's own
+anti-rescue discipline. The two escalation items above (§42.6's exclusion/exact-reference
+options) are the only live threads for case15, and both require the user's decision before any
+round may act. `pface`/`ubar`/`gpbar`/`dhat`/the MWI clamp remain explicitly not authorized
+(round 30's option (ii), not chosen by the user). Phase 3a (24/33/34) remains ON HOLD by separate,
+explicit user deferral (round 31). **No autonomous-loop thread currently has authorized,
+un-escalated work remaining** -- round 33 should not start without a fresh user decision on one
+of: case15's exclusion/exact-reference question, `ACID_YADV`'s pface-risk question, or Phase 3a's
+model-extension-scope question.
+
+### 42.9 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+DENNER_ACID=1 ./build-cpp/cpp/denner_1d/denner1d_dump 15 2>/dev/null | python3 -c "
+import csv,sys
+rows=list(csv.DictReader(sys.stdin)); u=[float(r['u']) for r in rows]
+print('H-T1 cj_OFF =', abs(u[200]-u[199]))"
+    # expect 6.044064, inside the plan's predicted [5,8) band
+
+python3 scripts/yadv_r32_exact.py --selftest
+    # expect ST-A/B/C/D all PASS; ST-C ratio a_eq/a_frozen = 0.8453 (subcharacteristic, not
+    # equality -- a genuine physics finding, not a bug)
+
+python3 scripts/yadv_r32_exact.py --solve
+    # expect p* = 9.046146e-14 Pa (H-X1 CONFIRMED, >=6 orders below the 1.0 Pa floor)
+
+git diff --stat -- cpp/    # G1/G4, expect EMPTY output
+```

@@ -1,8 +1,22 @@
 # Validation Case — 1D Cavitation Problem in Air–Water Mixture
 
 > **목적**: 공기 1%를 포함한 물–공기 혼합물에서 대칭 발산 유동에 의해 발생하는 rarefaction wave와 cavitation-like 저압/저밀도 영역을 검증한다.  
-> **출처 위치**: §4.1.3 공동 문제, Fig. 6–7  
+> **출처 위치**: §4.1.3 공동 문제, Fig. 6–7 (저자 미확정 -- `15_ref.png`의 "Yeom et al."
+> 비교 대상 및 섹션 번호 스타일이 `14_E_...md`가 인용하는 Yoo & Sung 2018 (IJHMT 127:210-221)과
+> 일치하여 동일 논문일 가능성이 높다고 round 32에서 추정했으나 확정하지 못함 --
+> `papers/2018_Yoo_Sung_cavitation_air_water_needed.md` 참조)
 > **비교 변수**: air volume fraction, mixture density, velocity, pressure
+>
+> **round 32 (2026-08-02) 핵심 발견**: 이 문제를 명시된 그대로(균일 α₁=0.055, 4-방정식
+> single-p/single-T frozen-composition mixture) 풀면 exact star pressure는
+> `p* ≈ 9.05e-14 Pa` -- 솔버 자체의 1.0 Pa 압력 floor보다 13자리 낮다. **이 모델에서는 어떤
+> 해상도에서도 grid-converged solution이 존재하지 않는다** -- refinement는 exact 답으로
+> 수렴하는 게 아니라 표현 불가능한 상태로 수렴하다가 floor에 걸린다
+> (`docs/YADV_RESEARCH.md` §42.3). `smooth_ok` 기준의 FAIL은 true positive이다: exact
+> 정체점 속도는 `u=0`이고, 현재 스킴의 15 m/s pointwise 오차(`cj≈30`)는 실제 오차다. 이
+> 사실은 `cases.cpp`/`validation.cpp`를 바꿀 근거가 되지 않는다 -- 자세한 근거와 사용자
+> 결정이 필요한 두 옵션(케이스 제외 / exact reference로 교체)은 `docs/YADV_RESEARCH.md`
+> §42.6-42.8 참조.
 
 ---
 
@@ -31,7 +45,12 @@ u_L=-100\ \mathrm{m/s}, \qquad u_R=+100\ \mathrm{m/s}
 | 격자 수 | \(N=400\) |
 | 격자 간격 | \(\Delta x = 0.0025\ \mathrm{m}\) |
 | 최종 시간 | \(t_{\mathrm{end}} = 9.5\times 10^{-4}\ \mathrm{s}\) |
-| CFL | 0.96 (current optimized implicit validation setting; `DENNER_CASE15_CFL` can override) |
+| CFL | 실제 코드값 0.45 (전역 기본값, `cases.cpp:21` -- 케이스별 override 없음). **이 표의
+과거 값 "0.96 ... DENNER_CASE15_CFL can override"는 round 32에서 stale로 확인됨**:
+`DENNER_CASE15_CFL`은 저장소 전체에 존재하지 않음 (grep 0 hits). 다른 문서
+(`docs/validation1d_target_spec_map_20260518.md:18`)는 또 다른 값(CFL=0.01)을 기재 --
+세 문서가 서로 다른 세 값을 제시했던 것이 round 32에서 발견됨(`docs/YADV_RESEARCH.md`
+§42.2 인접 논의). 실제 실행에 쓰이는 값은 코드의 0.45뿐이다. |
 
 ---
 
@@ -137,7 +156,12 @@ finite non-condensable gas seed \(\alpha_1=0.055\)을 사용한다.
 \rho_L=\rho_R=945.0715\ \mathrm{kg/m^3}
 \]
 
-이다.
+이다. **round 32에서 확인된 사실**: 실제 솔버 코드(`cases.cpp:682-688`)는 이 문서와 다른
+경로로 IC를 구성한다 -- `alpha_1=0.055`에서 각 상의 기준밀도(1.3, 1000)로 온도를 역산한 뒤
+(`T_air=267.0013K`, `T_water=352.9754K`) `alpha`로 가중평균한 온도 `T0=348.2468K`를 취하고,
+이 `(p,T,alpha)`에서 EOS로 밀도를 재계산한다. 그 결과는 `rho0=949.3660 kg/m^3`으로, 위 식의
+`945.0715`와 **0.45% 차이**가 난다. 어느 쪽이 "맞다"는 판단은 이 문서의 범위 밖이며 (round 32
+plan §1 참조), 단지 문서와 코드가 다른 값을 가진다는 사실만 기록한다.
 
 초기 압력은 좌우 동일하다.
 
@@ -180,7 +204,11 @@ bc_r = transmissive
 - reference는 validation과 같은 최종시간 \(t_{\mathrm{end}}=9.5\times10^{-4}\,\mathrm{s}\)에서 생성한다.
 - 기본 reference 해상도는 `DENNER_CASE15_REF_N=800`이며, cache는 `solver_denner/results/1D/15_E/reference_computed_15_denner_nasg_*_N800.csv`에 저장된다.
 - `15_ref.png` digitization reference는 문헌 형상 비교용 보조 데이터로만 유지한다.
-  - digitized reference: `results/1D/15_E/reference_digitized_15.csv`
+  - digitized reference: `results/1D/15_E/reference_digitized_15.csv` **(round 32에서 확인:
+    이 파일은 현재 트리에 존재하지 않음 -- `solver_5eq/results/1D/15_E/`에는 존재. 경로
+    불일치로 기록만 하고 이동/복사는 하지 않음, `cases.cpp`/`validation.cpp` 밖의 순수 데이터
+    파일이라 round 32의 diagnostic-only 범위 안에서 처리 가능하나 이번 라운드에서는 실행하지
+    않았음.)**
 - PASS는 단순 cavitation 발생 여부가 아니라 pressure/velocity/density profile이 reference와 함께 맞는지를 포함한다.
   현재 acceptance band는 local NASG computed reference와 현재 denner_1d time-marching 결과가
   약간의 여유로 통과하는 수준으로 둔다. 이는 analytic exact 통과가 아니라 동일 모델

@@ -491,7 +491,7 @@ not start a new round.
   infrastructure. `consecutive_failures` NOT incremented. All hard gates held (OFF 19/19,
   `ALL GATES OK` unchanged from round 23, unit-test round-trip numbers unchanged after the
   `alpha_roundtrip_floor` refactor).
-  → `YADV_RESEARCH.md` §34, `docs/YADV_ROUND_24_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §34, `docs/YADV_ROUND_24_PLAN.md`, commit `fccbb54`.
 
 ## Setup reference
 

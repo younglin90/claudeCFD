@@ -1,10 +1,15 @@
 # Validation Case — 1D Cavitation Problem in Air–Water Mixture
 
 > **목적**: 공기 1%를 포함한 물–공기 혼합물에서 대칭 발산 유동에 의해 발생하는 rarefaction wave와 cavitation-like 저압/저밀도 영역을 검증한다.  
-> **출처 위치**: §4.1.3 공동 문제, Fig. 6–7 (저자 미확정 -- `15_ref.png`의 "Yeom et al."
-> 비교 대상 및 섹션 번호 스타일이 `14_E_...md`가 인용하는 Yoo & Sung 2018 (IJHMT 127:210-221)과
-> 일치하여 동일 논문일 가능성이 높다고 round 32에서 추정했으나 확정하지 못함 --
-> `papers/2018_Yoo_Sung_cavitation_air_water_needed.md` 참조)
+> **출처 위치**: §4.1.3 공동 문제, Fig. 6–7. **저자/서지 확정(round 33, CrossRef DOI 직접
+> 조회로 재확인)**: Young-Lin Yoo, Hong-Gye Sung, "Numerical investigation of an interaction
+> between shock waves and bubble in a compressible multiphase flow using a diffuse interface
+> method", International Journal of Heat and Mass Transfer 127 (2018) 210-221,
+> DOI 10.1016/j.ijheatmasstransfer.2018.08.012. (섹션 번호 "§4.1.3" 문자열 자체는 전문이
+> closed-access라 미확인 상태 -- `papers/2018_Yoo_Sung_cavitation_air_water_needed.md` 참조.
+> 이 벤치마크의 원출처는 Saurel/Petitpas/Berry 2009 JCP 228(5):1678-1712 §4.5이며, 그 전문은
+> 저장소 루트 `papers/md/33_saurel_relaxation_multiphase.md`에 있음 -- round 33에서 확인,
+> alpha_air=1e-2, t=1.85ms, 1000 cells로 코드값과 다름, 기록만 함.)
 > **비교 변수**: air volume fraction, mixture density, velocity, pressure
 >
 > **round 32 (2026-08-02) 핵심 발견**: 이 문제를 명시된 그대로(균일 α₁=0.055, 4-방정식
@@ -204,11 +209,17 @@ bc_r = transmissive
 - reference는 validation과 같은 최종시간 \(t_{\mathrm{end}}=9.5\times10^{-4}\,\mathrm{s}\)에서 생성한다.
 - 기본 reference 해상도는 `DENNER_CASE15_REF_N=800`이며, cache는 `solver_denner/results/1D/15_E/reference_computed_15_denner_nasg_*_N800.csv`에 저장된다.
 - `15_ref.png` digitization reference는 문헌 형상 비교용 보조 데이터로만 유지한다.
-  - digitized reference: `results/1D/15_E/reference_digitized_15.csv` **(round 32에서 확인:
-    이 파일은 현재 트리에 존재하지 않음 -- `solver_5eq/results/1D/15_E/`에는 존재. 경로
-    불일치로 기록만 하고 이동/복사는 하지 않음, `cases.cpp`/`validation.cpp` 밖의 순수 데이터
-    파일이라 round 32의 diagnostic-only 범위 안에서 처리 가능하나 이번 라운드에서는 실행하지
-    않았음.)**
+  - digitized reference: `results/1D/15_E/reference_digitized_15.csv` **(round 33에서 복사
+    완료.** 출처: `solver_5eq/results/1D/15_E/reference_digitized_15.csv`, sha256
+    `5bb1e0224a2943af338674fa2abc244b7935c01d7b610b378264df956c2ccb94`, byte-identical 복사
+    확인. `15_ref.png`(Yoo & Sung 2018, IJHMT 127:210-221, Fig. 7)를 손으로 digitize한
+    100점 균일 격자(x=0.005...0.995, dx=0.01) 데이터. **보조 데이터이며 어떤 gate도 이 파일을
+    읽지 않는다 -- case15의 실제 reference가 아니며, 이를 case15의 reference로 교체하는 것은
+    별도의 사용자 결정이 필요한 사안이다(`docs/YADV_RESEARCH.md` §42.6-42.8 참조, 아직 결정
+    안 됨).** 두 가지 한계: (1) 선형 축 digitization이라 core 저압 영역(`p_min≈2000 Pa`,
+    round 32의 exact 답 `p*=9.05e-14 Pa`와 13자리 차이)을 해상하지 못함 -- outer structure
+    비교(팬 위치, far-field 상태)에만 유효; (2) air fraction이 0에 가까운 축 스케일이라
+    1%(문헌) vs 5.5%(코드) 논쟁을 해결하지 못함.)**
 - PASS는 단순 cavitation 발생 여부가 아니라 pressure/velocity/density profile이 reference와 함께 맞는지를 포함한다.
   현재 acceptance band는 local NASG computed reference와 현재 denner_1d time-marching 결과가
   약간의 여유로 통과하는 수준으로 둔다. 이는 analytic exact 통과가 아니라 동일 모델

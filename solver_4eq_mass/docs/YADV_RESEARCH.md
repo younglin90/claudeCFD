@@ -5497,3 +5497,149 @@ python3 scripts/yadv_r32_exact.py --solve
 
 git diff --stat -- cpp/    # G1/G4, expect EMPTY output
 ```
+
+## 43. Literature/data housekeeping (four deferred round 31/32 loose ends) -- two of them correct
+standing errors in the research record; zero blocked-thread contact; DIAGNOSTIC-ONLY
+
+Round 33. `docs/YADV_ROUND_33_PLAN.md`. This round has no substantive target of its own — it picks
+up four items rounds 31/32 explicitly deferred (not because they were blocked on a decision, but
+because they weren't load-bearing for those rounds' own conclusions). It touches none of the three
+currently-blocked threads (case15 exclusion-vs-exact-reference, case15's `pface`-scheme risk,
+Phase 3a's model-extension scope).
+
+### 43.1 Correction: `papers/md/33_saurel_relaxation_multiphase.md` was never missing
+
+Round 31's C1 finding and round 32's confirmation of it were both a **path-resolution artifact,
+not an actual absence**. `solver_4eq_mass/papers` is a symlink to `../solver_denner/papers` — a
+different, smaller library. Both prior rounds ran `ls papers/md/` from inside `solver_4eq_mass/`
+and concluded the file was gone. It is present, git-tracked, and unmodified at the **repository
+root**'s `papers/md/33_saurel_relaxation_multiphase.md` (97,409 bytes, 2,429 lines) — exactly
+where the `cfd-paper-search` skill's own documented output convention places it, and exactly where
+rounds 28-30 originally cited it. Every specific line-number citation those rounds made was
+re-verified directly against the file and matched exactly: §3.3 "Relaxation step" at line 1088;
+the volume-fraction-positivity mentions at lines 139/292/342; the §4.5 cavitation-test quote *"As
+gas is present, the pressure cannot become negative..."* at lines 1341-1342.
+
+**Round 30 §8's "the source runs this test at 1000 cells" claim is now VERIFIED, not
+"unverified" as round 32 recorded it.** §4.5 (line 1336) states verbatim: 1 m tube, liquid water
+at `rho=1000`, `alpha_air = 1e-2`, velocity discontinuity at `x=0.5` with `u=-100/+100`, solution
+shown "at time t = 1.85 ms, using 1000 uniform mesh cells." Round 32's guess that round 30's claim
+"plausibly referenced a different paper entirely" is resolved differently than guessed: Saurel
+2009 §4.5 is the benchmark's origin; Yoo & Sung 2018 §4.1 (§43.2) reproduces it; `15_ref.png` is
+Yoo & Sung's own figure, not Saurel's.
+
+**New spec finding**: Saurel's own IC uses `alpha_air = 1%` and `t_end = 1.85 ms`; case15's code
+uses `alpha=0.055` (5.5%) and `t_end=9.5e-4 s` (about half). Recorded, not acted on — a
+`cases.cpp` edit here is exactly the blocked case15 mesh/spec territory and is separately
+mechanically blocked by G1.
+
+**Also recorded, future-thread context only**: Saurel §4.5's own text states *"Excellent
+agreement with the exact solution of the 5-equation model is obtained"* — directly relevant to
+both case15's exact-reference escalation option (round 32 §42.6) and Phase 3a's model-extension
+scope (round 31). This licenses no action this round.
+
+### 43.2 The Yoo & Sung 2018 attribution is now confirmed, not tentative
+
+CrossRef DOI lookup (independently re-run in the implementing session, not just trusted from
+planning): **Young-Lin Yoo, Hong-Gye Sung**, *"Numerical investigation of an interaction between
+shock waves and bubble in a compressible multiphase flow using a diffuse interface method"*,
+**International Journal of Heat and Mass Transfer 127 (December 2018) 210-221**, DOI
+`10.1016/j.ijheatmasstransfer.2018.08.012`. Title, authors, volume, page range, and publication
+date all confirmed directly. Three independent corroborations that case15 traces to this paper's
+§4.1: (i) its abstract compares against "Yeom et al.", matching `15_ref.png`'s legend; (ii) its
+§4.1 uses a 1 m/100-cell water-air shock tube matching case14's own already-cited IC; (iii) the
+digitized reference (§43.3) sits on exactly 100 uniform points, matching the source's own
+convention independently of (ii). Not confirmed (full text is closed-access, Unpaywall
+`oa_status: "closed"`, ScienceDirect returned HTTP 403 on fetch, no Sci-Hub fallback attempted —
+a licensing decision outside this loop's authority): the literal "§4.1.3" section string, the
+cavitation subcase's exact ICs, whether the "Exact" curve is a homogeneous-mixture Riemann
+solution.
+
+`papers/2018_Yoo_Sung_cavitation_air_water_needed.md` rewritten with the confirmed metadata;
+`validation/1D/15_E_Cavitation.md`'s "저자 미확정" hedge updated to the confirmed citation.
+
+### 43.3 `results/1D/15_E/reference_digitized_15.csv` copied into `solver_4eq_mass`, with mandatory
+provenance and limitation notes
+
+The file was present in the sibling `solver_5eq/results/1D/15_E/` (gitignored there) but absent
+from `solver_4eq_mass/results/1D/15_E/` (not gitignored there) in both the worktree and the main
+checkout — round 32's ST-E cross-check had been silently depending on an untracked file in a
+different solver tree, a dependency that vanishes in any fresh worktree (as it did in round 32's
+own). Five independent checks confirmed it is genuinely the right data for case15: far-field
+state match, exact `x=0.5` symmetry, timing bracket consistent with case15's own `t_end`, visual
+match against `15_ref.png`'s panel shapes, and the 100-cell grid matching the source paper's own
+convention (§43.2).
+
+Copied with `sha256` verification before and after
+(`5bb1e0224a2943af338674fa2abc244b7935c01d7b610b378264df956c2ccb94`, byte-identical). No code path
+reads this file (grep across all three solver trees: zero hits outside three `.md` references);
+it cannot appear in `git diff --stat -- cpp/`; it cannot alter any gate. `validation/1D/
+15_E_Cavitation.md` updated with the provenance, and with two explicit limitations so no future
+round over-reads it: (1) it is a linear-axis digitization and cannot resolve the core
+(`p_min≈2000 Pa` on the digitized curve vs round 32's exact `p*=9.05e-14 Pa` — thirteen orders
+apart; the CSV is informative about outer wave structure only, exactly the use round 32 made of
+it); (2) it cannot settle the 1%-vs-5.5% air question (both digitize to ~0 on a 0-1.2 axis). The
+note states explicitly that this is auxiliary, non-gating data and NOT a step toward replacing
+case15's reference (that remains a blocked-thread decision, round 32 §42.6-42.8, not made).
+
+### 43.4 The mesh-invariant `smooth_ok` restatement is confirmed a strict no-op at current
+resolutions (round 32's own deferred candidate, checked offline, not implemented)
+
+Built `scripts/yadv_r33_smooth.py` (the round's only new script). Four legs, all confirmed:
+
+- **Leg A** (static, no run): `smooth_ok`/`jump_stats` are declared entirely inside
+  `validation.cpp`'s `case_id=="15"` block (lines 684-729; `smooth_ok` occurs only at lines
+  711/729, `jump_stats` only at 695/709/710). **The other 18 registered cases provably never
+  evaluate the restated expression** — a static property of the code, not something any run could
+  change.
+- **Leg B** (arithmetic): at case15's registered config (`N=400`, `t_end=9.5e-4`, the solver's own
+  `dx=(x1-x0)/n` definition), `3.04*dx/t_end == 8.0` **bit-for-bit**. Using a cell-centre-
+  difference `dx` instead (`x[1]-x[0]` from a dump) gives `7.999999999999999` — a 1-ulp difference,
+  reported honestly rather than glossed as exact.
+- **Leg C** (empirical margin, both gate-participating configs measured fresh): case15's own `cj`
+  is `6.044064` under OFF and `2.306467` under `ACID_YADV=1` (plain, ungated-implicit config B —
+  the actual configuration the loop's own 15/19 headline figure reports, not config C's `cj≈30`
+  core-jet value from rounds 27-32, which is a different, `ACID_YADV_ALPHA_IMPLICIT=1`-gated
+  configuration this check correctly did not need to touch). Both margins from `8.0` are several
+  m/s — **many orders past the 1-ulp Leg-B' wobble**, so the verdict is robust regardless of which
+  `dx` definition a future implementation might use.
+- **Leg D** (ground truth): reconfirmed the current baseline 19-case vectors fresh
+  (`OFF: 19/19, fail=[]`; `ACID_YADV=1: 15/19, fail=['15','24','33','34']`), matching every prior
+  round's own recorded figures exactly.
+
+**NO-OP: CONFIRMED**, at current registered resolutions. This says nothing about, and structurally
+cannot be tested against, other resolutions (that would need a `cases.cpp` edit, forbidden and
+G1-blocked) — exactly why round 32 declined to implement the restatement, and this round's
+confirmation changes nothing about that judgment. **The restatement remains NOT implemented.**
+
+### 43.5 Verdict: S1, all four items resolved
+
+All hard gates held: `git diff --stat -- cpp/` empty; no `cases.cpp`/`validation.cpp` edit; OFF
+19/19 unchanged; `ACID_YADV=1` 15/19 fail-set `{15,24,33,34}` unchanged (reconfirmed fresh, §43.4
+Leg D); unit tests unchanged; byte-identical vs published `solver_denner`. Two new tracked files
+(`scripts/yadv_r33_smooth.py`, `results/1D/15_E/reference_digitized_15.csv`); docs/bibliography-
+only edits elsewhere. `consecutive_failures` **NOT incremented** (correcting two standing errors
+in the research record — the false "missing paper" claim and an unverified-vs-verified citation —
+is measured progress independent of `pass_count`, matching this project's own precedent).
+
+This round produces no `pass_count` change and was not attempting one. **Round 34's entry
+condition is now strictly true rather than "true modulo four loose ends"**: no autonomous-loop
+thread has authorized, un-escalated work remaining. Round 34 needs a fresh user decision on one of
+the three still-open threads: case15's exclusion-vs-exact-reference question (round 32), case15's
+`pface`-scheme risk question (round 30), or Phase 3a's model-extension-scope question (round 31).
+
+### 43.6 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+git ls-files ../papers/md/33_saurel_relaxation_multiphase.md && wc -l ../papers/md/33_saurel_relaxation_multiphase.md
+    # expect: tracked, 2429 lines
+
+sha256sum results/1D/15_E/reference_digitized_15.csv
+    # expect 5bb1e0224a2943af338674fa2abc244b7935c01d7b610b378264df956c2ccb94
+
+python3 scripts/yadv_r33_smooth.py
+    # expect Leg B "exactly == 8.0? True", VERDICT "NO-OP: CONFIRMED"
+```

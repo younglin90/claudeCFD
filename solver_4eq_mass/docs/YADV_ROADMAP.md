@@ -160,10 +160,56 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 32
+round_counter: 33
 consecutive_failures: 0
 done: false
-next_task: Round 32, case15's mesh/spec revisit (user-authorized this session, option (iii) from
+next_task: Round 33, literature/data housekeeping -- four items rounds 31/32 explicitly deferred
+           (not blocked on a decision, just not load-bearing for those rounds' own conclusions).
+           Touches NONE of the three currently-blocked threads. DIAGNOSTIC-ONLY, zero cases.cpp/
+           validation.cpp edit.
+           CORRECTION: papers/md/33_saurel_relaxation_multiphase.md was NEVER missing -- rounds
+           31/32 both ran `ls papers/md/` from inside solver_4eq_mass/, where `papers` is a
+           SYMLINK to ../solver_denner/papers (a different, smaller library). The real file is
+           present, git-tracked, unmodified, at the repository root's papers/md/33_saurel_...md
+           (2429 lines) -- exactly where cfd-paper-search's own convention places it. Every prior
+           line-number citation (rounds 28-30) re-verified exactly. Round 30's "source runs at
+           1000 cells" claim is now VERIFIED (Saurel 2009 sect.4.5, line 1336: alpha_air=1e-2,
+           t=1.85ms, 1000 uniform cells -- differs from case15's code alpha=0.055/t_end=9.5e-4s,
+           recorded not acted on, G1-blocked).
+           The Yoo & Sung 2018 attribution (round 32's tentative guess) is now CONFIRMED via
+           independent CrossRef DOI lookup: Young-Lin Yoo, Hong-Gye Sung, IJHMT 127 (2018)
+           210-221, DOI 10.1016/j.ijheatmasstransfer.2018.08.012 -- title/authors/volume/pages/
+           date all match exactly. Three independent corroborations case15 traces to this
+           paper's sect.4.1. Full text remains closed-access (Unpaywall confirmed, ScienceDirect
+           403); section-number/exact-IC details remain unconfirmed.
+           results/1D/15_E/reference_digitized_15.csv copied from the sibling solver_5eq tree
+           (sha256-verified byte-identical) into solver_4eq_mass/results/1D/15_E/ -- round 32's
+           ST-E cross-check had silently depended on an untracked file in a different solver
+           tree. Five independent checks confirmed it's the right data; provenance and two
+           honest limitations (cannot resolve the core, cannot settle 1%-vs-5.5% air) recorded
+           in the spec doc alongside an explicit statement this is auxiliary/non-gating, NOT a
+           step toward the blocked exact-reference decision.
+           Round 32's deferred mesh-invariant smooth_ok restatement (cj<=max(3.04*dx/t_end,
+           1.10*cj_r)) offline-confirmed as a STRICT NO-OP at current registered resolutions
+           (scripts/yadv_r33_smooth.py, 4 legs: static code-path confinement for 18/19 cases,
+           bit-exact arithmetic at case15's own dx, large empirical margins in both
+           gate-participating configs, ground-truth 19-case vector reconfirmation). Says nothing
+           about other resolutions by construction (untestable without a forbidden cases.cpp
+           edit) -- exactly why round 32 declined it; restatement remains NOT implemented.
+           consecutive_failures NOT incremented (correcting two standing research-record errors
+           is measured progress independent of pass_count). All hard gates held: git diff --stat
+           -- cpp/ EMPTY, OFF 19/19, ACID_YADV=1 15/19 fail-set unchanged (reconfirmed fresh).
+           **Round 34's entry condition is now STRICTLY true (no housekeeping backlog left) --
+           round 34 needs a fresh user decision on one of the three still-open threads: case15
+           exclusion-vs-exact-reference (round 32), case15's pface-scheme risk (round 30), or
+           Phase 3a's model-extension scope (round 31).**
+           Grounded in YADV_RESEARCH.md sect.43, docs/YADV_ROUND_33_PLAN.md.
+```
+
+**Superseded control-state history (round 32's own, for provenance):**
+```
+round_counter: 32 (superseded, see above)
+next_task (superseded): Round 32, case15's mesh/spec revisit (user-authorized this session, option (iii) from
            round 30's hand-off, chosen explicitly over option (ii)'s pface risk). DIAGNOSTIC-
            ONLY, zero C++ touched (git diff --stat -- cpp/ empty).
            SUITE-WIDE CENSUS: of 19 registered cases, 18 use an exact/exact-analytic reference;
@@ -1262,7 +1308,23 @@ not start a new round.
   open.** No autonomous-loop thread currently has authorized, un-escalated work — round 33 needs
   a fresh user decision on one of three threads (case15 exclusion/exact-reference, case15's
   `pface` risk, or Phase 3a's model-extension scope).
-  → `YADV_RESEARCH.md` §42, `docs/YADV_ROUND_32_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §42, `docs/YADV_ROUND_32_PLAN.md`, commit `0b968b1`.
+- Round 33: literature/data housekeeping — four items rounds 31/32 deferred, touching none of the
+  three blocked threads. **Correction**: `papers/md/33_saurel_relaxation_multiphase.md` was never
+  missing — rounds 31/32 both looked through `solver_4eq_mass/papers`, a symlink to a different,
+  smaller library; the real file is present, tracked, at the repository root, exactly where the
+  `cfd-paper-search` skill's own convention places it. Every prior citation re-verified exactly,
+  and round 30's "1000 cells" claim is now **verified**, not unverified. The Yoo & Sung 2018
+  attribution is now **confirmed** via independent CrossRef lookup (IJHMT 127:210-221, DOI
+  `10.1016/j.ijheatmasstransfer.2018.08.012`), not tentative. `results/1D/15_E/
+  reference_digitized_15.csv` copied in (sha256-verified) from the sibling `solver_5eq` tree with
+  full provenance and honest limitations recorded. Round 32's deferred mesh-invariant `smooth_ok`
+  restatement offline-confirmed a strict no-op at current resolutions (4 legs, `scripts/
+  yadv_r33_smooth.py`) — still not implemented, exactly as round 32 judged. All hard gates held
+  (`git diff --stat -- cpp/` empty, OFF 19/19, `ACID_YADV=1` 15/19 unchanged, reconfirmed fresh).
+  `consecutive_failures` NOT incremented. **Round 34's entry condition is now strictly true — no
+  housekeeping backlog remains, only the three user decisions.**
+  → `YADV_RESEARCH.md` §43, `docs/YADV_ROUND_33_PLAN.md`, commit TBD.
 
 ## Setup reference
 

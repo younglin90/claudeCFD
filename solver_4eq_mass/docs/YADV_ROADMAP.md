@@ -469,7 +469,7 @@ not start a new round.
   projection" secondary goal explicitly NOT attempted (its gate not met by S4).
   `consecutive_failures` NOT incremented. All hard gates held (OFF 19/19, `ALL GATES OK` unchanged
   from round 22).
-  → `YADV_RESEARCH.md` §33, `docs/YADV_ROUND_23_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §33, `docs/YADV_ROUND_23_PLAN.md`, commit `ed93f71`.
 
 ## Setup reference
 

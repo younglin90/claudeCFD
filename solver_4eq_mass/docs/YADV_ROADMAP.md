@@ -37,6 +37,56 @@ own documented caveat (`.claude/rules/denner-pitfalls.md`: "case15 (double raref
 is a grid self-consistency test, not exact validation; the 4-eq model has no phase change, so the
 expansion-core pressure hits the EOS floor, not a physical vapour pressure").
 
+## case15 status after round 30 (PAUSED, pending a user risk decision — not abandoned)
+
+Round 30 (`YADV_RESEARCH.md` §40) fully characterised case15's remaining blocker (the
+stagnation-point core jet, mechanism = collocated central-mean face pressure at a 128:1
+density-ratio face, literature-documented) and found **no parameter-free fix exists**: both
+candidate `pface` schemes evaluated break case25's shock speed. Further progress needs one of:
+(i) accept case15 unreachable at the current scheme, (ii) a scheme-level `pface` change with
+explicit acknowledged risk to already-passing shock cases (case25 named specifically), or (iii) a
+mesh/spec conversation about case15 itself. **This is a decision only the user can make** — round
+30 deliberately did not choose among these (pre-registered non-goal), and no future round may
+silently pick option (ii) and risk case25 without that authorization being given first. Do not
+re-target case15 under `ACID_YADV=1` with a new `pface` candidate until the user picks (ii)
+explicitly, or picks (iii) and redefines the target.
+
+## Phase 3a (cases 24/33/34) REOPENED as a model-extension research thread (2026-08-02, explicit
+user authorization)
+
+Round 26 closed cases 24/33/34 as unreachable under `ACID_YADV=1`'s current mass-fraction closure
+for any *numerical* improvement (`YADV_RESEARCH.md` §36) and left reopening conditional on "a
+future explicit user decision" to pursue a genuine model extension. **That decision was made in
+this session**: the user asked directly, after round 26/29/30's diagnostic work on case15,
+"아니다 24,33,34 도 포함시켜서 검증하자. 이것도 통과해야지 진짜 강건한 4eq mass fraction
+solver 일것 같다. 동의하지?" (include 24/33/34 too — a solver isn't genuinely robust without
+them). This authorizes reopening the thread round 26 gated on exactly this kind of decision.
+
+**What this authorizes and what it does NOT authorize**: round 26's closure was about the
+*current* mass-fraction-conserving closure being structurally unable to match the validation
+reference's volume-fraction-conserving closure — the two disagree by O(1) (~2x rho/p), not by
+discretization error, so no amount of numerical tuning under the existing model can close the gap
+(`scripts/yadv_r26_closure.py`, `YADV_RESEARCH.md` §36). The user's authorization is for pursuing
+a **genuine model extension** (interphase mass transfer / relaxation source term, so the model
+itself can produce the O(1) composition change the shock requires) — NOT for weakening or
+reinterpreting the validation gate, and NOT for a numerics-only retry of anything already tried
+and killed (any `cav`/alpha-implicit-family variant, `REBUILD_ADV`, or re-deriving the same
+closed-form mismatch already proven in §36). Any round working this thread must design and
+implement an actual new physics term, gated OFF by default, with the OFF path staying
+byte-identical exactly like every other flag in this project.
+
+**Round 31's job**: a fresh Planner call (per the `yadv-round` skill's own Step 3) scoped to
+*design only* for this round — survey the literature this project hasn't yet pulled for
+interphase mass-transfer/relaxation-source closures compatible with a single-pressure/
+single-temperature 4-eq mixture (Kapila-style relaxation, Saurel-Petitpas-Berry-style mass
+transfer terms — `papers/md/33_saurel_relaxation_multiphase.md` is already in the repo and is
+exactly this family), and produce a staged implementation plan with the same rigor as
+`YADV_PHASE2_PLAN.md`/`YADV_ROUND_26_PLAN.md`. Do not implement the relaxation source itself in
+round 31 unless the plan's own staging calls for a genuinely safe, gated-OFF Stage 0 (e.g. a
+diagnostic-only closed-form check of what relaxation rate would be needed, analogous to round 26's
+own exact-solution instrument) — a full model-affecting Stage should get its own round with the
+usual harm-gate discipline, not be rushed into round 31 alongside the literature survey.
+
 ---
 
 ### Superseded — original Phase 3a framing (kept for provenance, do not re-target 24/33/34

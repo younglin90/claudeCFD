@@ -9,8 +9,8 @@
 >
 > | | env | transported variable | status |
 > |---|---|---|---|
-> | volume fraction (baseline) | `ACID_YADV` unset | `alpha` | default; **byte-identical** to the paper build, 18/18 PASS |
-> | mass fraction (variant) | `ACID_YADV=1` | `Y = alpha*rho_a/rho` | 15/18 PASS; `alpha` is recovered algebraically for all output |
+> | volume fraction (baseline) | `ACID_YADV` unset | `alpha` | default; **byte-identical** to the paper build, 15/15 PASS |
+> | mass fraction (variant) | `ACID_YADV=1` | `Y = alpha*rho_a/rho` | **15/15 PASS (all registered cases)** — see the note below, this is not a numerical improvement; `alpha` is recovered algebraically for all output |
 >
 > ```bash
 > DENNER_ACID=1                ./build-cpp/cpp/denner_1d/denner1d_validate   # alpha path
@@ -18,9 +18,12 @@
 > ```
 >
 > Case definitions, reference solutions and pass/fail gates are unchanged and still expressed in
-> `alpha`; only the solver's internal transported variable changes, **except** that case15 is
-> de-registered in this tree as of round 34 (user decision, applying the suite's own existing
-> sub-floor-state exclusion criterion — `docs/YADV_RESEARCH.md` §44, §42.3). Full derivation, A/B
+> `alpha`; only the solver's internal transported variable changes, **except** that case15 (round
+> 34) and cases 24/33/34 (round 35) are de-registered in this tree by explicit user decision —
+> case15 on the suite's own sub-floor representability criterion, and 24/33/34 on the user's
+> uniform-technique policy after §36/§41 proved they cannot pass under `ACID_YADV=1` for any
+> numerical improvement (`docs/YADV_RESEARCH.md` §44, §45, §42.3, §36, §41). The 15/15 all-pass
+> figure above was achieved by excluding these cases, not by fixing them. Full derivation, A/B
 > measurements and verdict: **`docs/YADV_RESEARCH.md`**.
 
 Isolated Denner C++ solver workspace: a faithful Denner ACID (acoustically-conservative

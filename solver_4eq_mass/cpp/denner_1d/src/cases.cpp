@@ -566,11 +566,19 @@ std::vector<CaseDefinition> all_cases() {
     c36.left_bc = "inlet";
     c36.right_bc = "transmissive";
     c36.pulse_inlet = true;
-    // cases 15/29/32 are EXCLUDED from the registered suite (their entries are commented out in
-    // the list below); configs + IC/reference/gate code stay intact for future solver work.
+    // cases 15/24/29/32/33/34 are EXCLUDED from the registered suite (their entries are commented
+    // out in the list below); configs + IC/reference/gate code stay intact for future solver work.
+    // NOTE the criteria differ: 29 = numerical/resolution blocker; 32/15 = a state below the 1.0 Pa
+    // representability floor (IC / solution respectively); 24/33/34 = round 35, they PASS under the
+    // OFF alpha path but are structurally unreachable under the uniform ACID_YADV=1 mass-fraction
+    // technique (an O(1) closure / thermal-disequilibrium gap, docs/YADV_RESEARCH.md sect.36, 41),
+    // excluded by explicit user policy that the whole suite must validate under ONE technique.
     (void)c15;
+    (void)c24;
     (void)c29;
     (void)c32;
+    (void)c33;
+    (void)c34;
     return {
         {"01", "PE static interface", air, denner_water, base_config(200, 2.0e-4)},
         {"02", "PE advection (Denner 7.1 gas-gas)", air, denner_gas2, c02, 100000.0, 1.0},
@@ -585,7 +593,15 @@ std::vector<CaseDefinition> all_cases() {
         // representable at any resolution (docs/YADV_RESEARCH.md sect.42.3). Same criterion as
         // case32 below, which fails on its IC rather than on its solution.
         // {"15", "15_E air-water cavitation", air, water, c15},
-        {"24", "24_H homogeneous Mach-10 mixture shock", air, denner_water, c24},
+        // EXCLUDED (blocker): cases 24/33/34 PASS under the OFF alpha path but cannot pass under
+        // ACID_YADV=1 for ANY numerical improvement -- the reference (Denner Eqs.57-62) holds the
+        // volume fraction across the shock while ACID_YADV=1 conserves mass fraction, and the two
+        // exact closures differ by O(1) (~2x in rho/p), a thermal-disequilibrium / model-class gap,
+        // not discretization error (docs/YADV_RESEARCH.md sect.36 closed-form proof, sect.41
+        // mechanism + 4-8 round rewrite scope). Excluded in round 35 by explicit user decision that
+        // the entire suite must validate under ONE solver and ONE technique (sect.45). This is a
+        // DIFFERENT criterion from case15/32 above (representability) -- do not conflate them.
+        // {"24", "24_H homogeneous Mach-10 mixture shock", air, denner_water, c24},
         {"25", "25_H Mach-10 air shock / water interface", air, denner_water, c25},
         {"26", "26_H single-phase air Mach-10 shock (Denner 7.4.1)", air, denner_water, c26,
          1.0e5, 0.0, 1.1574, 0.0, 0.0, 1.0 - 1.0e-6},
@@ -605,10 +621,12 @@ std::vector<CaseDefinition> all_cases() {
         // pressure floor -- IC not representable (every implicit step rejected, field frozen).
         // {"32", "32_H Woodward-Colella blast waves (Denner 7.4.2; 3200-cell self-convergence ref, NOT exact)",
         //  air, denner_water, c32, 1.0e5, 0.0, 1.0, 0.0, 0.0, 1.0 - 1.0e-6},
-        {"33", "33_H homogeneous Mach-10 mixture shock psi_w=0.25 (Denner 7.4.1 Fig.18)",
-         air, denner_water, c33},
-        {"34", "34_H homogeneous Mach-10 mixture shock psi_w=0.75 (Denner 7.4.1 Fig.18)",
-         air, denner_water, c34},
+        // EXCLUDED (blocker): same Fig.18 psi-family as case24 above, same criterion (round 35).
+        // {"33", "33_H homogeneous Mach-10 mixture shock psi_w=0.25 (Denner 7.4.1 Fig.18)",
+        //  air, denner_water, c33},
+        // EXCLUDED (blocker): same Fig.18 psi-family as case24 above, same criterion (round 35).
+        // {"34", "34_H homogeneous Mach-10 mixture shock psi_w=0.75 (Denner 7.4.1 Fig.18)",
+        //  air, denner_water, c34},
         {"35", "Helium-air acoustic reflection/transmission (Denner 7.3.2 Fig.12)", helium_pure, air, c35,
          100000.0, 0.0, 0.164, 5000.0, 0.02, 1.0, 0.5, 0.1, 0.014, 0.02},
         {"36", "Argon-air acoustic reflection/transmission (Denner 7.3.2 Fig.12)", argon, air, c36,

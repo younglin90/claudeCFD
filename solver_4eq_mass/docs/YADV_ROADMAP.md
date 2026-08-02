@@ -29,7 +29,57 @@ measured at the time. Round 30's option (ii) (a `pface` scheme change) is now **
 no longer in the suite to fix — but remains explicitly not authorized as a general precedent for
 any other case.
 
-## Current status — the only live thread is Phase 3a's model-extension scope
+## Phase 3a / cases 24/33/34: CLOSED (round 35, 2026-08-03) — EXCLUDED from the registered suite
+by explicit user decision
+
+**Superseded**: the "Current status" section immediately below (which framed Phase 3a's
+model-extension scope as the sole remaining live thread) is now historical — kept for provenance,
+not deleted, not wrong at the time it was written.
+
+The user's decision, verbatim:
+
+> "안된다 모든 검증을 같은 솔버 및 기법으로 무조건 해야된다 그래서 도저히 4eq mass 로 풀수 없으면
+> 24 33 34 검증은 제외시키는게 맞는 방향같다"
+
+This came after being shown (this session) round 31's 4-8 round single-p/two-T rewrite estimate,
+a fresh literature re-dig (including a direct check of Denner's own JCP 367 primary source, at the
+user's own push-back, confirming no cheaper fix exists), and one further design idea — a
+`face_shock`-gated hybrid two-EOS approach limiting the blast radius to shock-detected cells only.
+**The user rejected both the full rewrite AND the gated hybrid**, on the principle that the entire
+suite must validate under ONE solver and ONE technique — no per-case or per-cell technique
+switching. Cases 24/33/34 are therefore **excluded from the registered suite**
+(`cases.cpp:583`'s table entries commented out, same pattern as case15/29/32).
+
+**This is a NEW, different exclusion criterion from case15/32's.** Cases 24/33/34 PASS under the
+OFF (alpha-transport) path — they are fully valid, fully representable cases in that model. They
+fail only under `ACID_YADV=1`, for a reason proven (two independent ways) to be a genuine
+model-class gap, not a numerical defect or a representability problem: `YADV_RESEARCH.md` §36's
+exact closed-form Riemann solution plus a full reachable-shock-family scan show the reference
+(volume-fraction held across the shock) and `ACID_YADV=1` (mass-fraction conserved) are two
+different, both-exact closures that differ by O(1) (~2x in `rho`/`p`) for these shocks — not
+convergeable by any numerical improvement. §41 refined the mechanism (frozen-`T` vs instant-`T`-
+equilibrium limits of the same thermal-relaxation continuum) and scoped the only correct fix at a
+4-8 round single-p/two-T Allaire/Kapila 5-equation rewrite. The criterion applied here is a
+**policy criterion the user set** (uniform technique for the whole suite), not the sub-floor
+representability criterion `cases.cpp:599-602` already encoded for case32/15. Do not conflate the
+two when reading `cases.cpp`'s comments.
+
+**New headline numbers, with the mandatory qualifier**: OFF path **15/15** (was 18/18),
+`ACID_YADV=1` **15/15, empty fail set — all-passing for the first time in the project's history**
+(was 15/18, `{24,33,34}`) — **achieved by excluding the three cases that cannot pass under this
+technique, not by fixing them.** That qualifier must accompany this number every time it is
+written. `denner1d_validate` under `ACID_YADV=1` now exits 0 for the first time ever.
+config/IC/reference/gate code (`compute_case24_shock`, `case24_spec_pass`) all remain intact and
+unreachable, matching cases 15/29/32's own status. Full reasoning, arithmetic derivation, and
+harm-gate table: `docs/YADV_RESEARCH.md` §45, `docs/YADV_ROUND_35_PLAN.md`.
+
+**End state**: with both case15 and Phase 3a now closed, **there is no remaining open escalation
+under the current model class.** Round 36 requires a fresh, explicit user decision about what, if
+anything, the loop should do next — it must not start any new model-affecting work on its own
+initiative.
+
+## Current status (historical, through round 35) — the only live thread is Phase 3a's
+model-extension scope
 
 With case15 closed (above), the **only remaining open escalation in the entire investigation** is
 Phase 3a (cases 24/33/34): commit to the 4-8 round, all-18-case-blast-radius single-pressure/
@@ -196,10 +246,84 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 34
+round_counter: 35
 consecutive_failures: 0
 done: false
-next_task: Round 34, case15 excluded from the registered suite (explicit user decision, "case32
+next_task: Round 35, cases 24/33/34 excluded from the registered suite (explicit user decision,
+           quoted verbatim: "안된다 모든 검증을 같은 솔버 및 기법으로 무조건 해야된다 그래서
+           도저히 4eq mass 로 풀수 없으면 24 33 34 검증은 제외시키는게 맞는 방향같다"). This
+           followed a fresh literature re-dig this session (incl. a direct primary-source check
+           of Denner's own JCP 367 paper, at the user's own push-back) confirming no cheaper fix
+           exists, and the explicit rejection of a further proposal (a face_shock-gated hybrid
+           two-EOS approach, limiting blast radius to shock-detected cells only) -- the user
+           rejected BOTH the full 5-eq rewrite AND the gated hybrid, on the principle that the
+           entire suite must validate under ONE solver and ONE technique.
+           NEW EXCLUSION CRITERION, honestly distinguished from case15/32's: cases 24/33/34 PASS
+           under the OFF alpha path (fully valid, fully representable, and validated by Denner's
+           own published paper) and fail ONLY under ACID_YADV=1, for a reason proven twice (§36's
+           closed-form Riemann solution + reachable-shock-family scan; §41's thermal-
+           disequilibrium mechanism) to be a genuine O(1) model-class gap, not a numerical defect
+           or representability failure. This is a POLICY criterion the user set (uniform
+           technique for the whole suite), not the sub-floor representability criterion
+           cases.cpp:599-602 already encoded for case15/32 -- four distinct exclusion criteria
+           now coexist in cases.cpp and must be kept separate in future documentation.
+           IMPLEMENTATION: cases.cpp's three table entries (24/33/34, all sharing the Fig.18
+           psi-family and the shared case24_spec_pass gate) commented out, exact case15/29/32
+           pattern (EXCLUDED comment + (void) suppression). ZERO validation.cpp edits needed (the
+           shared gate dispatch stays referenced via its own kept-unreachable branch). CORRECTED
+           PREMISE (round's own charter initially expected compute_case24_shock to go fully
+           dead -- verified false: it's called unconditionally at config-construction time
+           (cases.cpp:495/543/545), outside the case-table initializer list that gets commented
+           out, so it stays live and referenced with zero special handling needed).
+           ARITHMETIC (inverse shape from round 34: there only config A moved; here config A
+           alone loses 3 passes while B-G's pass counts are frozen and only totals shrink): OFF
+           18/18->15/15 (all three passed there); ACID_YADV=1 15/18->15/15 with an EMPTY fail
+           set -- ALL-PASSING for the first time in the project's 35-round history, and
+           denner1d_validate under ACID_YADV=1 now exits 0 for the first time ever. C/D/E/F keep
+           their pre-existing 14/27/28 research-config failures untouched (confirms nothing
+           beyond the case-table change occurred). THIS FIGURE MUST ALWAYS CARRY ITS QUALIFIER:
+           achieved by EXCLUDING the three cases that cannot pass under this technique, NOT by
+           fixing them -- never write "15/15" alone.
+           HARM GATE (all measured, all held): G-A/G-A2 exact 15-id set confirmed; G-B/G-C
+           (strongest) per-case JSON byte-identity vs pre-edit baseline EMPTY across all 15
+           remaining cases in both OFF and ACID_YADV=1; G-D yadv_verify.py 5/5 BYTE-IDENTICAL vs
+           solver_denner (24/33/34 dropped from CASES for the identical mechanical reason as
+           case15 in round 34); G-E unit tests unchanged; G-F confirmed dump/run 24/33/34 all
+           exit 2 "unknown Denner 1D case", case25 confirmed still functional; G-G git diff
+           --stat -- cpp/ exactly one file (cases.cpp, 25 insertions/7 deletions); G-G2
+           solver_denner completely untouched (published binary unchanged, Jul 14 06:22, 244304
+           bytes -- same adjudication as round 34: the absolute rule constrains behaviour not
+           case-table identity, and solver_denner's own build is a gitignored frozen artifact
+           this loop never rebuilds); G-H 7-config sweep matches derived EXPECTED exactly, every
+           config's total=15.
+           consecutive_failures NOT incremented (delivered, user-authorized change with the
+           strongest possible numerics-neutrality proof). Updated: absolute-rule text (15/15,
+           extended non-precedent clause), yadv_verify.py's CASES list (8->5), yadv_r9_sweep.py's
+           EXPECTED/ALL_CASES/VERIFY_CASES (and sample_cases, catching a round-34 miss: "15" was
+           never removed there despite round 34's own plan calling for it -- harmless since
+           --iters is diagnostic-only, corrected here alongside the required "24" removal),
+           AGENTS.md, .claude/skills/yadv-round/SKILL.md, .claude/rules/denner-pitfalls.md (new
+           bullet, distinct from the case15 bullet), validation/1D/24_H_hypersonic_mixture_ms10.md
+           (banner scoped PRECISELY to the mixture members ψ∈{0.25,0.5,0.75} -- the pure-phase
+           endpoints ψ∈{0,1} = cases 26/27/28 REMAIN registered and passing, this doc stays their
+           live spec, NOT a blanket exclusion banner).
+           NOT touched, per this round's non-goals: any other model/numerics/scheme code;
+           pface/ubar/gpbar/dhat/MWI clamp; any 5-eq rewrite or face_shock-gated hybrid
+           (explicitly rejected by the user); the unrelated 33_S1/34_S2 spec docs (different,
+           older numbering series, verified by reading their headers); solver_denner; any
+           historical content in YADV_RESEARCH.md §1-44 or any prior YADV_ROUND_*_PLAN.md.
+           **With BOTH case15 (round 34) and Phase 3a/24-33-34 (this round) now closed, there is
+           NO remaining open escalation under the current model class anywhere in the
+           investigation.** Round 36 requires a fresh, explicit user decision about what, if
+           anything, the loop should do next -- it must not start any new model-affecting work on
+           its own initiative.
+           Grounded in YADV_RESEARCH.md sect.45, docs/YADV_ROUND_35_PLAN.md.
+```
+
+**Superseded control-state history (round 34's own, for provenance):**
+```
+round_counter: 34 (superseded, see above)
+next_task (superseded): Round 34, case15 excluded from the registered suite (explicit user decision, "case32
            처럼 suite에서 제외" chosen over exact-reference-replacement and over deferring
            further). Applies the identical sub-floor-state criterion cases.cpp:599-602 already
            applies to case32 -- case15's exact solution requires p*=9.05e-14 Pa (round 32),
@@ -798,15 +922,18 @@ not start a new round.
 - No `git push`, no `git reset --hard`, no `rm -rf`. Local commit + local merge to `main` only.
 - No tuning constants, no per-case coefficients. Global physical constants only.
 - No edits to `cases.cpp` / `validation.cpp` unless the round's stated goal explicitly requires it
-  (round 34 was the one exception to date — an explicit, user-authorized case exclusion; see
-  below. No other round's stated goal currently does.)
-- The OFF path (`ACID_YADV` unset) must stay **18/18** and byte-identical to the published
+  (rounds 34 and 35 are the only exceptions to date — both explicit, user-authorized case
+  exclusions; see below. No other round's stated goal currently does.)
+- The OFF path (`ACID_YADV` unset) must stay **15/15** and byte-identical to the published
   `solver_denner` binary at the end of every round that merges to `main`. A round that breaks this
-  does not merge. **(Was 19/19 through round 33. case15 was removed from the registered suite in
-  round 34 by explicit user decision, applying the suite's own existing sub-floor-state criterion
-  — `docs/YADV_RESEARCH.md` §44, §42.3, §42.6. This amendment is a record of that one decision and
-  is NOT a precedent: no round may change the registered case set, a gate threshold, a case
-  resolution, or a reference construction to make any case pass.)**
+  does not merge. **(Was 19/19 through round 33; 18/18 after round 34's case15 exclusion. Cases
+  24/33/34 were removed from the registered suite in round 35 by explicit user decision — the
+  suite must validate under ONE solver and ONE technique, and these three cannot pass under the
+  uniform `ACID_YADV=1` mass-fraction technique for any numerical improvement (`YADV_RESEARCH.md`
+  §36, §41, §45). Note this is a DIFFERENT criterion from case15/32's representability exclusion.
+  Like round 34's, this amendment records specific user decisions and is NOT a precedent: no round
+  may change the registered case set, a gate threshold, a case resolution, or a reference
+  construction to make any case pass.)**
 - Report negative/partial results honestly — this project's established culture (rounds 1-4) keeps
   failed experiments in the history, not just wins.
 
@@ -1444,7 +1571,37 @@ not start a new round.
   question is now moot. The only remaining live escalation in the entire investigation is Phase
   3a's model-extension scope** (round 31, explicitly deferred by the user) — round 35 needs a
   fresh decision on it.
-  → `YADV_RESEARCH.md` §44, `docs/YADV_ROUND_34_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §44, `docs/YADV_ROUND_34_PLAN.md`, commit `220b91c`.
+- Round 35: **cases 24/33/34 EXCLUDED from the registered suite** (explicit user decision, after a
+  fresh literature re-dig this session — including a direct primary-source check of Denner's own
+  JCP 367 paper — confirmed no cheaper fix exists, and the user explicitly rejected both round 31's
+  5-eq rewrite and a further `face_shock`-gated hybrid two-EOS proposal, on the principle that the
+  whole suite must validate under ONE solver and ONE technique). **New exclusion criterion**,
+  honestly distinguished from case15/32's: 24/33/34 pass under OFF (fully valid, fully
+  representable, validated by Denner's own paper) and fail only under `ACID_YADV=1` for a proven
+  O(1) model-class gap (§36/§41), not a representability failure — a policy criterion, not the
+  suite's pre-existing sub-floor criterion. **Implementation**: the three shared-family table
+  entries commented out, exact case15/29/32 pattern — **zero** `validation.cpp` edits (the shared
+  gate dispatch stays referenced via its own kept-unreachable branch). **Corrected premise**: the
+  round's own charter expected `compute_case24_shock` to go fully dead; verified false — it's
+  called unconditionally at config-construction time, outside the commented-out table entries, so
+  it stays live with zero special handling. **Arithmetic** (inverse shape from round 34): OFF
+  18/18→15/15 (all three passed there); `ACID_YADV=1` 15/18→**15/15, empty fail set — all-passing
+  for the first time in the project's 35-round history**, `denner1d_validate` now exits 0 for the
+  first time ever — **achieved by excluding the three cases that cannot pass under this technique,
+  not by fixing them** (this qualifier must accompany the figure every time). C/D/E/F retain their
+  pre-existing 14/27/28 research-config failures untouched. **Harm gate, all held**: G-B/G-C (the
+  strongest) are empty per-case byte-identity diffs across all 15 remaining cases in both configs;
+  G-D confirms 5/5 byte-identical vs `solver_denner`; G-F confirms the exclusion is real; G-G2
+  confirms `solver_denner` completely untouched. `consecutive_failures` NOT incremented. Updated
+  the absolute-rule text, `yadv_verify.py`, `yadv_r9_sweep.py` (also catching and fixing a round-34
+  miss in `sample_cases`), `AGENTS.md`, `SKILL.md`, `denner-pitfalls.md`, and
+  `validation/1D/24_H_hypersonic_mixture_ms10.md` (banner scoped precisely to the mixture members
+  only — the pure-phase endpoints, cases 26/27/28, remain registered and passing, this doc stays
+  their live spec). **With both case15 and Phase 3a now closed, no live escalation remains under
+  the current model class anywhere in the investigation** — round 36 needs a fresh, explicit user
+  decision about what, if anything, the loop should do next.
+  → `YADV_RESEARCH.md` §45, `docs/YADV_ROUND_35_PLAN.md`, commit TBD.
 
 ## Setup reference
 

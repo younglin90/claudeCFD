@@ -65,18 +65,27 @@ CONFIGS = [
 # Only config A's pass_count moves (19->18, since case15 PASSED under OFF); every other config
 # merely loses "15" from its own fail set, since case15 already failed there (removing a failing
 # case drops only the total, not the pass count).
+# Round 35: cases 24/33/34 excluded from the registered suite (docs/YADV_RESEARCH.md §45 -- they
+# PASS under the OFF alpha path but are structurally unreachable under ACID_YADV=1's mass-fraction
+# closure for ANY numerical improvement, §36's closed-form proof / §41's thermal-disequilibrium
+# mechanism; excluded by explicit user policy that the whole suite validate under ONE technique).
+# INVERSE SHAPE from round 34: all three PASSED under OFF and FAILED under every ON config, so
+# config A loses 3 passes (18->15) while B-G keep their pass counts and only lose 3 from the total.
+# Consequence: total is 15 everywhere, and B (plain ACID_YADV=1) and G become ALL-PASSING (15/15,
+# empty fail set) for the first time in the project's history -- achieved by REMOVING the failing
+# cases, not by fixing them. C/D/E/F keep their pre-existing 14/27/28 research-config failures.
 EXPECTED = {
-    "A": (18, set()),
-    "B": (15, {"24", "33", "34"}),
-    "C": (14, {"14", "24", "33", "34"}),
-    "D": (13, {"14", "24", "27", "33", "34"}),
-    "E": (14, {"24", "28", "33", "34"}),
-    "F": (14, {"14", "24", "33", "34"}),
-    "G": (15, {"24", "33", "34"}),
+    "A": (15, set()),
+    "B": (15, set()),
+    "C": (14, {"14"}),
+    "D": (13, {"14", "27"}),
+    "E": (14, {"28"}),
+    "F": (14, {"14"}),
+    "G": (15, set()),
 }
-ALL_CASES = ["01", "02", "04", "05", "07", "13", "14", "24", "25", "26", "27", "28",
-             "30", "31", "33", "34", "35", "36"]
-VERIFY_CASES = ["01", "02", "13", "14", "24", "25", "33", "34"]
+ALL_CASES = ["01", "02", "04", "05", "07", "13", "14", "25", "26", "27", "28",
+             "30", "31", "35", "36"]
+VERIFY_CASES = ["01", "02", "13", "14", "25"]
 
 
 def base_env(overlay=None):
@@ -261,7 +270,11 @@ def do_timing():
 
 def do_iters():
     sample_steps = [0, 1, 2, 5, 10, 25, 50, 100]
-    sample_cases = ["13", "25", "14", "15", "02", "24"]
+    sample_cases = ["13", "25", "14", "02"]
+    # "15" removed (round 34's own plan called for this and the implementing session missed it --
+    # a stale leftover, harmless because --iters is diagnostic-only and never a gate) and
+    # "24" removed (round 35); both cases are de-registered, so denner1d_run exits 2 for them and
+    # the RHIST line count would be a meaningless 0.
     print("\n### Sampled inner-Newton iteration counts (ACID_RHIST, steps "
           f"{sample_steps}, NOT a suite mean)\n")
     print("| case | config | mean iters (sampled) | notes |")

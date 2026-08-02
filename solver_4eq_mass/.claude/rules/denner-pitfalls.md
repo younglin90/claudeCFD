@@ -79,6 +79,20 @@ verified facts — do not delete and do not retry the documented dead-ends blind
   1.0 Pa floor -- no grid-converged solution exists at any resolution (`YADV_RESEARCH.md`
   §42.3, §44). Config/IC/reference/gate code remains intact, unreachable, same status as
   cases 29/32.
+- cases 24/33/34 (Denner 7.4.1 Fig.18 homogeneous Ms=10 mixture shocks, psi_water 0.5/0.25/0.75)
+  **cannot pass under `ACID_YADV=1` for ANY numerical improvement** -- proved twice, in closed
+  form (`YADV_RESEARCH.md` §36: an exact two-shock Riemann solution plus a full reachable-shock-
+  family scan) and mechanistically (§41: the reference is the frozen-`T` limit and the OFF path
+  the instant-`T`-equilibrium limit of the same thermal-relaxation continuum; the two exact
+  closures differ by O(1), ~2x in rho/p, not by discretization error). The only correct fix is a
+  4-8 round single-p/two-T Allaire/Kapila 5-equation model-class change. **EXCLUDED from the
+  registered suite since round 35** by explicit user decision (the whole suite must validate
+  under ONE solver and ONE technique; both the 5-eq rewrite and a `face_shock`-gated hybrid
+  two-EOS approach were explicitly rejected). Note this is a DIFFERENT criterion from case15/32
+  (representability below the 1.0 Pa floor) -- do not conflate them. Config/IC/reference/gate code
+  all remain intact and unreachable, same status as 15/29/32. **Do not retry Jacobian/
+  globalization/reconstruction/relaxation work on these three** -- rounds 4-8, 11, 23-28 all did,
+  and §36 explains why none of it could ever have worked.
 - THINC interface sharpening (DEFAULT ON, `ACID_NO_THINC` opts out) tanh-reconstructs the VOF
   FACE alpha in the colour-function transport (`acid.cpp` alpha loop) — only the face alpha,
   never the cell alpha the mass/mom/energy fluxes use, so it cannot break pressure

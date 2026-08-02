@@ -5781,3 +5781,197 @@ python3 scripts/yadv_verify.py
 git diff --stat -- cpp/    # expect exactly one file: cases.cpp
 git diff --stat -- ../solver_denner/    # expect EMPTY
 ```
+
+## 45. Cases 24/33/34 EXCLUDED from the registered validation suite (explicit user decision,
+round 35) -- a NEW, policy-driven exclusion criterion, distinct from case15/32's representability
+criterion; `ACID_YADV=1` reaches ALL-PASSING (15/15) for the first time in the project's history,
+by exclusion, not repair
+
+Round 35. `docs/YADV_ROUND_35_PLAN.md`. Direct continuation of the case15 exclusion pattern (§44),
+generalized from one case to three, closing out the last open thread in the entire investigation.
+
+### 45.1 The user's decision, verbatim, and its full context
+
+After round 31's own model-extension scope estimate (§41: a 4-8 round single-p/two-T Allaire/
+Kapila 5-equation rewrite, honestly costed at high blast radius to all 18 currently-passing
+cases) was revisited this session, the user pushed back directly, asking why cases 24/33/34 pass
+under Denner's own published volume-fraction model and under this project's own OFF path, but not
+under `ACID_YADV=1` -- and asked for a genuine, fresh literature re-dig before accepting that no
+fix exists, plus a self-generated proposal if the literature came up empty.
+
+A fresh literature search this session (semantic/crossref/arxiv, plus a direct primary-source
+check of Denner's own JCP 367 paper at the user's own insistence) turned up one new candidate
+(Labois & Narayanan 2017, Int. J. Multiphase Flow 96, "Non-conservative pressure-based
+compressible formulation for multiphase flows with heat and mass transfer") -- examined and ruled
+inapplicable: it treats mass transfer between the *same material's* liquid/vapour phases via
+phenomenological boiling/condensation, not between chemically distinct species (air/water), and it
+still solves a single mixture temperature, the exact limitation cases 24/33/34 need lifted. No
+literature shortcut was found. Denner's own paper (JCP 367 §5.3/§7.4.1, verified directly, quotes
+in §41 already on record) confirms the reference's own RH derivation structurally holds volume
+fraction fixed with no mechanism for it to evolve, and the authors' own conclusion (§8) names
+"the implicit assumption of thermal equilibrium... may present a limiting factor... warrant[ing]
+further study" as an open, unaddressed question -- independently corroborating §36/§41's own
+findings from the primary source itself.
+
+Given no cheaper fix, one further design idea was proposed and evaluated: a `face_shock`-gated
+hybrid, reusing the existing shock-detection predicate (`acid.cpp:1753`, already gating `use4`/
+`lowdiss` numerics) to activate a two-temperature EOS branch only in cells actively resolving a
+shock, leaving all non-shock-detected cells (and therefore, provably, the 15 other cases) on the
+existing single-`T` closure untouched. This would have reduced round 31's estimated blast radius
+from "all 18 cases" to "cells where `face_shock` fires" -- but still requires the same Jacobian
+extension round 31 identified as the dominant cost, just with a narrower trigger, and still
+constitutes a genuinely different technique switched on a per-cell basis.
+
+**The user rejected both** and gave the final directive, verbatim:
+
+> "안된다 모든 검증을 같은 솔버 및 기법으로 무조건 해야된다 그래서 도저히 4eq mass 로 풀수 없으면
+> 24 33 34 검증은 제외시키는게 맞는 방향같다"
+
+("No. All validation must use the same solver and technique, mandatorily. So if it truly cannot
+be solved with 4eq mass fraction, excluding cases 24/33/34 from validation is the right
+direction.") The governing principle is uniform technique across the whole registered suite --
+**not** "find the cheapest fix", and **not** "gate a different technique behind a predicate,
+however narrow." Both remedies were rejected on that principle, not on cost or risk grounds alone.
+
+### 45.2 This is a NEW exclusion criterion, honestly distinguished from case15/32's
+
+Unlike case15 (round 34), which reused the suite's own pre-existing representability criterion
+(`cases.cpp:599-602`, case32), **cases 24/33/34 pass under the OFF path** -- they are fully valid,
+fully representable cases in the alpha-transport model, and Denner's own published paper validates
+this exact family. They fail only under `ACID_YADV=1`, for a reason proven twice over (§36's
+closed-form Riemann solution plus reachable-shock-family scan; §41's thermal-disequilibrium
+mechanism) to be a genuine O(1) model-class gap, not a numerical defect or a representability
+failure. Four distinct exclusion criteria now coexist in `cases.cpp`, and future rounds must keep
+them separate:
+
+| case | criterion | class |
+|---|---|---|
+| 29 | Ms=100 water shock: dt collapses ~1e-9, front under-resolved | numerical/resolution blocker |
+| 32 | IC middle state 0.01 Pa < 1.0 Pa floor | representability (IC) |
+| 15 | exact `p*=9.05e-14 Pa` < 1.0 Pa floor | representability (solution) |
+| **24/33/34** | **pass under OFF; unreachable under the uniform `ACID_YADV=1` technique. Excluded by explicit user policy: one technique for the whole suite.** | **model-class scope (round 35, NEW)** |
+
+### 45.3 The arithmetic -- derived from `validation.cpp:829-849`'s counting logic, verified live
+
+`total` is a loop counter over `all_cases()`; nothing hardcoded. Removing a case that PASSED
+decrements both `pass` and `total`; removing a case that FAILED decrements only `total`. All three
+of cases 24/33/34 passed under OFF and failed under every ON config, giving the **inverse shape**
+of round 34's own arithmetic (there, only config A moved; here, config A alone loses three passes
+while B-G's `pass` counts are frozen and only their totals shrink):
+
+| cfg | old (post-round-34) | new (post-round-35) | fail set |
+|---|---|---|---|
+| A (OFF) | 18/18 | **15/15** | `{}` |
+| B (`ACID_YADV=1`) | 15/18 | **15/15** | `{}` |
+| C | 14/18 | 14/15 | `{"14"}` |
+| D | 13/18 | 13/15 | `{"14","27"}` |
+| E | 14/18 | 14/15 | `{"28"}` |
+| F | 14/18 | 14/15 | `{"14"}` |
+| G | 15/18 | **15/15** | `{}` |
+
+Measured live, matching this derivation exactly: OFF `pass_count=15 total=15`; `ACID_YADV=1`
+`pass_count=15 total=15`, fail set empty, **exit code 0** -- the first time `denner1d_validate`
+under `ACID_YADV=1` has exited 0 in the project's history. C/D/E/F retain their pre-existing
+14/27/28 research-config failures untouched, confirming (per the plan's own falsification
+criterion) that nothing beyond the case-table change occurred.
+
+### 45.4 The milestone, stated with its mandatory qualifier every time
+
+`ACID_YADV=1` is now **15/15, all-passing** -- **achieved by excluding the three cases it cannot
+solve, not by solving them.** Every mention of this figure, in this document and elsewhere, must
+carry that qualifier in the same sentence (this section's own gate G-I, below, exists to enforce
+it mechanically at commit time).
+
+### 45.5 `compute_case24_shock` does NOT become dead code -- a correction to the round's own
+initial premise
+
+The round's own charter anticipated that commenting out all three table entries would leave the
+shared `compute_case24_shock()` function (and the shared `case24_spec_pass()` gate) entirely dead.
+**Verified false, by direct read**: `compute_case24_shock` is called at `cases.cpp:495/543/545`
+inside `all_cases()`'s own config-construction step (building `c24`/`c33`/`c34`'s `t_end`) --
+these calls are unconditional and do **not** live inside the case-table initializer list that gets
+commented out. The table entries pass the already-built config objects; they never call the
+function themselves. So `compute_case24_shock` remains live and called on every `all_cases()`
+invocation, exactly as before this round -- no unused-function warning, no special dead-code
+handling needed. `case24_spec_pass` (`validation.cpp:469`) stays referenced identically, via its
+own single shared dispatch branch (`validation.cpp:731-734`), which is kept unreachable rather
+than deleted, exactly matching case15's own `smooth_ok`/`osc_ok` precedent. **`validation.cpp`
+required zero edits**, the same outcome as round 34.
+
+### 45.6 Harm gate -- all measured, all held
+
+| gate | result |
+|---|---|
+| G-A (OFF count) | `pass_count=15 total=15`, exit 0 |
+| G-A2 (id set) | exactly the 15 remaining registered ids; 24/33/34 absent, nothing else absent |
+| **G-B (strongest)** | per-case OFF JSON byte-identity vs the pre-edit baseline -- **EMPTY** across all 15 remaining cases |
+| G-C | `ACID_YADV=1` `pass_count=15 total=15`, fail set **empty**, exit **0**; same empty per-case byte-identity diff |
+| G-D | `yadv_verify.py` 5/5 BYTE-IDENTICAL vs `solver_denner`; case01 identical in section 2; 02/13/14/25's differ-figures match round 33/34's own independently-recorded numbers exactly |
+| G-E | unit tests byte-identical to the pre-edit baseline (case15/24/33/34 references there are inline literals or absent, structurally immune) |
+| G-F | `denner1d_dump`/`run` 24/33/34 all exit 2, `unknown Denner 1D case: NN`, empty stdout; case25 confirmed still functional (proves the failure is specific, not a broken binary) |
+| G-G | `git diff --stat -- cpp/` exactly one file (`cases.cpp`), 25 insertions/7 deletions -- only comments, `(void)` suppression lines, and commented-out table entries |
+| G-G2 | `solver_denner` completely untouched, published binary unchanged (`Jul 14 06:22`, 244304 bytes) |
+| G-H | 7-config sweep matches the derived `EXPECTED` exactly, `total=15` in every config |
+| G-I | every "15/15" mention in the round's own docs carries the exclusion qualifier in the same sentence |
+
+### 45.7 `solver_denner` coordination -- unchanged adjudication from round 34
+
+Same reasoning as §44.5: the absolute rule constrains behaviour, not case-table identity;
+`solver_denner/build-cpp` is a gitignored, frozen (2026-07-14) artifact this loop never rebuilds;
+editing or rebuilding it would be both ineffective (G1 wouldn't change) and wrong (it would mutate
+the baseline the whole project is measured against). Left completely untouched.
+
+### 45.8 Honest costs
+
+- **G1 byte-identity coverage**: 9 cases (through round 33) -> 8 (round 34) -> **5** (round 35) --
+  only `01/02/13/14/25` remain compared against `solver_denner`. `case01`'s machine-exact
+  pressure-equilibrium check survives.
+- **`validation/1D/24_H_hypersonic_mixture_ms10.md` is now a partially-excluded family spec**: its
+  mixture members (ψ=0.25/0.50/0.75 -> cases 33/24/34) are excluded, but its pure-phase endpoints
+  (ψ=0/1 -> cases 26/27, plus the Ms=100 sibling case28) remain registered and passing -- the doc
+  itself is annotated, not deleted, and remains the live spec for those three.
+- The `--only 24` (or `33`/`34`) trap: post-exclusion, `denner1d_validate --only 24` reports
+  `pass_count=0 total=0` and **exits 0** -- an empty selection silently looks like success. Never
+  gate on a bare count; always confirm the exact id set (this round's G-A2, generalized from round
+  34's own R4/G-A2).
+- **Frozen per-round scripts** (`yadv_r5/6/7/8_verify.py`, `yadv_r11_window.py`,
+  `yadv_r26_closure.py`, `yadv_r27_case15.py`, `yadv_r31_relax.py`, `yadv_r32_exact.py`,
+  `yadv_r33_smooth.py`, and the diagnostic helpers `yadv_rhcheck.py`/`yadv_yprofile.py`/
+  `yadv_front.py`/`yadv_plateau.py`/`yadv_rh2.py`/`yadv_dumps.py`/`yadv_alpha_drift.py`) still
+  reference `24`/`33`/`34` (several also still reference `15`) -- left untouched, they are
+  permanent artifacts of the rounds that wrote them, per this project's own established rule that
+  reproduction scripts are not cleanup targets.
+- **Round 34's own miss, caught and corrected here**: round 34's plan called for removing `"15"`
+  from `yadv_r9_sweep.py`'s `sample_cases` (a diagnostic-only `--iters` list, never a gate), but
+  the implementing session did not do it -- confirmed by `git show 220b91c -- scripts/
+  yadv_r9_sweep.py`. Harmless (that mode is never run by SKILL.md's own gate list), but corrected
+  in this round's own edit alongside the required `"24"` removal, rather than silently compounded.
+
+### 45.9 End state
+
+With case15 (round 34) and cases 24/33/34 (this round) both closed, **no live escalation remains
+under the current model class anywhere in the investigation.** Round 36 requires a fresh, explicit
+user decision about what, if anything, the loop should do next -- it must not start any new
+model-affecting work on its own initiative.
+
+### 45.10 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+DENNER_ACID=1 ./build-cpp/cpp/denner_1d/denner1d_validate 2>/dev/null | tail -1
+    # expect pass_count=15 total=15
+
+DENNER_ACID=1 ACID_YADV=1 ./build-cpp/cpp/denner_1d/denner1d_validate 2>/dev/null; echo $?
+    # expect pass_count=15 total=15 (fail set empty), exit code 0
+
+for c in 24 33 34; do ./build-cpp/cpp/denner_1d/denner1d_dump $c; echo "exit=$?"; done
+    # expect stderr "denner1d_dump: unknown Denner 1D case: NN", exit 2, for each
+
+python3 scripts/yadv_verify.py       # expect 5/5 BYTE-IDENTICAL
+python3 scripts/yadv_r9_sweep.py --sweep    # expect ALL GATES OK, total=15 everywhere
+
+git diff --stat -- cpp/    # expect exactly one file: cases.cpp
+git diff --stat -- ../solver_denner/    # expect EMPTY
+```

@@ -34,9 +34,11 @@ allowed-tools:
 - 튜닝 계수 금지, 케이스별 상이 계수 금지 (전역 물리 상수만).
 - `cases.cpp` / `validation.cpp` — 라운드의 명시적 목표가 아닌 한 수정 금지 (게이트를 통과시키려고
   기준 바꾸는 것 금지).
-- OFF 경로 (`ACID_YADV` unset) 은 항상 18/18 + `solver_denner` 발행 바이너리와 byte-identical 유지
-  (round 34 이전엔 19/19 — case15가 round 34에서 suite에서 제외됨, `YADV_RESEARCH.md` §44 참조.
-  이 숫자 변경은 그 자체로 사용자 결정에 의한 1회성 기록이며, 다른 어떤 라운드도 케이스 집합/
+- OFF 경로 (`ACID_YADV` unset) 은 항상 15/15 + `solver_denner` 발행 바이너리와 byte-identical 유지
+  (round 34 이전엔 19/19, round 35 이전엔 18/18 — case15는 round 34, cases 24/33/34는 round 35에서
+  suite에서 제외됨. `YADV_RESEARCH.md` §44/§45 참조. 24/33/34는 case15/32와 **다른 기준** —
+  표현 가능성이 아니라 "전 suite를 하나의 솔버·하나의 기법으로 검증한다"는 사용자 정책. 이 숫자
+  변경들은 그 자체로 사용자 결정에 의한 1회성 기록이며, 다른 어떤 라운드도 케이스 집합/
   게이트 기준/해상도/reference를 통과시키기 위해 바꿀 수 없다는 규칙은 그대로 유지).
   라운드가 이걸 깨면 그 라운드는 실패로 기록하고 merge 하지 않는다.
 - 측정 없는 주장 금지. 실패는 실패로 기록한다 (이 프로젝트의 기존 문화 — YADV_RESEARCH.md 참조).
@@ -149,11 +151,11 @@ Planner 의 응답을 그대로 신뢰하지 않는다. 핵심 구조적 주장 
 W=/home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
 cd $W && rm -rf build-cpp && cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
 cd $W && ./build-cpp/cpp/denner_1d/denner1d_unit                                    # 통과 필수
-cd $W && DENNER_ACID=1 ./build-cpp/cpp/denner_1d/denner1d_validate                  # 18/18 필수 (round 34 이전 19/19)
-cd $W && python3 scripts/yadv_verify.py                                             # 8/8 byte-identical 필수 (round 34 이전 9/9)
+cd $W && DENNER_ACID=1 ./build-cpp/cpp/denner_1d/denner1d_validate                  # 15/15 필수 (round 34 이전 19/19, round 35 이전 18/18)
+cd $W && python3 scripts/yadv_verify.py                                             # 5/5 byte-identical 필수 (round 34 이전 9/9, round 35 이전 8/8)
 ```
 플랜이 정의한 추가 게이트(예: FD-invariance, 특정 케이스 회귀 없음)도 실행. 하드 게이트
-(OFF 18/18+8/8) 실패 시 그 라운드는 **머지하지 않는다** — 원인이 명확하면 되돌리고 실패로 기록,
+(OFF 15/15+5/5) 실패 시 그 라운드는 **머지하지 않는다** — 원인이 명확하면 되돌리고 실패로 기록,
 불명확하면 워크트리 상태를 보존한 채 사람에게 플래그.
 
 ---

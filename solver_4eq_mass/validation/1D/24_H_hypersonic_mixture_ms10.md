@@ -1,6 +1,23 @@
 
 # Validation Case — 1D Shock Wave Propagation in Homogeneous Air-Water Mixture
 
+> **round 35 (2026-08-03) -- MIXTURE 멤버(ψ=0.25/0.50/0.75 = case33/24/34)만 EXCLUDED, 순수상
+> endpoint(ψ=0/1 = case26/27, Ms=100 형제 case28)는 그대로 유지·통과.** 사용자 명시적 결정:
+> "모든 검증을 같은 솔버 및 기법으로 무조건 해야된다 그래서 도저히 4eq mass 로 풀수 없으면
+> 24 33 34 검증은 제외시키는게 맞는 방향같다". case24/33/34는 OFF(alpha-transport) 경로에서는
+> **통과함** -- `case15`/`case32`의 "표현 불가능한 상태" 기준과 **다른 기준**임: 24/33/34는
+> `ACID_YADV=1`(mass-fraction) 경로로는 어떤 수치 개선으로도 통과 불가능함이 이미 두 가지
+> 독립적 방식으로 증명됨(`docs/YADV_RESEARCH.md` §36 closed-form 증명, §41 thermal-disequilibrium
+> 메커니즘 + 4~8라운드 규모 5-eq 재작성 스코프). 사용자는 재작성도, `face_shock` 게이팅 hybrid
+> 기법도 모두 명시적으로 거부하고 -- "전 suite가 하나의 솔버·하나의 기법으로 검증되어야 한다"는
+> 원칙에 따라 제외를 선택함. `cases.cpp`의 case24/33/34 table entry가 주석 처리됨
+> (`cases.cpp:583` 인근) -- config/IC/reference/gate 코드(`compute_case24_shock`,
+> `case24_spec_pass` 포함)는 전부 그대로 유지(향후 솔버 작업용, 15/29/32와 동일 상태). 이
+> 문서 자체는 삭제하지 않고 물리/스펙 기록 + case26/27/28(순수상 endpoint)의 살아있는 스펙으로
+> 유지. **새 헤드라인 수치: OFF path 15/15, `ACID_YADV=1` 15/15 (모두 통과) -- 단 이건 24/33/34를
+> "고쳐서"가 아니라 "제외해서" 얻은 수치임, 반드시 이 조건과 함께 언급할 것.** 상세:
+> `docs/YADV_RESEARCH.md` §36, §41, §45, `docs/YADV_ROUND_35_PLAN.md`.
+
 > **출처:** Denner et al., JCP 367 (2018), §7.4.1
 > **목적:** 균일한 다상 혼합물(Mixture) 매질 내에서 혼합물 상태방정식(Mixture EOS)과 랭킨-휴고니오(Rankine-Hugoniot) 관계식이 강건하고 정확하게 계산되는지 검증
 

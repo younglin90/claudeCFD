@@ -619,13 +619,38 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // single s.alpha is evaluated changes, for a data-dependent cell subset; every other consumer
     // of s.alpha in the same step (mass flux, enthalpy flux, eval_thermo) keeps reading the one
     // alpha, so there is no second-alpha inconsistency to inject (REBUILD_ADV's failure mode).
-    const bool alpha_implicit_cav = std::getenv("ACID_YADV_ALPHA_IMPLICIT_CAV") != nullptr;
+    // ACID_YADV_ALPHA_IMPLICIT_CAV level (round 29). "=1" (or any non-numeric/zero value, i.e.
+    // mere presence -- the pre-round-29 semantics, preserved exactly) keeps the RETRY-SCOPED
+    // mask round 28 shipped. "=2" LATCHES the mask for the whole run: once the (unchanged,
+    // constant-free) infeasibility predicate at the line-search site has fired on a cell, that
+    // cell keeps the implicit-alpha closure. Motivation, all measured in
+    // docs/YADV_ROUND_29_PLAN.md sect.2.3: the retry-scoped mask SHRINKS 70->40 cells over
+    // case15's steps 0-8 (a cell whose pressure is RISING cannot re-trip a test on a downward
+    // pressure demand, so it reverts to the ~521x-too-stiff frozen closure), and its size is
+    // mesh-INDEPENDENT (identical counts at N=400 and N=800, i.e. half the physical width on
+    // the finer mesh), which is what makes case15's own N=800 self-convergence reference not a
+    // refinement of the N=400 scheme.
+    const int cav_level = [] {
+        const char* e = std::getenv("ACID_YADV_ALPHA_IMPLICIT_CAV");
+        if (!e) return 0;
+        const int v = std::atoi(e);
+        return v > 0 ? v : 1;   // presence with a non-numeric/0 value == the old "on" (level 1)
+    }();
+    const bool alpha_implicit_cav = cav_level > 0;
     // ACID_NFEAS (round 28, DIAGNOSTIC ONLY, default OFF, stderr only, applies nothing): reports
     // the ACID_YADV_ALPHA_IMPLICIT_CAV mask (cav[]/cav_n) even when the applying flag is unset,
     // so the blast-radius census (which cells/cases the predicate would fire on) can be measured
     // BEFORE the applying flag ever changes a single bit of output -- round 27's own lesson
     // (measure the harm gate before the target-case metrics) applied one step earlier still.
-    const bool cav_dbg = std::getenv("ACID_NFEAS") != nullptr;
+    // Same level parse as ACID_YADV_ALPHA_IMPLICIT_CAV (round 29): "=2" reports the LATCHED
+    // shadow mask, so the level-2 blast radius can be censused before level 2 is ever applied.
+    const int nfeas_level = [] {
+        const char* e = std::getenv("ACID_NFEAS");
+        if (!e) return 0;
+        const int v = std::atoi(e);
+        return v > 0 ? v : 1;
+    }();
+    const bool cav_dbg = nfeas_level > 0;
     // ACID_YADV_ALPHA_IMPLICIT_T (round 8, Phase-2 Stage 3a, RESEARCH-ONLY, default OFF): star
     // the T-pathway (D_T/N_T -> D_Ts/N_Ts, a_T) in the same J1/J2 Jacobian blocks Stage 1/2
     // starred for p, adding it as the FIXED-POINT derivative (the residual's alpha is lagged one
@@ -1582,6 +1607,22 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // retry body); monotone within a retry -- set only after the line search closes, never
         // cleared, so the residual function it selects is piecewise-constant across the Newton
         // iterations of one retry (no oscillation between two different closures).
+        //
+        // Round 29 note: a run-scoped LATCH variant (level 2 -- skip this reset, so a cell that
+        // ever trips the predicate stays implicit for the rest of the run) was designed, built,
+        // and measured this round (docs/YADV_ROUND_29_PLAN.md sect.3) to remove exactly this
+        // retry-scoping's two measured costs on case15 (a mask-edge pressure notch, and a mesh-
+        // dependent mask width that makes case15's own N=800 self-convergence reference not a
+        // refinement of the N=400 run). REVERTED after the harm gate: case33 -- already failing
+        // under plain B and under level 1, never a regression target -- flips from finite:true to
+        // finite:false (NaN) under level 2. The plan's own pre-registered S5 rule treats "any
+        // previously-finite case becomes NaN" as harm regardless of that case's pass/fail status,
+        // and its anti-rescue clause forbids arguing the case away because it was already failing
+        // -- so S5 fires as written. `ACID_YADV_ALPHA_IMPLICIT_CAV`'s level parse (harmless, level
+        // 1 unaffected, verified G4(a) byte-identical) and `ACID_NFEAS`'s spatial fields stay, as
+        // gated-off diagnostics; the latch mechanism itself (the run-scope hoist + conditional
+        // clear this comment used to describe) does not. See YADV_RESEARCH.md sect.39 for the
+        // full case33 comparison (plain B / level 1 / level 2) that triggered the revert.
         std::vector<char> cav(n, 0);
         int cav_n = 0;
         // ACID_NFEAS-alone (diagnostic, applying flag unset) shadow mask/count: mirrors what
@@ -2479,14 +2520,30 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                         best_it = it;
                     }
                     if (cav_dbg) {
+                        // Round 29: mask geometry (diagnostic-only, print-only, no FP arithmetic
+                        // added to any solution-affecting path). `holes` is the count of cells
+                        // inside [lo,hi] that are NOT masked -- the direct test of whether the
+                        // mask is contiguous (holes==0) or has an interior gap at the stagnation
+                        // point (docs/YADV_ROUND_29_PLAN.md sect.2.4's inference, confirmed here).
+                        auto span = [&](const std::vector<char>& m, int cnt, int& lo, int& hi,
+                                        int& holes) {
+                            lo = -1; hi = -1; holes = 0;
+                            for (int i = 0; i < n; ++i)
+                                if (m[i]) { if (lo < 0) lo = i; hi = i; }
+                            if (lo >= 0) holes = (hi - lo + 1) - cnt;
+                        };
+                        int lo = -1, hi = -1, hol = 0, slo = -1, shi = -1, shol = 0;
+                        span(cav, cav_n, lo, hi, hol);
+                        span(cav_shadow, cav_n_shadow, slo, shi, shol);
                         const char* se = std::getenv("ACID_BLK_STEP");
                         const int rs = se ? std::atoi(se) : -1;
                         if (rs < 0 || rs == step)
                             std::fprintf(stderr,
                                 "NFEAS case=%s step=%d retry=%d it=%d cav_n=%d grew=%d "
-                                "shadow_n=%d shadow_grew=%d r_init=%.4e rnow=%.4e\n",
+                                "shadow_n=%d shadow_grew=%d r_init=%.4e rnow=%.4e "
+                                "n=%d lo=%d hi=%d holes=%d slo=%d shi=%d sholes=%d\n",
                                 c.id.c_str(), step, retry, it, cav_n, grew, cav_n_shadow,
-                                grew_shadow, r_init, rnorm3());
+                                grew_shadow, r_init, rnorm3(), n, lo, hi, hol, slo, shi, shol);
                     }
                 }
                 backtracked_last = (al_acc < 1.0);  // modified-Newton: reassemble next iter if not a full step

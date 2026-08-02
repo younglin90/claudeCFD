@@ -4585,3 +4585,192 @@ python3 scripts/yadv_r27_case15.py overlays
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT_CAV=1 ./build-cpp/cpp/denner_1d/denner1d_validate 2>/dev/null | tail -1
     # sect.38.4, expect pass_count=15/19 (harm gate, checked before any case15 metric)
 ```
+
+## 39. Round 28's "B+CAV density gap" is mostly a reference artifact -- the real, binding blocker
+is case15's stagnation-point core jet, shared with config C; a latch candidate to remove the
+artifact was built, then reverted on a clean S5 (case33 newly diverges)
+
+Third round on case15. `docs/YADV_ROUND_29_PLAN.md`. Round 28 closed the mass collapse and left
+one open question: why does `B+CAV`'s density accuracy fall short of config C's despite
+near-identical mass? This round measured the answer directly before designing anything, and it
+overturns round 28's own framing.
+
+### 39.1 The reported `l2_rho`/`corr_rho` gap lives almost entirely in the N=800 reference, not
+in the N=400 solution
+
+`B+CAV`'s N=400 density field, compared cell-by-cell against config C's own N=400 field:
+`l2_rho=0.001580`, `corr_rho=0.999995` -- **C-grade to 0.16%.** case15's reference is
+`computed_reference(c, 800)` -- the same solver under the same env on a 2x mesh (`cases.cpp:751-
+753`) -- and scoring `B+CAV`'s N=400 solution against C's own N=800 reference instead of its own
+gives `l2_rho=0.01972`, `corr_rho=0.996662`, both clearing their gates and matching C's own
+`0.01966`/`0.996734` to the fifth digit. The reverse also holds: scoring config C's solution
+against `B+CAV`'s own reference makes C's celebrated density accuracy evaporate
+(`l2_rho=0.06925`, `corr_rho=0.957985`) -- the metric is a property of the reference, not of
+either scheme.
+
+The `B+CAV` N=800 reference run itself develops a spurious dense/hot core plug at the stagnation
+point (`rho=662.6`, `p=1.195e4` at `x=0.4963`, where config C's own N=800 reference has
+`rho=86.7`, `p=591`) that poisons the N=800-vs-N=400 comparison this test relies on.
+**Anti-rescue note, stated per the plan's own binding clause**: `l2_rho=0.01972` (against C's
+reference) is a diagnostic number only, never `B+CAV`'s actual gate score -- a config's score is
+and remains its result against its *own* reference; this cross-reference table exists to
+localize the defect, not to claim a pass.
+
+### 39.2 Round 28's own characterization was incomplete: `B+CAV` fails on 6 of 8 case15
+criteria, not 2
+
+The full gate (`validation.cpp:684-729`, all 8 criteria) on `B+CAV` vs its own reference:
+
+| criterion | threshold | B+CAV | config C |
+|---|---|---|---|
+| `l2_rho` | ≤0.05 | **0.06898 FAIL** | 0.01966 |
+| `corr_rho` | ≥0.99 | **0.957806 FAIL** | 0.996734 |
+| `l2_p` | ≤0.18 | 0.13338 PASS | 0.01439 |
+| `corr_p` | ≥0.93 | 0.994056 PASS | 0.999285 |
+| `cj` (part of `smooth_ok`) | ≤max(8,1.10·cj_r) | **25.906 FAIL** | 30.018 (also FAIL) |
+| `p_osc` (part of `osc_ok`) | <0.02 | **0.4476 FAIL** | 0.0000 (PASS) |
+
+Round 28 reported only the first two rows. `smooth_ok` and `osc_ok` were never computed for
+`B+CAV` — corrected here.
+
+### 39.3 Round 28's transition-zone hypothesis is CONFIRMED — but explains the pressure failure,
+not the density one
+
+Where `B+CAV` and config C's N=400 fields actually differ: a spurious ~28 kPa rarefaction notch
+at cells 134-142/258-266 (`x≈0.336-0.356`/`0.644-0.664`) — exactly where the `cav` mask's
+boundary sits at the final steps (mask 130 cells centred on `i=199.5` → edges at `i=135`/`i=264`).
+Config C, uniform with no boundary, has `p_osc=0.0000` and a smooth monotone profile there. The
+density field barely notices (max `|Δrho|=2.53` on ~1000 kg/m³), which is why round 28's
+density-only table missed the mechanism entirely even though its causal guess (a transition-zone
+inconsistency) was directionally right.
+
+### 39.4 The `cav[]` mask is measurably non-monotone across steps -- the mechanism behind both
+the boundary notch and the N=800 plug
+
+`ACID_NFEAS=1`, plain `B+CAV`, case15: the mask **shrinks from 70 cells (step 0) to 40 cells
+(step 8)** before growing again, at N=400 *and*, digit-for-digit identically, at N=800. Since
+`cav[]` is retry-scoped (declared inside the retry body, reset every step), a cell whose pressure
+is *rising* -- the stagnation-point cell being compressed by the core jet -- cannot re-trip a test
+on a *downward* pressure demand, reverts to the ≈521x-too-stiff frozen closure for a whole step,
+and gets compressed further: a positive feedback. Separately, the per-step mask *cell count* is
+identical at N=400 and N=800 (not double, as a physically-defined region would be under
+refinement) -- the activation predicate is a per-step pressure-*increment* test whose increment
+scales with `dt∝dx`, so the discrete operator does not become mesh-independent under refinement,
+which is exactly why case15's N=800 self-convergence reference is not a genuine refinement of the
+N=400 scheme for this config.
+
+### 39.5 The binding blocker: the stagnation-point core jet, shared with config C, unreachable by
+any mask candidate
+
+Both `B+CAV` and config C's N=400 solutions show a **4-cell velocity sign reversal** at the exact
+stagnation point (an inward jet piling mass into two central cells against an otherwise outward-
+diverging flow) -- `C400`: `u` runs `-13.84,+18.15,+15.01,-15.01,-18.15,+13.84` across cells
+197-202; `B+CAV400` shows the identical structure at smaller amplitude. Both N=800 references are
+monotone through zero at the sampled points. This is round 27 §4.5's already-characterised defect,
+reproduced independently here. **Config C itself fails case15 on `smooth_ok` alone
+(`cj=30.018`, limit `8.0`)** -- the state any mask-based fix converges toward. Since a latch can
+only move `B+CAV` *toward* C, and C's own `cj` is *worse* than `B+CAV`'s current `25.906`, **no
+member of the implicit-alpha family (plain B, any `cav` variant, or config C) can pass case15
+until the core jet itself is fixed** — and that defect is independent of everything the alpha-
+implicit mechanism touches. This was stated in the round's own plan *before* any Stage-2 number
+existed (§3.5), specifically so no partial result could later be mis-read as a path to a pass.
+
+Also recorded, not acted on: config A (OFF) "passes" case15 19/19 only because its own reference
+is equally degenerate (`nfloor=400/400`, `p≡1.0` everywhere, `alpha≡0.055` frozen) -- the same
+class of degeneracy round 28 §38.2 already corrected for `B+F3`. Saurel/Petitpas/Berry
+(`papers/md/33_saurel_relaxation_multiphase.md` §4.5, literally case15's own test) state the
+physics the frozen-alpha path cannot reproduce by construction: "As gas is present, the pressure
+cannot become negative. To maintain positive pressure, the gas volume fraction increases and
+creates a cavitation pocket." This independently validates the implicit-alpha mechanism and is
+recorded as a finding for a future user escalation about config A's degenerate pass -- not acted
+on this round (no `validation.cpp`/`cases.cpp` edit was made or proposed).
+
+### 39.6 The candidate: a run-scoped latch (`ACID_YADV_ALPHA_IMPLICIT_CAV=2`) -- built,
+harm-gated, and REVERTED
+
+Since a fully successful fix cannot make case15 pass (§39.5), this round's only defensible target
+was removing §39.1/§39.3/§39.4's artifacts (the reference plug and the boundary notch) so case15
+would be left with exactly the one blocker it shares with config C. Candidate: latch `cav[]` for
+the whole run instead of re-earning it every retry, reusing the exact, already-existing,
+constant-free predicate (`sbak.p[i] + om*dxk[i][1] <= 1.0`, the same `1.0` the pressure floor
+clamp two lines below already uses) — no new predicate, no new constant, no second alpha.
+Implementation added a level parse to both `ACID_YADV_ALPHA_IMPLICIT_CAV` and `ACID_NFEAS`
+(`=1` preserves round 28's behaviour exactly; `=2` requests the latch), hoisted the mask to run
+scope, and added spatial fields (`lo`/`hi`/`holes`) to the existing `NFEAS` print.
+
+**Blast-radius census before applying** (`ACID_NFEAS=2`, applying flag unset, all 19 cases):
+case14 (the one case flagged at risk since round 28) has a latched shadow count of **0** across
+its entire run -- confirmed never at risk. G4-early confirmed both the level parse and the
+spatial print left `denner1d_dump` byte-identical to the pre-change build on cases 15/24/25 at
+every level.
+
+**Harm gate (level 2, checked before any case15 metric, per the plan's own pre-registered
+discipline)**: `pass_count=15/19`, fail set `{15,24,33,34}` — identical to plain B's own set. But
+**case33 -- already in the fail set under both plain B and level 1, `finite:true` in both --
+flips to `finite:false` (NaN) under level 2.** The plan's own S5 rule treats "any previously-
+finite case becomes NaN" as harm independent of that case's pass/fail status, and its anti-rescue
+clause explicitly forbids arguing a case away because it was "already failing anyway" — so **S5
+fires exactly as pre-registered.**
+
+**Reverted, per S5's own instruction**: the run-scope hoist and the level-2 conditional-clear
+logic were removed in full; `cav[]`/`cav_shadow[]` are back to their round-28 in-body
+declarations, always reset every retry regardless of level. `ACID_YADV_ALPHA_IMPLICIT_CAV=2` is
+now a verified no-op, degenerating to level 1's exact behaviour (`case33` confirmed `finite:true`
+again, numbers matching level 1 to every printed digit). The level parse itself and `ACID_NFEAS`'s
+spatial fields are **kept** as gated-off diagnostics — they are harmless (level 1 unaffected,
+G4(a)/(b)/(c) all re-verified byte-identical after the revert) and the spatial `NFEAS` output
+remains useful to any future round investigating the mask's geometry.
+
+### 39.7 Verdict: S5 (harm) on the candidate; the round's diagnostic correction stands regardless
+
+Per the plan's own pre-registered rules: T0's harm gate fails on the "previously-finite case
+becomes NaN" clause (case33) even though `pass_count`/fail-set are unchanged — **S5 fires**.
+`consecutive_failures` **incremented to 2** (S5's explicit instruction, honored as written; the
+second increment in three rounds, both on this same case15 mass-collapse-family investigation).
+The latch candidate is reverted in full; only Stage 1's diagnostics (level parse, spatial
+`NFEAS`) merge.
+
+**This does not erase the round's real value.** §39.1-§39.5's diagnosis is unconditional on
+Stage 2's outcome and stands as measured: round 28's own characterization of the accuracy gap was
+materially incomplete (missed `smooth_ok`/`osc_ok` entirely, and attributed to density what was
+actually a reference artifact plus a pressure-only boundary effect). The binding blocker for
+case15 is now sharply identified — the stagnation-point core jet, shared with config C,
+independent of `cav[]` in any form — narrowing round 30's actual target for the first time since
+round 27 named it. Per this project's own culture (rounds 2/4/8/21/27's precedent): a clean,
+correctly-instrumented negative result on the candidate, combined with a genuine correction to
+prior rounds' own framing, is reported in full, not softened by the candidate's failure.
+
+**`ACID_YADV`'s recommended default status is UNCHANGED** (OFF, 15/19). All hard gates held (OFF
+19/19, `ALL GATES OK` unchanged from round 28, unit-test numbers unchanged, `git diff --stat --
+cpp/`: one file, 61 insertions / 4 deletions, no new numeric literal, no `cases.cpp`/
+`validation.cpp` touch, the 1.0 Pa floor untouched).
+
+### 39.8 What round 30 inherits
+
+The core jet (round 27 §4.5, reconfirmed independently here in both `B+CAV` and config C) is now
+unambiguously the single, sharply-defined remaining blocker for case15 under any implicit-alpha
+variant. It is a genuine under-resolution artifact (absent at N=800 in both references, though
+the reference's own linear interpolation cannot resolve sub-fine-cell structure, so this is not
+fully settled) rather than a structural incompatibility — legitimately attackable, but by scheme
+work at the near-vacuum stagnation point, not by anything in the `cav`/alpha-implicit family. Two
+consecutive `consecutive_failures` increments (round 27's `REBUILD_ADV`, this round's latch) on
+attempts *near but not at* the core jet itself suggest round 30 should attack the core jet
+directly rather than propose a third variant adjacent to it.
+
+### 39.9 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+python3 scripts/yadv_r27_case15.py overlays
+    # sect.39.1, expect B+CAV: l2_rho=0.06898 corr_rho=0.957806 (own ref); C: 0.01966/0.996734
+
+DENNER_ACID=1 ACID_YADV=1 ACID_NFEAS=2 ./build-cpp/cpp/denner_1d/denner1d_dump 14 2>&1 >/dev/null \
+    | grep "^NFEAS" | tail -1
+    # sect.39.6, expect shadow_n=0 (case14 never at risk, even under the level-2 latch)
+
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT_CAV=2 ./build-cpp/cpp/denner_1d/denner1d_validate \
+    2>/dev/null | grep '"case":"33"'
+    # sect.39.6, expect finite:true (post-revert; was finite:false before the revert)
+```

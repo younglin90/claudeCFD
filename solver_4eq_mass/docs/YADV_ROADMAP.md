@@ -79,10 +79,67 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 27
+round_counter: 28
 consecutive_failures: 1
 done: false
-next_task: Round 27, first round on the redirected case15 target (see "Current goal" above).
+next_task: Round 28 answered the question round 27 deferred: why does the Eqs.43-44 rebuild
+           preserve mass under config C/B+RECON but not plain B? Answer: adv+remap = M_reb-M_prev
+           is an algebraic identity (ACID_MBAL's own arithmetic), so the real question is "does
+           the rebuild preserve total mass" -- true under C/RECON (both keep the accepted state
+           PTE-consistent, structurally or once-per-step), false under plain B (alpha frozen while
+           p,T move freely; O(dt)-harmless everywhere except the 1 Pa floor, where it becomes
+           O(1)). Measured live (ACID_RHIST, case15 step0, identical starting residual in all 3
+           configs): plain B's discrete continuity has NO ADMISSIBLE SOLUTION in a cavitating cell
+           -- stalls at 86% of r_init, al collapses to 0.016, Newton effectively demands p->-inf;
+           config C converges quadratically to 2.4e-7 in 7 its on the SAME state; B+F3 stalls
+           identically to B (F3 lives outside Newton, cannot touch the infeasibility). Closed-form:
+           case15's Mach-1.9 rarefaction needs Deltap~-1.2e8 Pa at frozen-alpha compressibility --
+           no admissible pressure exists. This retires the whole "fix it at the recovery/rebuild
+           site" candidate family on evidence (REBUILD_ADV already broke 4 cases; B+F3 restores
+           mass but nfloor=400/400, the WHOLE domain floored, l2_p=0 only because the N=800
+           reference is equally collapsed -- a degenerate number, corrected here).
+           Built ACID_YADV_ALPHA_IMPLICIT_CAV (default OFF): makes alpha implicit (config C's own
+           per-cell update) ONLY on cells where an exact, constant-free predicate has fired --
+           "the full Newton step just asked for a pressure at/below the solver's own existing 1.0
+           floor" (the SAME literal, no new constant), tested after the line search closes,
+           monotone within a retry. Diagnostic sibling ACID_NFEAS reports the would-be mask via a
+           SEPARATE shadow count -- found+fixed a bug where the naive version let the
+           "diagnostic-only" flag alone populate the real mask, silently becoming solution-
+           affecting; caught by routine G4-early on cases 15/24, fixed with the shadow-mask split.
+           Blast-radius census BEFORE applying (ACID_NFEAS, plain B, all 19 cases): case15 fires
+           persistently (604), every other nonzero case (24/25/26/27/28/33/34) fires only a
+           handful of cells at step0 and already passes under B or C -- CASE14 (the one case
+           flagged at risk) NEVER FIRES AT ALL. Predicate chosen: P1 (no persistence variant
+           needed). Harm gate (checked BEFORE any case15 metric, round27's lesson applied one step
+           earlier): pass_count=15/19 under B+CAV, fail set IDENTICAL to plain B's own
+           {15,24,33,34} -- zero regression; bonus, case24 now finite:true (was NaN under plain
+           B). R1/R2/R3 all CONFIRM: mass restored to 869.3 (C: 870.6), nfloor 322->0,
+           ACID_MBAL's own budget shows the rebuild now mass-preserving to 1.6% (matching C's
+           near-zero cancellation). R4 (accuracy) DOES NOT HOLD, falling short of even the plan's
+           own predicted C-matching numbers: l2_rho=0.069 vs 0.05 gate (C: 0.020), corr_rho=0.958
+           vs 0.99 gate (C: 0.997) -- though l2_p/corr_p DO clear their own bars. Verdict: S4
+           (neutral) exactly as pre-registered -- mass-collapse mechanism SOLVED and independently
+           verified, but a SEPARATE, unidentified l2_rho/corr_rho-specific accuracy gap remains
+           (plausibly the per-cell/lagged nature of cav[] vs C's uniform treatment -- proposed,
+           not measured). consecutive_failures NOT incremented (stays 1, resets round27's S5
+           streak rather than advancing it). ACID_YADV_ALPHA_IMPLICIT_CAV/ACID_NFEAS committed
+           gated-off. All hard gates held (OFF 19/19, ALL GATES OK unchanged, unit-test numbers
+           unchanged, G4(a)/(b) both clean).
+           Live threads for round 29: (a) case15's now-isolated accuracy gap (B+CAV vs C, density
+           only) -- the round's own real open question; (b) config C's own cj=30 core-jet (round27
+           sect.4.5), still untouched, sits BEHIND (a) since B+CAV doesn't reach C's accuracy to
+           even get there; (c) case13's Jacobian-approximation-sensitivity finding (round22
+           sect.32.1); (d) round21's rho_star continuity predictor / theta_o MWI memory,
+           untouched; (e) max_steps exhaustion (case15 legitimately uses it, PASSES on OFF); (f)
+           case29's (excluded) likely-explained blocker. NOT a live thread: cases 24/33/34 --
+           closed by round 26.
+           Grounded in YADV_RESEARCH.md sect.38, docs/YADV_ROUND_28_PLAN.md.
+```
+
+**Superseded control-state history (round 27's own, for provenance):**
+```
+round_counter: 27 (superseded, see above)
+next_task (superseded): Round 27, first round on the redirected case15 target (see "Current goal" above).
            Re-measured round 7's cj=30.02 finding live, all 7 configs -- reproduces exactly, but
            ONLY under config C (ACID_YADV_ALPHA_IMPLICIT=1); the loop's actual headline config B
            (ACID_YADV=1 alone) instead PASSES cj (2.307 vs 8.0) and fails on l2_rho=0.16761
@@ -658,7 +715,39 @@ not start a new round.
   first increment since round 20). Config C's own `cj=30` core-jet characterised (under-resolved
   near-vacuum, a different failure class from the documented MWI checkerboard), not fixed. All
   hard gates held (OFF 19/19, `ALL GATES OK` unchanged, unit-test numbers unchanged).
-  → `YADV_RESEARCH.md` §37, `docs/YADV_ROUND_27_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §37, `docs/YADV_ROUND_27_PLAN.md`, commit `0a5c0a8`.
+- Round 28: answered the question round 27 deferred -- why does the Eqs.43-44 rebuild preserve
+  mass under config C/`B+RECON` but not plain B? `adv+remap ≡ M_reb−M_prev` is an algebraic
+  identity (`ACID_MBAL`'s own arithmetic), so the real question is whether the rebuild preserves
+  total mass -- true under C/RECON (both keep the accepted state PTE-consistent), false under
+  plain B. **Measured live**: plain B's discrete continuity has **no admissible solution** in a
+  cavitating cell -- stalls at 86% of `r_init`, Newton effectively demands `p→−∞`; config C
+  converges quadratically to `2.4e-7` in 7 iterations on the identical starting state; `B+F3`
+  stalls identically to B (F3 lives outside Newton). Closed-form: case15's Mach-1.9 rarefaction
+  needs `Δp≈−1.2e8 Pa` at frozen-alpha compressibility -- no admissible pressure exists. This
+  retires the whole "fix it at the recovery/rebuild site" family on evidence (`REBUILD_ADV`
+  already broke 4 cases; `B+F3` restores mass but floors the ENTIRE domain, `l2_p=0` only because
+  the reference is equally collapsed -- a degenerate number, corrected here). **Built
+  `ACID_YADV_ALPHA_IMPLICIT_CAV`** (default OFF): makes alpha implicit (config C's own per-cell
+  update) only on cells where an exact, constant-free predicate fires -- "the full Newton step
+  just asked for a pressure at/below the solver's own existing 1.0 floor" (the same literal, no
+  new constant), tested after the line search closes. Diagnostic sibling `ACID_NFEAS` uses a
+  separate shadow count -- found+fixed a bug where the naive version let the diagnostic-only flag
+  populate the real mask, silently becoming solution-affecting; caught by routine G4-early.
+  **Blast-radius census before applying**: case15 fires persistently (604); every other nonzero
+  case fires only a handful of cells at step 0 and already passes under B or C; **case14 (the one
+  at-risk case) never fires at all**. **Harm gate, checked before any case15 metric**:
+  `pass_count=15/19` under `B+CAV`, fail set identical to plain B -- zero regression (bonus:
+  case24 now `finite:true`, was NaN). **R1/R2/R3 all confirm**: mass restored to `869.3` (C:
+  `870.6`), floor cells `322→0`, the rebuild's own budget closes to `1.6%` (matching C's
+  near-zero cancellation). **R4 (accuracy) does not hold**, falling short of even the plan's own
+  predicted C-matching numbers: `l2_rho=0.069` vs the `0.05` gate (C: `0.020`), `corr_rho=0.958`
+  vs the `0.99` gate (C: `0.997`) -- though `l2_p`/`corr_p` clear their own bars. **Verdict: S4
+  (neutral)** -- mass-collapse mechanism solved and independently verified, but a separate,
+  unidentified density-specific accuracy gap remains. `consecutive_failures` **NOT incremented**
+  (stays 1, resets round 27's S5 streak). Flag committed gated-off. All hard gates held (OFF
+  19/19, `ALL GATES OK` unchanged, unit-test numbers unchanged).
+  → `YADV_RESEARCH.md` §38, `docs/YADV_ROUND_28_PLAN.md`, commit TBD.
 
 ## Setup reference
 

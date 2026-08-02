@@ -37,7 +37,8 @@ ACID_ENV_VARS = ("ACID_YADV", "ACID_YADV_ALPHA_IMPLICIT", "ACID_YADV_ALPHA_IMPLI
                   "ACID_YADV_HREINIT", "ACID_RINIT", "ACID_RCELL",
                   "ACID_STALL_ACCEPT", "ACID_STALL_ACCEPT_MAX", "ACID_TSAT", "ACID_AJAC_BLK",
                   "ACID_PROJ_UNTIL", "ACID_ADRIFT", "ACID_RECON_NULL",
-                  "ACID_F3", "ACID_YADV_F3", "ACID_MBAL")
+                  "ACID_F3", "ACID_YADV_F3", "ACID_MBAL",
+                  "ACID_NFEAS", "ACID_YADV_ALPHA_IMPLICIT_CAV")
 
 CONFIGS = [
     ("A", "OFF", {}),

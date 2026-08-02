@@ -27,6 +27,7 @@ ACID_ENV_VARS = (
     "ACID_STALL_ACCEPT", "ACID_STALL_ACCEPT_MAX", "ACID_TSAT", "ACID_AJAC_BLK",
     "ACID_PROJ_UNTIL", "ACID_ADRIFT", "ACID_RECON_NULL",
     "ACID_F3", "ACID_YADV_F3", "ACID_TEND_SCALE", "ACID_DBG", "ACID_MBAL",
+    "ACID_NFEAS", "ACID_YADV_ALPHA_IMPLICIT_CAV",
 )
 
 CONFIGS = [
@@ -162,6 +163,7 @@ def overlays():
         ("B+RESYNC", {"ACID_YADV": "1", "ACID_YADV_RESYNC": "1"}),
         ("B+HREINIT", {"ACID_YADV": "1", "ACID_YADV_HREINIT": "1"}),
         ("C (=B+IMPLICIT)", {"ACID_YADV": "1", "ACID_YADV_ALPHA_IMPLICIT": "1"}),
+        ("B+CAV (round 28)", {"ACID_YADV": "1", "ACID_YADV_ALPHA_IMPLICIT_CAV": "1"}),
     ]
     N = 400
     dx = 1.0 / N

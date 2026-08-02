@@ -591,6 +591,41 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // must keep reproducing the already-documented, already-committed round-3 behaviour (15/19);
     // this flag exists only so the round-4 measurement remains reproducible.
     const bool alpha_implicit = std::getenv("ACID_YADV_ALPHA_IMPLICIT") != nullptr;
+    // ACID_YADV_ALPHA_IMPLICIT_CAV (round 28, RESEARCH-ONLY, default OFF; inert unless
+    // ACID_YADV): a per-cell, constant-free version of ACID_YADV_ALPHA_IMPLICIT above, active
+    // only in cells where the frozen-alpha Newton system has just been measured to have NO
+    // admissible solution (round 27's case15 mass-collapse diagnosis, continued: the collapse is
+    // downstream of an INFEASIBLE residual, not a bookkeeping defect at the recovery/rebuild
+    // site -- ACID_YADV_REBUILD_ADV, round 27, tried the bookkeeping route and broke 4 previously
+    // -passing cases). The frozen-composition compressibility drhodp (acid.cpp:326) understates
+    // the true PTE compressibility by the factor this file's own Jacobian comment already
+    // measures ("D_p 1.00196e-06 -> D_p* 5.22580e-04, a factor 521.56") -- for case15's Mach-1.9
+    // double rarefaction that gap makes the linearised system demand an unboundedly negative
+    // pressure every iteration, so the line search pins at the 1.0 Pa floor and stalls at ~86%
+    // of r_init rather than converging. The per-cell mask (ACID_NFEAS, declared alongside this
+    // flag, computed at the line-search site) fires the EXACT, constant-free predicate "the full
+    // Newton step just asked for a pressure at or below the solver's own existing floor" -- no
+    // new threshold, the literal 1.0 is the SAME floor two lines below at the clamp site. With
+    // the predicate never firing this is byte-identical to plain ACID_YADV=1 (15/19); with it
+    // firing on every cell it is byte-identical to ACID_YADV_ALPHA_IMPLICIT=1 above (14/19,
+    // config C) -- so this flag's worst-case behaviour is bounded by a config this suite has run
+    // every round for 24 rounds, not an unmeasured new state (contrast with REBUILD_ADV, which
+    // created a genuinely new state and broke cases 07/13/14/25 nothing in its own derivation
+    // predicted). Measured before proposing: case15 is the ONLY case in the 19-case suite whose
+    // pressure ever reaches the 1.0 Pa floor (case13's own minimum, the runner-up, is 4 orders of
+    // magnitude away) -- case14 is the sole case at risk of a pass/fail flip, since it is the
+    // only case where B and C themselves already disagree on pass/fail (docs/YADV_ROUND_28_PLAN.md
+    // sect.3.4). Never touches the Eqs.43-44 old-level rebuild, Yv, s.p, or s.T -- only WHEN the
+    // single s.alpha is evaluated changes, for a data-dependent cell subset; every other consumer
+    // of s.alpha in the same step (mass flux, enthalpy flux, eval_thermo) keeps reading the one
+    // alpha, so there is no second-alpha inconsistency to inject (REBUILD_ADV's failure mode).
+    const bool alpha_implicit_cav = std::getenv("ACID_YADV_ALPHA_IMPLICIT_CAV") != nullptr;
+    // ACID_NFEAS (round 28, DIAGNOSTIC ONLY, default OFF, stderr only, applies nothing): reports
+    // the ACID_YADV_ALPHA_IMPLICIT_CAV mask (cav[]/cav_n) even when the applying flag is unset,
+    // so the blast-radius census (which cells/cases the predicate would fire on) can be measured
+    // BEFORE the applying flag ever changes a single bit of output -- round 27's own lesson
+    // (measure the harm gate before the target-case metrics) applied one step earlier still.
+    const bool cav_dbg = std::getenv("ACID_NFEAS") != nullptr;
     // ACID_YADV_ALPHA_IMPLICIT_T (round 8, Phase-2 Stage 3a, RESEARCH-ONLY, default OFF): star
     // the T-pathway (D_T/N_T -> D_Ts/N_Ts, a_T) in the same J1/J2 Jacobian blocks Stage 1/2
     // starred for p, adding it as the FIXED-POINT derivative (the residual's alpha is lagged one
@@ -1541,6 +1576,19 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         // reusable ghost scratch (OPT3): compute_R fills these 5 every call instead of allocating
         // 5 fresh vectors -- removes ~5 malloc/free per residual eval (millions over a run).
         Vec g_pe(n + 4), g_ue(n + 4), g_re(n + 4), g_Te(n + 4), g_ae(n + 4);
+        // Round 28: per-cell "frozen-alpha continuity is infeasible here" mask (ACID_NFEAS /
+        // ACID_YADV_ALPHA_IMPLICIT_CAV). Declared here, before compute_R's own definition, so the
+        // lambda's [&] capture sees it. Reset every retry restart (this declaration is inside the
+        // retry body); monotone within a retry -- set only after the line search closes, never
+        // cleared, so the residual function it selects is piecewise-constant across the Newton
+        // iterations of one retry (no oscillation between two different closures).
+        std::vector<char> cav(n, 0);
+        int cav_n = 0;
+        // ACID_NFEAS-alone (diagnostic, applying flag unset) shadow mask/count: mirrors what
+        // cav[]/cav_n WOULD be under ACID_YADV_ALPHA_IMPLICIT_CAV=1, without ever writing the
+        // real cav[] that the solution-affecting consumers read. See the mask setter below.
+        std::vector<char> cav_shadow(n, 0);
+        int cav_n_shadow = 0;
         auto compute_R = [&]() {
             // --- ACID_YADV (round 4, task (b)): alpha as an IMPLICIT function of the Newton
             //     unknowns. On this path alpha is DERIVED from the transported Y at the current
@@ -1560,8 +1608,9 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             //     RESEARCH-ONLY, gated by ACID_YADV_ALPHA_IMPLICIT (default OFF, see the flag's
             //     declaration above) -- a measured net regression under the default analytic
             //     Jacobian, so plain ACID_YADV=1 must NOT pick this up implicitly.
-            if (yadv && alpha_implicit) {
+            if (yadv && (alpha_implicit || cav_n > 0)) {
                 for (int i = 0; i < n; ++i) {
+                    if (!(alpha_implicit || cav[i])) continue;
                     const double pu = std::max(s.p[i], 1.0), Tu = std::max(s.T[i], 1e-6);
                     s.alpha[i] = std::clamp(alpha_from_mass_fraction(Yv[i],
                                                                      phase_props(pu, Tu, A).rho,
@@ -2134,7 +2183,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                         // below ~78 K. Starring therefore also removes an existing 1/hsT
                         // near-singularity, not introduces one. Algebraically zero (not bitwise)
                         // for every b=0 phase pair -- 17 of 19 cases, perturbation <=1 ulp.
-                        const bool aimp = yadv && alpha_implicit;
+                        const bool aimp = yadv && (alpha_implicit || cav[i]);
                         const bool aimpT = aimp && alpha_implicit_t;
                         const double ap = aimp ? dalpha_dp_massfrac(al, pa.zeta, pa.rho,
                                                                         pb.zeta, pb.rho) : 0.0;
@@ -2226,7 +2275,11 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     //     TR-BDF2 would need the flux_w scaling on these rows, but
                     //     tr_bdf2 => ajac=false (~1274), so this block only ever runs at
                     //     flux_w == 1. Guarded by that fact, deliberately not by code.
-                    if (yadv && alpha_implicit) {
+                    // Round 28: widened to cav_n>0 alongside alpha_implicit -- alp_p/alp_h/alp_u
+                    // are already correctly zero on non-firing cells (aimp above is per-cell), so
+                    // this only ensures the addend is actually APPLIED when CAV fires under plain
+                    // B (alpha_implicit itself stays false there).
+                    if (yadv && (alpha_implicit || cav_n > 0)) {
                         // Stage 2 (p-column, ap) + Stage 3a (h/u columns, ah/au) of the SAME
                         // product-rule addend -- own-cell alpha's TOTAL sensitivity to every
                         // Newton unknown, in the ACID per-cell mass/momentum/energy flux blend.
@@ -2394,6 +2447,47 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     }
                     compute_R();  // re-derives T from h, eval_thermo, fills Rres+Rene
                     if (rnorm3() < n0 || al < 0.03) break;
+                }
+                // ACID_NFEAS / ACID_YADV_ALPHA_IMPLICIT_CAV (round 28): AFTER the line search
+                // closes (never before -- growing the mask mid-search would make rnorm3() < n0
+                // compare two different residual FUNCTIONS, which could accept a non-descent
+                // step), test the exact, constant-free infeasibility predicate: the FULL
+                // (al_acc==1) Newton step just asked for a pressure at or below the solver's own
+                // existing floor two lines above -- the same literal 1.0, no new constant. This
+                // measures the request BEFORE the al-backtracking loop's own clamp, since a
+                // backtracked/clamped trial can look admissible while the underlying linear
+                // system was not. Monotone (cav[i] only ever set, never cleared, within a
+                // retry) -- the next iteration's own compute_R() re-establishes a consistent
+                // baseline, so no extra compute_R() call is needed here (round 27's
+                // non-idempotency trap is structurally avoided).
+                // ACID_NFEAS alone (cav_dbg, alpha_implicit_cav unset) must NOT write cav[]/cav_n
+                // -- those feed the solution-affecting consumers above (the residual re-derivation
+                // and the two Jacobian aimp gates) regardless of alpha_implicit_cav's own value, so
+                // a diagnostic-only report into a shadow count keeps the instrument a true no-op.
+                if (yadv && (alpha_implicit_cav || cav_dbg)) {
+                    int grew = 0, grew_shadow = 0;
+                    for (int i = 0; i < n; ++i) {
+                        const bool trip = sbak.p[i] + om * dxk[i][1] <= 1.0;
+                        if (alpha_implicit_cav && !cav[i] && trip) { cav[i] = 1; ++cav_n; ++grew; }
+                        if (!cav_shadow[i] && trip) { cav_shadow[i] = 1; ++cav_n_shadow; ++grew_shadow; }
+                    }
+                    if (grew && ajac) {
+                        // the residual function just changed for some cells -- do not compare
+                        // this retry's rbest/best_it (acid.cpp keep-best below) across two
+                        // different residuals.
+                        rbest = std::numeric_limits<double>::max();
+                        best_it = it;
+                    }
+                    if (cav_dbg) {
+                        const char* se = std::getenv("ACID_BLK_STEP");
+                        const int rs = se ? std::atoi(se) : -1;
+                        if (rs < 0 || rs == step)
+                            std::fprintf(stderr,
+                                "NFEAS case=%s step=%d retry=%d it=%d cav_n=%d grew=%d "
+                                "shadow_n=%d shadow_grew=%d r_init=%.4e rnow=%.4e\n",
+                                c.id.c_str(), step, retry, it, cav_n, grew, cav_n_shadow,
+                                grew_shadow, r_init, rnorm3());
+                    }
                 }
                 backtracked_last = (al_acc < 1.0);  // modified-Newton: reassemble next iter if not a full step
                 if (std::getenv("ACID_RHIST")) {

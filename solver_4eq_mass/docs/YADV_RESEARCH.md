@@ -4386,3 +4386,202 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_MBAL=1 $D 15 2>&1 >/de
     | python3 -c "import sys,re; print(sum(float(re.search('remap=(-?[0-9.eE+-]+)',l).group(1)) for l in sys.stdin.readlines()[:85]))"
     # sect.37.4, expect ~79.75 (raw magnitude, NOT small -- exactly cancels adv, net 0)
 ```
+
+## 38. case15's mass collapse is a downstream symptom of an infeasible frozen-alpha Newton
+system -- `ACID_YADV_ALPHA_IMPLICIT_CAV` solves the collapse cleanly (R1/R2/R3 all hold, harm
+gate clean) but does NOT reach config C's accuracy (R4 falls short) -- S4, neutral, gated off
+
+Second round on case15. `docs/YADV_ROUND_28_PLAN.md`. Round 27 named `REMAP` (the Eqs.43-44
+old-level rebuild) as the mechanism destroying 99.92% of case15's mass under plain
+`ACID_YADV=1` (config B), and its one candidate fix (`ACID_YADV_REBUILD_ADV`) broke 4
+previously-passing cases and was reverted. This round asked the harder question round 27's own
+write-up deferred to round 28: *why* does the rebuild preserve mass under config C
+(`ACID_YADV_ALPHA_IMPLICIT=1`) and `B+RECON` but not under plain B — and the answer changes
+where the fix belongs.
+
+### 38.1 `REMAP` cancelling against `ADV` is an algebraic identity, not a coincidence -- the real
+question is `M_reb == M_prev`
+
+`ACID_MBAL`'s own arithmetic (`acid.cpp:2663-2664`): `adv = M_star − M_prev`, `remap = M_reb −
+M_star`, so `adv + remap ≡ M_reb − M_prev` in EVERY config, by construction (`M_star` cancels
+identically). Round 27's "exactly cancelled, net 0.0000" observation under C/B+RECON is
+therefore equivalent to the single statement **"the Eqs.43-44 rebuild preserves the domain's
+total mass"** — true under C and RECON, false under plain B. Since `rho_o[i] ≡
+ρ_mix(Y_new[i],p_o[i],T_o[i])` is an algebraic identity of the rebuild's own formula,
+`M_reb≈M_prev` holds iff the previous accepted state was already PTE-consistent at `(p_o,T_o)` —
+which config C guarantees by re-deriving alpha from `Y` at the CURRENT `(p,T)` on every residual
+call, and `B+RECON` guarantees by reconciling `(p,T,alpha)` from the conserved state once per
+step before the retry loop. Plain B guarantees neither: alpha is frozen at the pre-Newton
+recovery while `(p,T)` moves freely inside Newton, an `O(dt)`-harmless mismatch everywhere except
+at the pressure floor, where `ρ_air(1 Pa, T)≈1.2e-5` forces `alpha→1` for any non-trivial air
+mass fraction and the mismatch becomes `O(1)`.
+
+### 38.2 The actual disease: plain B's discrete continuity has NO admissible solution in a
+cavitating cell
+
+Measured live (`ACID_RHIST`, case15 step 0, identical starting residual `n0=5.9172e7` in all
+three configs):
+
+| config | trajectory | line-search `al` | verdict |
+|---|---|---|---|
+| B | `5.9172e7 → 5.1011e7 → 5.0925e7 → 5.0924e7 → 5.0923e7 → 5.0923e7 → 5.0925e7 ↑` | `1.0,0.25,0.125,0.016,0.016,…` | **stalls at 86% of `r_init`; residual starts rising** |
+| C | `5.9172e7 → 4.847e7 → 3.18e7 → 5.99e6 → 6.28e5 → 5.5e3 → 0.438 → 2.40e-7` | `1.0` throughout | **quadratic convergence, 7 iterations** |
+| B+F3 | `5.9172e7 → 5.1011e7 → 5.0925e7 → 5.0924e7 → 5.0923e7 …` | identical to B | **bit-for-bit the same stall as B** — F3 lives outside the Newton, cannot touch the infeasibility |
+
+Closed-form confirmation: case15's IC (`α=0.055` air-in-water, `p=1e5`, `u=∓100 m/s`, Wood
+sound speed ≈54 m/s, a Mach-1.9 double rarefaction) requires the central cells to lose
+`Δρ≈6×10² kg/m³` in the first step; at frozen `α`, `∂ρ/∂p≈5×10⁻⁶ kg m⁻³ Pa⁻¹`, so the required
+pressure drop is `≈1.2×10⁸ Pa` **below zero**. No admissible pressure exists — clamping at the
+1.0 Pa floor and accepting a large residual is the scheme's only option. `ACID_TEND_SCALE=0.01`
+confirms it in the state variables directly: B has `p=1.2500e4` (`=1e5·0.5³`, the clamp
+signature) spread over ~40 cells with `alpha≡0.055000` **unchanged**; C at the identical time
+has the expansion confined to 2 cells, `alpha=0.314676`.
+
+**This retires an entire family of candidates**, on evidence not assertion: any repair at the
+recovery site, the Eqs.43-44 rebuild, or a once-per-step projection is *downstream* of an
+unsolvable system. `ACID_YADV_REBUILD_ADV` (round 27) already demonstrated this by breaking 4
+cases; `B+F3` demonstrates it a second way (mass restored to 961.98, but `nfloor=400/400` — the
+*entire* domain at the floor, `l2_p=0.00000` only because the N=800 reference is equally
+collapsed, a **degenerate** number round 27's own §3.5 read as "very close" without flagging the
+degeneracy — corrected here); "F3b" (round 25 §8, never built) would fix the bookkeeping of the
+same garbage state and is declined for the same reason.
+
+### 38.3 `ACID_YADV_ALPHA_IMPLICIT_CAV`: implicit alpha, per-cell, gated on an exact predicate
+
+The correct scope of the fix is neither "everywhere" (config C, which costs case14) nor "at the
+recovery site" (downstream, §38.2) but exactly: the cells where the frozen-alpha closure has NO
+solution. The exact, constant-free test, evaluated at the line-search site right after each
+Newton iteration's step is taken:
+
+```
+sbak.p[i] + om * dxk[i][1] <= 1.0
+```
+
+The `1.0` is the SAME literal the pressure clamp two lines below already uses (`acid.cpp:2438`)
+— no new constant introduced. New flag `ACID_YADV_ALPHA_IMPLICIT_CAV` (default OFF, inert unless
+`ACID_YADV`) makes `s.alpha` implicit (re-derived from `Y` at the current `(p,T)`, exactly config
+C's own per-cell update) ONLY on cells where this predicate has fired at least once within the
+current retry — a monotone, retry-scoped mask (`cav[]`), set only after the line search closes
+(never mid-search, which would make the descent test compare two different residual functions).
+Diagnostic sibling `ACID_NFEAS` reports what the mask WOULD be without ever writing the real
+`cav[]` array (a shadow mask/count) — this separation was necessary: the first implementation
+let `ACID_NFEAS` alone populate `cav[]`, silently making the "diagnostic-only" flag
+solution-affecting; caught by a routine G4-early byte-identity check on cases 15/24 before it
+went anywhere, fixed with the shadow-mask split.
+
+**Structural argument for why this differs from `REBUILD_ADV`'s failure mode**: `REBUILD_ADV`
+built the old-level rebuild from a SECOND, different alpha than the one every other consumer in
+the same step read (mass flux, enthalpy flux, `eval_thermo`), injecting an `O(1)` old-vs-new
+mismatch the residual had no way to reject. `ACID_YADV_ALPHA_IMPLICIT_CAV` never touches the old
+level, `Yv`, `s.p`, or `s.T`, and never introduces a second alpha — it changes only WHEN the
+single `s.alpha` is evaluated, for a data-dependent per-cell subset. There is no second
+consistency to break. Its behaviour is also bracketed by two ALREADY-MEASURED configurations
+(predicate never fires ⇒ identical to plain B; predicate always fires ⇒ identical to config C) —
+`REBUILD_ADV` created a genuinely new, previously-unrun state.
+
+**Blast-radius census, measured before applying** (`ACID_NFEAS`, plain B, all 19 cases, count of
+Newton iterations where the predicate would fire):
+
+```
+01=0  02=0  04=0  05=0  07=0  13=0  14=0  15=604  24=9  25=2
+26=2  27=1  28=5  30=0  31=0  33=9  34=10  35=0  36=0
+```
+
+**case15 is the only case with substantial, persistent firing.** case14 — the single case
+flagged as at-risk (the only case where B and C's own `EXPECTED` fail sets already differ) —
+**never fires at all** across its entire run. Every other non-zero case fires only a handful of
+cells at step 0 (an initial-discontinuity transient), and every one of them (24/25/26/27/28/33/34)
+already passes under at least one of B or C, so the predicate's worst-case behaviour there is
+already-measured territory. Decision, recorded before any Stage-2 metric was read: **predicate
+P1 as specified, no P2 persistence variant needed.**
+
+### 38.4 The harm gate — clean, checked BEFORE any case15 metric (round 27's lesson, applied one
+step earlier)
+
+Full 19-case `denner1d_validate` under `B+CAV`, read for `pass_count`/fail-set ONLY:
+
+```
+pass_count=15/19  fail=[15,24,33,34]   <- IDENTICAL to plain B's own fail set
+```
+
+Zero regression. Every case round 27's candidate broke (07/13/14/25) is `pass:true,finite:true`
+under `B+CAV`, unchanged from plain B. **Bonus, unpredicted**: case24 is now `finite:true` under
+`B+CAV` (was `NaN` under plain B) — still fails the gate (closed by round 26 as a closure
+mismatch, not addressable here), but completes rather than diverging. R1 confirmed with margin;
+S5-early does not fire.
+
+### 38.5 case15 under `B+CAV`: R2/R3 confirmed, R4 falls short of even config C's own numbers
+
+| config | `l2_rho` | `corr_rho` | `l2_p` | `corr_p` | `M` (`Σρdx`) | `M_ref` | `nfloor` |
+|---|---|---|---|---|---|---|---|
+| B (plain) | 0.16761 | 0.984514 | 0.16653 | 0.985535 | 0.761 | 2.441 | 322 |
+| C | 0.01966 | 0.996734 | 0.01439 | 0.999285 | 870.610 | 865.543 | 0 |
+| **B+CAV** | **0.06898** | **0.957806** | 0.13338 | 0.994056 | **869.332** | 861.681 | **0** |
+
+**R2 (mass collapse removed) confirmed**: `M=869.332` (target `≥800`) essentially matches C's
+own `870.610`; `nfloor=0` (target `≤5`). **R3 (rebuild becomes mass-preserving) confirmed**:
+`ACID_MBAL` over the 85-step run gives `Σadv=-79.75`, `Σremap=+78.47` — `|Σadv+Σremap|/|Σremap| =
+1.28/78.47 = 1.6%` (target `<5%`), `closure≈1.5e-12` (the instrument's own self-test). The
+mass-conservation mechanism this round targeted works exactly as derived, essentially matching
+config C's own cancellation to within measurement noise from the one-Newton-iteration lag `cav[]`
+inherently carries (it can only fire after a full iteration's step is taken, so the very first
+iteration of every step is always frozen-alpha even in a persistently-cavitating cell).
+
+**R4 (accuracy bars) does NOT hold**, and — reported exactly as measured, per this round's own
+pre-registered discipline, not softened — falls notably short of the plan's own §0.7 prediction
+(`l2_rho≈0.02, corr_rho≈0.997`, i.e. matching config C): `l2_rho=0.06898` vs the `0.05` gate,
+`corr_rho=0.957806` vs the `0.99` gate. `l2_p`/`corr_p` DO clear their bars (`0.13338≤0.18`,
+`0.994056≥0.93`) — the shortfall is specifically on density, not pressure. Since mass is
+restored to within 0.15% of C's own total and the rebuild's own mass-preservation property is
+confirmed to 1.6%, the remaining `l2_rho`/`corr_rho` gap is a DISTINCT, unidentified defect —
+plausibly the per-cell/per-iteration-lagged nature of `cav[]` (only a subset of cells ever
+implicit, only after tripping once) creating some transition-zone inconsistency between
+cav-active and cav-inactive neighbours that config C's uniform, every-cell treatment does not
+have — but this is not measured this round, only proposed as the likeliest lead.
+
+### 38.6 Verdict: S4 (neutral) -- gated off, `consecutive_failures` NOT incremented
+
+Per the plan's own pre-registered rules (`docs/YADV_ROUND_28_PLAN.md` §6): R1 holds (no
+regression, harm gate clean with margin), R2 holds (mass collapse removed), R3 holds (rebuild
+mass-preserving, 1.6% residual), **R4 does not hold** (accuracy bars not cleared, notably short
+of even the plan's own prediction) — **S4 fires exactly as specified**: "R1 holds, R2 holds, but
+R3/R4 fail (mass restored, accuracy still short)." `ACID_YADV_ALPHA_IMPLICIT_CAV`/`ACID_NFEAS`
+committed as gated-off (default OFF) research infrastructure, same precedent as
+`RECON`/`RESYNC`/`F3`/`RECON_NULL`/`MBAL` before them. `consecutive_failures` **NOT incremented**
+— resets the streak round 27's S5 started (was 1, stays 1 rather than advancing toward the
+loop's own 3-strike stop condition), per rounds 13/16/19/21/22/23/24/25's precedent that a
+correctly-instrumented partial result, honestly reported, is measured progress. `ACID_YADV`'s
+recommended default status is UNCHANGED (OFF, 15/19).
+
+**Headline, stated plainly**: this round definitively separated case15's TWO distinct defects.
+The mass-collapse mechanism round 16/27 chased is now solved — mechanistically understood (an
+infeasible frozen-alpha Newton system, not a bookkeeping error), fixed at its actual source (a
+constant-free, blast-radius-audited per-cell implicit-alpha activation), and verified by an
+independent conservation instrument to close within 1.6%. What remains is a SEPARATE,
+`l2_rho`/`corr_rho`-specific accuracy gap that this candidate does not close and that config C's
+own `cj=30` central-jump defect (round 27 §4.5, still untouched) sits behind. Round 29's honest
+starting point is therefore narrower than round 27 left it: not "why does B collapse" (answered)
+but "why is `B+CAV`'s density field measurably worse than config C's, despite near-identical
+mass and an near-identical (though not literally uniform) implicit-alpha treatment."
+
+### 38.7 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+D=./build-cpp/cpp/denner_1d/denner1d_dump
+DENNER_ACID=1 ACID_YADV=1 ACID_RHIST=1 ACID_BLK_STEP=0 ACID_TEND_SCALE=0.05 $D 15 2>&1 >/dev/null | grep RHIST | head -8
+    # sect.38.2, expect B stalls 5.0923e7 with al->0.016
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_RHIST=1 ACID_BLK_STEP=0 ACID_TEND_SCALE=0.05 $D 15 2>&1 >/dev/null | grep RHIST | head -8
+    # sect.38.2, expect C converges to 2.4037e-07 in 7 iterations
+
+DENNER_ACID=1 ACID_YADV=1 ACID_NFEAS=1 $D 15 2>&1 >/dev/null | grep "^NFEAS" | grep -oE "shadow_n=[0-9]+" | sort -t= -k2 -n | tail -1
+    # sect.38.3, expect shadow_n=604 (case15's own persistent firing)
+
+python3 scripts/yadv_r27_case15.py overlays
+    # sect.38.5, expect B+CAV: l2_rho=0.06898 corr_rho=0.957806 M=869.332 nfloor=0
+
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT_CAV=1 ./build-cpp/cpp/denner_1d/denner1d_validate 2>/dev/null | tail -1
+    # sect.38.4, expect pass_count=15/19 (harm gate, checked before any case15 metric)
+```

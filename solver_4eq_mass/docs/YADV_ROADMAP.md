@@ -6,7 +6,41 @@ document — round counter, stop conditions, next-task pointer, one-line-per-rou
 put derivations or measurement tables here; put them in `YADV_RESEARCH.md` (or a per-round plan
 doc) and link to them.
 
-## Current goal — Phase 3a: the cases-24/33/34 conservation defect
+## Current goal — Phase 3c: case15's central-jump defect (redirected from Phase 3a, round 26)
+
+**Redirected 2026-08-02, by explicit user decision (round 26's escalation, `YADV_RESEARCH.md`
+§36).** Phase 3a (cases 24/33/34) is **CLOSED, not solved**: round 26 proved, two independent
+ways (an exact closed-form Riemann solution and a full reachable-shock-family scan), that these
+three cases cannot pass `validate` under `ACID_YADV=1` for any numerical improvement — the
+validation reference holds volume fraction fixed across the shock while `ACID_YADV=1` conserves
+mass fraction, and the two closures differ by O(1) (~2x in `rho`/`p`), not by discretization
+error. Presented to the user as a three-way choice (redirect to case15 / pursue a model
+extension / accept the OFF path validates this family); **user chose redirect**. Consequence:
+`ACID_YADV`'s recommended status stays OFF (15/19, `{15,24,33,34}` fail and are not expected to
+change under this flag); 24/33/34 remain validated via the OFF/alpha-based path (19/19 there,
+unaffected); no further autonomous-loop rounds target 24/33/34 under `ACID_YADV=1` unless a
+future explicit user decision reopens a model-extension thread. Full reasoning, tables, and the
+reusable exact-solution instrument (`scripts/yadv_r26_closure.py`): `YADV_RESEARCH.md` §36,
+`docs/YADV_ROUND_26_PLAN.md`.
+
+**New goal**: case15 (Phase 3b in round 9's original framing, promoted to primary target).
+Round 26 §36.6 confirmed its redirect target is structurally sound — case15's own reference is
+`computed_reference(c, 800)`, the SAME solver under the SAME active config on a finer mesh
+(`cases.cpp:750-753`), so no closure mismatch of the 24/33/34 kind can exist there by
+construction; whatever keeps it failing is a genuine, fixable numerical question. Known defect
+(round 7, `YADV_RESEARCH.md` §17.4): a central-jump/concentration failure at the domain's
+stagnation point, `cj=30.02` vs the gate's threshold `8.0` — structurally unrelated to the
+alpha-Jacobian work Phase 2 completed. **Round 27's job**: produce a fresh plan (Planner call)
+grounded in §17.4's own measurement (now 19 rounds old — re-verify it still holds on current
+`HEAD` before designing a fix, since much has changed in `acid.cpp` since round 7) and case15's
+own documented caveat (`.claude/rules/denner-pitfalls.md`: "case15 (double rarefaction) reference
+is a grid self-consistency test, not exact validation; the 4-eq model has no phase change, so the
+expansion-core pressure hits the EOS floor, not a physical vapour pressure").
+
+---
+
+### Superseded — original Phase 3a framing (kept for provenance, do not re-target 24/33/34
+under `ACID_YADV=1` without a new explicit user decision)
 
 **Re-armed after round 9.** Phase 2 (Stages 0-4) is COMPLETE (`YADV_RESEARCH.md` §19):
 `pass_count >= 14` met and durable since round 6; `ACID_YADV_ALPHA_IMPLICIT` does NOT fold into

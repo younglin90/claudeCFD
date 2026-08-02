@@ -45,45 +45,52 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 25
+round_counter: 26
 consecutive_failures: 0
 done: false
-next_task: Round 25 implemented ACID_YADV_F3 (default OFF, round16 sect.26.3's F3 made concrete) --
-           at the recovery site, recover alpha at the NEW Y's own PTE equilibrium
-           (p*,T*)=pT_from_v_e_massfrac(1/rho,hstat-p_o/rho,Y,A,B) instead of the stale (p_o,T_o).
-           Exactly one s.* write in the whole block (s.alpha[i]=al_f3, grep-verified), so both
-           round22 harm channels (written s.p, written Yv) are structurally impossible, not just
-           unlikely. P0 self-check: live ACID_F3 meter reproduces the plan's hand-computed
-           alpha_F3 to 5 sig figs on case24/33/34. T3: drho/dh at case24/33/34's step-0 front cell
-           improve 5.4-13.7x / 349-1092x -- round24's flagged "same-triple break" risk did NOT
-           materialize as harm. T1/T4/T6: F3 repeatedly converts a STALLED-to-NaN failure into a
-           finite-but-inaccurate completion (case34 under plain B, case24 under B+RECON -- directly
-           confirms round24 sect.34.5's own prediction, case33 under C) -- but T5's full sweep still
-           reads pass_count=15/19, the SAME fail set {15,24,33,34} as plain B: no case flips its
-           pass/fail gate. T2: case13's predicted risk (sect.3.3, l2_p +7.4%, matches the plan's
-           "6-8% worse" prediction) lands well short of the pre-registered harm threshold
-           (u_shock_delta_cells 1->2, not >3); case14 improves (l2_rho -12.5%). T8: phase-mass
-           conservation excluded from drifting BY CONSTRUCTION (Yv never written by F3), stronger
-           than round22's own case-by-case measurement. Verdict: S2 (substantial partial) -- first
-           mechanism moving 24/33/34 without paying 13/14 or conservation, but "moves without
-           regressing" != "solves" (something else, still unidentified, keeps the finite
-           completions inaccurate). consecutive_failures NOT incremented (round13/16/19/21/22/23/24
-           precedent). ACID_YADV_F3/ACID_F3 committed as gated-off research infrastructure.
-           Live threads for round 26, carried forward: (a) F3b (conditional, plan sect.8) --
-           same-triple restoration (Eqs.43-44 at (p*,T*) on F3-applied cells) -- trigger condition
-           only partially met this round (F3a harmless, 24/33/34 still fail, but T3's residual drho
-           is now small so "the plausible remaining obstacle" reading is unclear) -- open, not
-           built; (b) identify the actual binding constraint keeping 24/33/34's now-finite F3
-           completions from `validate pass:true` -- unidentified, this round's own open question;
-           (c) case33's correlation-sign flip under plain B+F3 (corr_p +0.351->-0.817) -- a new
-           failure texture, flagged not investigated; (d) case13's Jacobian-approximation-
-           sensitivity finding (round22 sect.32.1) as its own narrower question; (e) round21's
-           carried-forward thread -- rho_star continuity predictor and theta_o MWI memory,
-           untouched; (f) case33's own difficulty (round15/16's T-ceiling-saturation-from-advection
-           channel) remains fundamentally unsolved; (g) max_steps exhaustion (case15 legitimately
-           uses it and PASSES on OFF -- needs careful design); (h) case29's (excluded)
-           likely-explained blocker -- not pursued, recorded for the record.
-           Grounded in YADV_RESEARCH.md sect.35, docs/YADV_ROUND_25_PLAN.md.
+next_task: ★ESCALATION LIVE★ Round 26 answered round 25's own thread (b) -- "what's the binding
+           constraint keeping 24/33/34's F3 completions from pass:true" -- decisively: it is NOT
+           numerical. cases.cpp's reference (Denner Eqs.57-62) holds VOLUME fraction fixed across
+           the shock (closure A); ACID_YADV=1 conserves MASS fraction (closure B, since Y is
+           uniform pre-shock and rho*Y transports conservatively). Both are exact, admissible RH
+           solutions of the same EOS -- they simply disagree by O(1) (~2x in rho/p) for these
+           three cases. Built + independently cross-validated (P0: exact hand-derivation
+           reproduced live to full double precision; P1: Python gate reimplementation matches
+           denner1d_validate's JSON to spec on 7/7 pairs) a closed-form exact-solution instrument
+           (scripts/yadv_r26_closure.py, zero C++ changes). T1: the EXACT config-B answer fails
+           the gate by 2-3.4x on l2_p/l2_u/l2_rho and 31-40x on dip, all three cases. T2: the
+           ENTIRE reachable single-shock family (density-vs-pressure locus scan) also fails --
+           no numerical improvement can pass. T3: where the solver reaches a genuine flat plateau
+           (ACID_TEND_SCALE window), it matches the exact closure-B answer to 0.17%-8.74%
+           (median ~2-4%) -- the solver is close to correct FOR ITS OWN MODEL; the gate is
+           checking a different model. T6 resolves round25's own open thread (c): case33's
+           corr_p sign flip under F3 is the solution moving TOWARD the model's own (increasing-
+           pressure) answer, not away from correctness. T7: case15's redirect target confirmed
+           structurally sound (reference tracks the active config, no analogous mismatch).
+           Verdict: S1 (structural obstruction CONFIRMED) + S2 (solver vindicated, with one
+           metric at 6.15% vs the 5% bar -- reported honestly, not rounded away).
+           consecutive_failures NOT incremented (round5/9/11 precedent -- resolving a
+           long-open question is measured progress even without a pass_count change).
+           **This is an escalation, not a recommendation**: cases 24/33/34 CANNOT pass under
+           ACID_YADV=1 without one of (i) accepting the OFF/alpha-based path validates this
+           family instead, (ii) a genuine model extension (interphase mass transfer / relaxation
+           source -- explicitly out of this loop's authorized scope per the anti-rescue clause),
+           or (iii) revising what "all cases pass" means for this family. None of these three is
+           a decision the autonomous loop is authorized to make unilaterally -- surfaced to the
+           user this round instead of silently continuing to grind rounds against a
+           mathematically-proven-unreachable target.
+           Live threads NOT blocked by this finding, available for round 27 if the user directs
+           continuation: (a) case15's own defect (round7's cj=30.02 vs 8.0 central-jump
+           criterion) -- confirmed reachable (T7), untouched by any prior round since 7; (b) F3b
+           (round25 sect.8) -- now understood to target a residual defect (T3's drho, already
+           5-14x reduced by plain F3) far smaller than the O(1) gap this round measured, so its
+           motivation is weaker than round25 could tell, not withdrawn; (c) case13's Jacobian-
+           approximation-sensitivity finding (round22 sect.32.1); (d) round21's rho_star
+           continuity predictor / theta_o MWI memory, untouched; (e) the stall/front-speed
+           anomalies noted in sect.36.4 (B+RECON+F3 appears to slow the front on case24/34,
+           unexplained); (f) max_steps exhaustion (case15 legitimately uses it, PASSES on OFF);
+           (g) case29's (excluded) likely-explained blocker.
+           Grounded in YADV_RESEARCH.md sect.36, docs/YADV_ROUND_26_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -510,7 +517,31 @@ not start a new round.
   completions stay inaccurate -- something else, still unidentified, is the actual binding
   constraint. `consecutive_failures` NOT incremented. Flag committed gated-off. All hard gates held
   (OFF 19/19, `ALL GATES OK` unchanged from round 24, unit-test numbers unchanged).
-  → `YADV_RESEARCH.md` §35, `docs/YADV_ROUND_25_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §35, `docs/YADV_ROUND_25_PLAN.md`, commit `12fb88d`.
+- Round 26: **ESCALATION.** Answered round 25's own thread (b) decisively: the binding constraint
+  on cases 24/33/34 is a **closure mismatch, not a numerical defect**. `cases.cpp`'s reference
+  (Denner Eqs.57-62) holds VOLUME fraction fixed across the shock (closure A); `ACID_YADV=1`
+  conserves MASS fraction (closure B, since `Y` is uniform pre-shock and `rho*Y` transports
+  conservatively) -- both exact, admissible RH solutions of the same EOS, differing by O(1) (~2x
+  in `rho`/`p`). Built `scripts/yadv_r26_closure.py` (zero C++ changes) -- an exact-solution
+  instrument, cross-validated twice: **P0** reproduces the plan's hand-derived closure-A/B tables
+  live to full double precision; **P1** matches `denner1d_validate`'s own JSON to spec on 7/7
+  `(case,config)` pairs. **T1**: the EXACT config-B answer fails the gate by 2-3.4x on
+  `l2_p/l2_u/l2_rho` and 31-40x on `dip`, all three cases. **T2**: the entire reachable
+  single-shock family also fails -- no numerical improvement can pass. **T3**: where the solver
+  reaches a genuine flat plateau, it matches the exact closure-B answer to 0.17%-8.74% (median
+  ~2-4%) -- the solver is close to correct FOR ITS OWN MODEL. **T6** resolves round 25's own
+  open thread (c): case33's `corr_p` sign flip under F3 is motion TOWARD the model's own answer,
+  not away from correctness. **T7**: case15's redirect target confirmed structurally sound.
+  **Verdict: S1 (structural obstruction CONFIRMED) + S2 (solver vindicated, one metric at 6.15%
+  vs the 5% bar, reported honestly)**. `consecutive_failures` NOT incremented (round 5/9/11
+  precedent). **Surfaced to the user as an escalation**, not resolved unilaterally: 24/33/34
+  cannot pass under `ACID_YADV=1` without (i) accepting the OFF path validates this family
+  instead, (ii) a genuine model extension (out of this loop's authorized scope), or (iii)
+  revising what "all cases pass" means for this family -- none decidable by the autonomous loop
+  alone. All hard gates held (OFF 19/19, `ALL GATES OK` unchanged from round 25, unit-test
+  numbers unchanged, zero `cpp/` diff).
+  → `YADV_RESEARCH.md` §36, `docs/YADV_ROUND_26_PLAN.md`, commit TBD.
 
 ## Setup reference
 

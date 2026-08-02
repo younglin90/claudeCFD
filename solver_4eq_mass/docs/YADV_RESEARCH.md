@@ -4022,3 +4022,196 @@ DENNER_ACID=1 ACID_YADV=1 ACID_YADV_F3=1 $D 24 2>&1 >/dev/null | grep STALLED
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 ACID_YADV_F3=1 $V 2>/dev/null | grep '"case":"24"'
     # sect.35.3 T4, expect finite:true (vs RECON-alone's stall at step 399)
 ```
+
+## 36. Cases 24/33/34 are structurally unreachable under `ACID_YADV=1` -- a closure mismatch,
+not a numerical defect. Escalation required.
+
+Round 25's own designated thread (b): "identify the actual binding constraint keeping 24/33/34's
+now-finite F3 completions from `validate pass:true`". `docs/YADV_ROUND_26_PLAN.md` (diagnostic-
+only, zero C++ changes, one new file `scripts/yadv_r26_closure.py`). **Answer: the constraint is
+not numerical at all.** The reference these three cases grade against and the model
+`ACID_YADV=1` actually implements are two different, both mathematically exact, closures of the
+same shock -- and the gap between them is O(1), not O(discretization error).
+
+### 36.1 The mechanism, in one paragraph
+
+`cases.cpp:105-151` builds the 24/33/34 reference by Denner's own Eqs.57-62, which explicitly
+**hold the volume fraction fixed** across the shock (`s.alpha_post = s.alpha_pre;  // psi held
+(homogeneous mixture)`, line 148) -- call this closure (A). `acid.cpp:1257-1266` transports
+`rho*Y` (mass fraction) conservatively; since the mixture ahead of the shock is undisturbed and
+uniform, `Y` is unchanged across the shock -- call this closure (B). Both are exact, admissible
+Rankine-Hugoniot solutions of the same per-phase NASG EOS (entropy-increasing, Lax-admissible,
+verified to machine precision, §36.2 P0). They are simply different physical assumptions about
+what stays constant through a strong shock in a homogeneous mixture, and for these three cases
+they disagree by a factor of ~2 in density and pressure. `cases.cpp:69-85` even contains an
+unused helper (`equil_from_p_rho_Y`, flagged "defined but not used" by the compiler at every
+build) directly above `Case24Shock`'s definition, with a comment describing a **Y-conserving**
+reference construction that was evidently tried and replaced by the current alpha-held one -- this
+project's own history already touched this exact fork once before, without naming it as such.
+
+### 36.2 P0/P1 -- the instrument, independently cross-validated
+
+`scripts/yadv_r26_closure.py --stage0` re-derives closure (A) (transcribed line-for-line from
+`compute_case24_shock`) and closure (B) (a new explicit Hugoniot, Eq. B1-B2 in the plan --
+possible because both phases have NASG covolume `b=0`, so `h` and `v` are linear in `T` at fixed
+`p`) and solves the exact **two-shock Riemann problem** the IC actually poses: the region `x<0.1`
+is seeded with closure-(A)'s post-shock state (mass fraction `Y_L`, hundreds of times the
+pre-shock `Y_pre`), so under `Y`-conservation this is a material contact, not a smooth
+continuation, and `left_bc="transmissive"` sustains it. The star-state solve's own internal
+checks (velocity match between the two shock branches, mass/momentum/energy residual across each
+shock, entropy increase, Lax admissibility) all pass to `<5e-16` relative -- **P0 PASS**.
+
+Every number the plan computed by hand *before this round's code existed* was reproduced
+independently, live, to full double precision -- not merely "5 significant digits":
+
+| case | `p*` | `rho*_L` | `rho*_R` | `S_R/Vs_ref` | `x_leadshock` |
+|---|---|---|---|---|---|
+| 24 | 2.040993e+10 | 2208.396 | 827.274 | 1.5802 | 1.2061 |
+| 33 | 8.133623e+09 | 1459.415 | 432.967 | 1.6085 | 1.2259 |
+| 34 | 3.949956e+10 | 2227.475 | 1227.067 | 1.4185 | 1.0929 |
+
+`--gatecheck` re-implements the actual C++ gate (`validation.cpp`'s `rel_scale`, `correlation`
+including its `den<=1e-300 -> return 1.0` degenerate branch, `accumulate`, `gradient_peak_x`,
+`case24_spec_pass`) in Python and matches `denner1d_validate`'s own JSON to the JSON's own
+6-significant-digit precision, plus the exact `pass`/`fail` verdict, on 7 `(case,config)` pairs
+spanning OFF/B/B+F3 across cases 24/33/34 -- **P1 PASS**. (`{26,27,28}` were dumped but not
+asserted against `single_shock_pass`, which this round's gate re-implementation does not cover --
+a scope gap, noted, not load-bearing for the headline claim below.)
+
+### 36.3 T1/T2 -- reachability: the exact answer, and the whole family, both fail the gate
+
+With P0/P1 validated, `--gate` scores the exact config-B Riemann solution (§36.2's four-state
+profile, `N=800`) through the *validated* Python gate:
+
+| metric | threshold | case24 | case33 | case34 |
+|---|---|---|---|---|
+| `l2_p` | ≤0.20 | 0.6689 (3.3x) | 0.6818 (3.4x) | 0.6014 (3.0x) |
+| `l2_u` | ≤0.20 | 0.4001 (2.0x) | 0.3986 (2.0x) | 0.4080 (2.0x) |
+| `l2_rho` | ≤0.20 | 0.4337 (2.2x) | 0.4267 (2.1x) | 0.4043 (2.0x) |
+| `dip` | ≤0.02 | 0.7586 (37.9x) | 0.8043 (40.2x) | 0.6214 (31.1x) |
+| `pass` | -- | **False** | **False** | **False** |
+
+Every case exceeds the S1 trigger (≥2 of `l2_p/l2_u/l2_rho` by ≥1.5x, `dip` by ≥10x) by a wide
+margin -- the exact answer is not close to passing, it is off by a factor of 2-40 depending on
+the metric. `--reachable` then drops the specific initial data and scans the **entire**
+admissible closure-(B) locus (log-spaced pressure sweep, `p0*1.0001` to `1e18`): the maximum
+reachable post-shock density under `Y`-conservation is bounded (`rho_max^B` = 988.10/953.66/
+1232.13 for 24/33/34), because the mixture Hugoniot's density is non-monotone in pressure --
+water's incompressibility eventually dominates and further heating no longer increases density.
+No pressure on the whole locus reaches the gate's requirement (`dip_bound` at the best point is
+still 32.0x/12.3x/30.9x over threshold for the three cases) -- **T1/T2 confirm S1: no numerical
+improvement to the current model can pass these three cases.**
+
+### 36.4 T3 -- fidelity: where the solver DOES reach a genuine plateau, it agrees with the exact
+closure-(B) answer to a few percent
+
+The leading shock exits the 800-cell domain before `t_end` in the exact solution (§36.2), so the
+jump cannot be observed there; `--window 0.6` uses `ACID_TEND_SCALE=0.6` (round 11's own
+observation-window knob, `acid.cpp:784-804`) to stop the solver at 60% of `t_end`, with a
+null-run guard (reject `STALLED`/`DIVERGED` or a last-`t` short of `0.99*sigma*t_end`) and a
+plateau-flatness guard (reject if the window's own relative spread exceeds ~1%) before comparing
+against the exact `*R` plateau (`p*`, `u*_R`, `rho*_R`):
+
+| case | config | window spread | `p` gap | `u` gap | `rho` gap |
+|---|---|---|---|---|---|
+| 24 | B, B+F3 | -- | REJECTED (still stalled before reaching `sigma*t_end`) | | |
+| 24 | B+RECON+F3 | 0.0000 | REJECTED (front hasn't reached the window yet) | | |
+| 24 | C+F3 | 0.0001 | **1.67%** | **0.61%** | **3.29%** |
+| 33 | B | 1.70 | REJECTED (window straddles the moving shock, not flat) | | |
+| 33 | B+F3 | 0.0003 | 6.15% | **3.22%** | **3.38%** |
+| 33 | B+RECON+F3 | 1.17 | REJECTED (not flat) | | |
+| 33 | C+F3 | 0.0001 | **4.83%** | **1.35%** | 8.74% |
+| 34 | B | -- | REJECTED (stalled) | | |
+| 34 | B+F3 | 0.0032 | **0.54%** | **0.30%** | **2.42%** |
+| 34 | B+RECON+F3 | 0.0000 | REJECTED (front hasn't reached the window yet) | | |
+| 34 | C+F3 | 0.0001 | **0.42%** | **0.17%** | **0.85%** |
+
+Every run whose window passed the flatness guard (spread < 1%) matches the exact closure-(B)
+plateau to **0.17%-8.74%**, median around 2-4%; the single metric over the plan's pre-registered
+5% bar is case33's `p` under plain `B+F3` (6.15%, though the SAME quantity under `C+F3` is 4.83%,
+under). **This is the fidelity answer**: on the rare occasions this round could observe a clean
+plateau at all, the *finite-but-inaccurate* completions round 25 found are not inaccurate because
+the solver got its own model wrong -- they are close approximations of an exact answer that the
+gate was never going to accept, because the gate is checking a different model's prediction.
+Runs that reject (stalled, or window not yet reached, or not flat) are exactly the ones round 25
+already characterized as unresolved numerical difficulties (the stall itself, and RECON's
+apparent front-speed reduction when combined with F3, unexplained, flagged for a future round --
+not this round's target).
+
+### 36.5 Thread (c) resolved: case33's `corr_p` sign flip (round 25 §35.3) was F3 moving TOWARD
+the model's own answer, not away from correctness
+
+The exact closure-(B) solution predicts `corr_p<0` for cases 24/33 (§36.3's live table:
+`corr_p=-0.2090`/`-0.2848`), because the model's own pressure profile is an **increasing** step
+(`p_L` behind the left shock, `p*>p_L` ahead of it) while the reference's is **decreasing**.
+`--autopsy` measured plain `B`'s case33 pressure profile as essentially flat/slightly decreasing
+(mean `1.076e10 -> 1.075e10` left-to-right, `corr_p=+0.351`, matching round 25's own number
+exactly) and plain `B+F3`'s as genuinely increasing (`6.07e9 -> 1.22e10`, `corr_p=-0.817`,
+also matching round 25 exactly). **F3's `corr_p` sign flip is the solution moving toward the
+model's own (correct) qualitative shape, showing up as a gate regression precisely because the
+gate is checking against the other model.**
+
+### 36.6 T7 -- case15's redirect target is structurally sound (no analogous obstruction)
+
+`cases.cpp:750-753`: case15's reference is `computed_reference(c, 800)` -- the same solver, same
+environment, on a finer mesh. `--redirect` confirms empirically that the `p_ref` column differs
+between OFF and `ACID_YADV=1` dumps (`max|diff|=145.8`) -- the reference genuinely tracks the
+active config, so no closure mismatch of this kind can exist there by construction. Case15's own
+defect (round 7's central-jump criterion, `cj=30.02` vs threshold `8.0`) is untouched by this
+round and remains a candidate for a future round that is NOT blocked by anything found here.
+
+### 36.7 Verdict: S1 + S2 (with one honest caveat), escalation required
+
+Per the plan's pre-registered rules (`docs/YADV_ROUND_26_PLAN.md` §7): **S1 fires** (T1/T2, wide
+margin, all three cases). **S2's criteria are met for the large majority of measured fidelity
+gaps** (0.17%-4.83% on 10 of 11 successfully-flat windows) with **one metric at 6.15%**, 1.15
+percentage points over the pre-registered 5% bar, on a quantity (`p` under plain `B+F3` for
+case33) whose OWN better-conditioned sibling measurement (`C+F3`, same case, same quantity) reads
+4.83%, under. This is reported exactly as measured, not rounded toward the more convenient
+verdict: **the solver is very close to correct for the model it implements, with one measured
+gap slightly exceeding this round's own pre-registered tolerance** -- closer to S2 than S3, but
+not a clean S2. No attempt was made to explain or close that one gap (out of scope; the stall/
+front-speed anomalies noted in §36.4 are the more likely explanation, not a systematic bias).
+
+**Consequence, per S1's own pre-registered clause**: cases 24/33/34 are unreachable under
+`ACID_YADV=1` by any numerical improvement this loop is authorized to make. The anti-rescue
+clause (plan §7) explicitly forbids, without a new explicit user decision: editing `cases.cpp`/
+`validation.cpp` to relax these cases' thresholds or replace their analytic reference; any
+per-cell/per-case/per-regime predicate that switches the Y path back to alpha transport where the
+mixture looks "homogeneous" (a per-case coefficient in disguise, and functionally just the OFF
+path); or any damping/blending/relaxation coefficient that pulls closure (B)'s answer toward
+closure (A) (closure (A) implies +268x to +1621x interphase mass transfer across the shock,
+§11.3 -- reproducing it requires actual phase change, a model extension such as a fifth equation
+or a physically-derived relaxation source, not a numerical fix).
+
+**`ACID_YADV`'s recommended status is UNCHANGED** (default OFF, 15/19). `consecutive_failures`
+is **NOT** incremented -- this is round 5/9/11's precedent (an instrument built, cross-validated
+twice over independently, and a definitive, previously-open question resolved, is measured
+progress even though it does not move `pass_count`). F3b (round 25 §8) is now understood to have
+been chasing a residual defect (§36.4's `drho` already reduced 5-14x by plain F3) that sits far
+below the O(1) model-level gap this round measured -- it is not withdrawn, but its motivation is
+now known to be smaller than round 25 could tell.
+
+**This section is an escalation, not a recommendation.** The user's own stated goal for this
+loop ("keep improving until all 19 cases, including sub-cases, pass under the mass-fraction
+path") cannot be met for cases 24/33/34 without one of: (i) accepting that these three cases
+validate a *different* solver mode (e.g. the existing alpha-based OFF path, which already passes
+them, rather than `ACID_YADV=1`), (ii) building a genuine model extension (interphase mass
+transfer / relaxation source) to make `ACID_YADV=1` converge toward closure (A) physically, which
+is explicitly out of this autonomous loop's authorized scope (the anti-rescue clause), or (iii)
+revising what "all validation cases pass" means for this specific family. None of these three is
+a decision this loop is authorized to make unilaterally.
+
+### 36.8 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+python3 scripts/yadv_r26_closure.py --stage0      # P0: exact reproduction of sect.36.2's table
+python3 scripts/yadv_r26_closure.py --gatecheck   # P1: matches denner1d_validate JSON, 7/7
+python3 scripts/yadv_r26_closure.py --gate --reachable   # T1/T2: sect.36.3's table
+python3 scripts/yadv_r26_closure.py --window 0.6  # T3: sect.36.4's table
+python3 scripts/yadv_r26_closure.py --autopsy     # T6 (thread c): sect.36.5
+python3 scripts/yadv_r26_closure.py --redirect    # T7: sect.36.6
+```

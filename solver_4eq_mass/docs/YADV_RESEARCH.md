@@ -4215,3 +4215,174 @@ python3 scripts/yadv_r26_closure.py --window 0.6  # T3: sect.36.4's table
 python3 scripts/yadv_r26_closure.py --autopsy     # T6 (thread c): sect.36.5
 python3 scripts/yadv_r26_closure.py --redirect    # T7: sect.36.6
 ```
+
+## 37. case15 (redirected target, round 26): round 7's `cj=30` blocker only applies to config C;
+config B fails on a 99.92%-mass-collapsing "vacuum blister" (round 16's own named mechanism) --
+`ACID_MBAL` instrument built and cross-validated; the one pre-registered candidate fix (`ACID_YADV_REBUILD_ADV`) is a clean, severe negative result, reverted
+
+First round on the redirected target (`docs/YADV_ROADMAP.md`'s "Current goal", set this round by
+explicit user decision after round 26's escalation). `docs/YADV_ROUND_27_PLAN.md` (diagnostic +
+one pre-specified conditional fix, Planner grounded in a fresh, from-scratch re-measurement of
+round 7's `YADV_RESEARCH.md` §17.4 claim rather than trusting its 19-round-old citations).
+
+### 37.1 Round 7's `cj=30.02` finding is confirmed, but was silently config-scoped
+
+Live re-verification (`scripts/yadv_r27_case15.py sweep`, `N=400`, all 7 standard configs) finds
+round 7's exact numbers reproduce to 5 significant figures (`cj=30.018, mj=31.998, cc=0.11746`)
+-- but **only under configs C/D/F** (`ACID_YADV_ALPHA_IMPLICIT=1`). The round 27 briefing's own
+live spot-check (`ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1`) had conflated config C with the loop's
+actual headline config B (`ACID_YADV=1` alone); the Planner caught this and re-measured properly.
+
+**Under plain config B, `cj=2.307` -- passing its `8.0` threshold with a 3.5x margin.** B instead
+fails on `l2_rho=0.16761` (threshold `0.05`, 3.4x over) and `corr_rho=0.984514` (threshold
+`0.99`). `p_osc=r_osc=0` in every one of the 7 configs -- the oscillation guard is not involved
+anywhere, confirming round 7's `osc_ok=True` finding across the board, 19 rounds later.
+
+### 37.2 Config B's `l2_rho` failure has a measured, unambiguous cause: 99.92% of the domain
+mass is deleted
+
+`Σρdx` (the discrete domain mass at `N=400`) goes `945.07 → 0.761` under plain B by `t_end`,
+against a reference mass of `2.441` at the finer `N=800` mesh the reference is built from --
+config C, by contrast, ends at `870.6` kg, an 8% loss consistent with genuine transmissive
+outflow, with **zero** cells ever touching the pressure floor. Under B, 322/400 cells sit at the
+`p=1.0` Pa floor by `t_end`; under C, none ever do. `ACID_TEND_SCALE` traces (zero code changes)
+show the mass loss switches on in the exact step interval where the first floor cells appear and
+tracks the floor-cell count monotonically thereafter -- the strongest single piece of evidence in
+the round, and it cost nothing. The mechanism is the one round 16 §26.1 already named and
+documented in the code itself (`acid.cpp`'s own comment): the "vacuum blister" -- alpha recovered
+from the new `Y` at the STALE old-level `(p_o,T_o)` saturates toward a pure phase once a cell hits
+the floor (`alpha_air(1 Pa, T) → ~1e-5`), and the Eqs.43-44 old-level rebuild right after then
+deletes most of that cell's true mass at the spurious recovered alpha. Round 16 measured this at
+one cell on case24; **case15 under plain B is the same defect running over 80% of the domain for
+85 consecutive steps.**
+
+### 37.3 `ACID_MBAL` -- a new diagnostic that closes the discrete mass budget into four named
+terms
+
+New instrument (`acid.cpp`, default OFF, stderr only, applies nothing): decomposes each step's
+domain mass change into `ADV` (the Y-transport block's own explicit flux, via the retained
+`rho_star` continuity predictor), `REMAP` (the Eqs.43-44 rebuild's re-derivation of `rho_o` from
+the freshly-recovered alpha -- round 16's blister, made measurable in aggregate for the first
+time), `BND` (physical transmissive boundary outflow), and `RES` (the accepted iterate's own
+non-zero continuity residual, from the line search pinned at the pressure floor and accepted
+anyway) plus `LEAK` (ACID's own per-cell face-blend mass flux not telescoping between neighbours
+when alpha differs cell-to-cell -- Denner's own Eqs.41-42 design, not a bug, measured rather than
+assumed). The identity `dM = ADV + REMAP - dt·BND - dt·LEAK + dt·RES` is verified by a self-test
+(`closure`) that reads `~1e-13` relative at every one of the 254 printed lines across every
+config tested -- the instrument's own budget genuinely closes.
+
+**A real bug was found and fixed while building this**: the natural implementation calls
+`compute_R()` once, after the step's accept decision, to refresh the residual/flux scratch
+arrays for whatever iterate ended up accepted. `compute_R()` turns out to be **not idempotent**
+under `ACID_YADV`: it re-derives `s.alpha`/`s.T` from `(Yv, s.p, s.h)` via a relaxation update
+(`T += 0.5*(Traw - T)`), which moves `T` further toward `Traw` on every call when Newton has not
+converged -- exactly case15's own regime (`acid.cpp`'s own comment: "case15 cavitation: NEVER
+converges"). The naive instrument therefore silently perturbed the reported solution
+(`ACID_MBAL=1` changed `denner1d_dump`'s stdout on cases 13/15/24, caught by a routine G4
+byte-identity check before it went anywhere). Fixed by snapshotting `s` immediately before the
+extra `compute_R()` call and restoring it immediately after reading the scratch arrays --
+matching the file's own pre-existing `compute_R(); // restore` idiom used elsewhere for
+FD-Jacobian probing. G4 re-verified clean afterward (stdout byte-identical on cases 01/13/15/24
+with `ACID_MBAL=1` set).
+
+### 37.4 The mass-budget measurement: `REMAP` explains 99.67% of B's collapse; the SAME raw term
+is present but exactly self-cancelling under every config that doesn't fail
+
+Integrated over case15's full 85-step `N=400` run (`Σ_steps`, kg/m²):
+
+| config | `Σadv` | `Σremap` | `Σbnd` | `Σleak` | `Σres` | `ΣdM` (measured) | `remap`/`dM` |
+|---|---|---|---|---|---|---|---|
+| B (plain) | −3.50 | **−945.47** | 112.06 | −108.56 | 3.87 | −948.60 (945.07→0.76) | **99.67%** |
+| C (`+IMPLICIT`) | −79.75 | +79.75 | 180.38 | −101.62 | ~0 | −78.76 (945.07→870.6) | **0.0%** (net) |
+| B+F3 | −5.44 | −0.01 | 180.27 | −0.59 | 197.74 | (finite, gate-fails on accuracy, not mass) | ~0% |
+| B+RECON | −179.997 | +179.997 | 180.38 | −0.38 | 195.90 | (as round 21 described) | 0.0% (net) |
+
+`REMAP` dominates `B`'s own budget by a wide margin -- it alone accounts for 99.67% of the total
+mass lost, while `BND` and `LEAK` together net to a mere `3.50` kg (0.37% of `|ΔM|`) and `RES` is
+0.41%. **A precise refinement to the plan's own pre-registered H1(3)/(4) predictions, reported
+honestly rather than rounded to fit**: `REMAP`'s raw magnitude is NOT small under the passing
+configs (C: `79.75`, B+RECON: `179.997` -- both larger in absolute terms than case15's own total
+loss), falsifying the plan's literal "`|Σremap| < 5` kg under C" prediction. What IS true, and
+what actually matters physically, is that under every config that avoids the collapse, `REMAP`'s
+contribution is **exactly cancelled by `ADV`** (`C`: `−79.75+79.75=0.0000`; `B+RECON`:
+`−179.997+179.997=0.0000`; `B+F3` collapses `REMAP` itself to near-zero, `−0.01`, a different but
+equally effective route to the same outcome). Under plain `B` alone, nothing cancels `REMAP` --
+it is the one config where the recovery-site's stale-`(p_o,T_o)` alpha and the Y-transport
+block's own conservative continuity predictor disagree with each other and nothing corrects it.
+This is a materially more precise statement of the mechanism than "remap is small elsewhere" --
+it is "remap is cancelled elsewhere, by a mechanism specific to each corrective flag".
+
+**T4 cross-validation** (case24, step 0, config B, the instrument's own out-of-case control):
+`REMAP = −1.1747` kg/m² (domain-integrated), correctly negative and of the right order of
+magnitude relative to round 16/24's own single-cell `drho≈495` kg/m³ measurement at cell 80
+(`495 × dx(=1.25e-3) ≈ 0.62`, same order as the domain-wide `−1.17` since most of the domain is
+still undisturbed at step 0) -- the instrument reproduces a previously-known, independently-
+measured phenomenon on a different case, not merely case15's own new number.
+
+### 37.5 Stage 2 -- the one pre-registered candidate (`ACID_YADV_REBUILD_ADV`): a clean, severe
+negative result
+
+Per the plan's own §6.4, `REMAP` naming as dominant licensed exactly one pre-specified candidate,
+reusing round 13's existing `dal_remap`/`dal_adv` decomposition (`RMISM`) but *applying* it rather
+than only measuring it: rebuild the Eqs.43-44 old level from `alpha_reb = s0.alpha + dal_adv`
+(the genuinely advective part of the alpha change) instead of the raw recovered `s.alpha`, so a
+cell whose alpha moved for purely thermodynamic reasons keeps its previous old-level mass.
+Implemented behind a new default-OFF flag (`ACID_YADV_REBUILD_ADV`, inert unless `ACID_YADV`),
+touching only the Eqs.43-44 rebuild's `rho_o`/`hstat_o`/`Htot_o` -- `s.alpha` itself and
+`compute_R`'s definition untouched.
+
+**Measured result: severe, unambiguous harm.** `pass_count` under `B+REBUILD_ADV` collapses to
+`11/19` -- **cases 07, 13, 14, and 25, all previously PASSING under plain B, newly diverge to
+NaN**, alongside case15 itself (which also now diverges rather than merely failing on accuracy)
+and the already-failing 24/33/34. This is not a narrow, case-15-scoped cost; it is a solver-wide
+regression touching 4 cases the candidate had no business affecting. Per the plan's own
+pre-registered S5 rule (the only rule in this plan's §7 that calls for reverting the code outright
+rather than keeping it as gated-off research infrastructure, precisely because it anticipated a
+result this unambiguous): **the Stage-2 code is reverted in full** (both the flag declaration and
+the Eqs.43-44 loop's conditional branch), leaving only Stage 1's `ACID_MBAL` instrument merged.
+`consecutive_failures` **+= 1**, per S5's own explicit instruction -- the first increment since
+round 20 (round 21's own S5 outcome kept the flag as inert infra and did NOT increment, a
+different plan's rule; this plan drew the line differently in advance, and the result is honored
+as written).
+
+**Reading, stated plainly**: the naive "rebuild only the advective part" repair breaks the very
+consistency `rho_star`/`dal_remap`/`dal_adv` were built to preserve elsewhere in the codebase --
+round 13's own `RMISM` note already warned rho_star (not rho_old) is load-bearing for exactly
+this reason ("dividing by rho_old ... spontaneously grows the other phase ... case13 FAILS").
+`REMAP`'s thermodynamic-vs-advective split, as computed here, is evidently not separable from the
+rest of the discrete continuity the way the candidate assumed -- a genuinely new, previously-
+untested claim that turned out false, now recorded so it is not retried blindly.
+
+### 37.6 What Stage 1 leaves for round 28 (not this round's job)
+
+`ACID_MBAL` is committed as inert, default-OFF, gated diagnostic infrastructure -- a durable
+instrument, cross-validated (closure ≈1e-13, T4's independent case24 check), for any future round
+that touches this recovery site. `REMAP` is now precisely characterized: dominant under plain B,
+exactly cancelled (not merely small) under every config that avoids the collapse. `config C`'s own
+`cj=30` central-jump defect (§4.5 of the plan) was characterised, NOT fixed -- an under-resolved
+near-vacuum core at the domain's stagnation point (4-cell velocity sign reversal, `p` dropping
+137x across a single cell), a different failure class from the MWI small-`dt` checkerboard already
+documented in `.claude/rules/denner-pitfalls.md` (that one is case25's). Round 28's open
+candidates: (a) a *different* Stage-2 candidate for `B`'s mass collapse -- `REBUILD_ADV`'s failure
+does not mean the collapse is unfixable, only that this specific repair was wrong; (b) config C's
+own `cj=30` core-jet, once B's own defect is resolved or if B is abandoned in favour of C as the
+recommended path; (c) nothing about 24/33/34 -- closed by round 26, untouched here, `ACID_MBAL`
+happened to validate cleanly against case24 as a control only.
+
+### 37.7 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+python3 scripts/yadv_r27_case15.py sweep      # sect.37.1/37.2: per-config cj/mj/cc/l2/mass table
+python3 scripts/yadv_r27_case15.py tend       # sect.37.2: ACID_TEND_SCALE mass-vs-time trace
+python3 scripts/yadv_r27_case15.py overlays   # sect.37.2: F3/RECON/RESYNC/IMPLICIT overlay table
+
+D=./build-cpp/cpp/denner_1d/denner1d_dump
+DENNER_ACID=1 ACID_YADV=1 ACID_MBAL=1 $D 15 2>&1 >/dev/null | head -5
+    # sect.37.4, expect step=1 remap~-69.67, step=2 remap~-112.0 (dominant from the first floor)
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_ALPHA_IMPLICIT=1 ACID_MBAL=1 $D 15 2>&1 >/dev/null \
+    | python3 -c "import sys,re; print(sum(float(re.search('remap=(-?[0-9.eE+-]+)',l).group(1)) for l in sys.stdin.readlines()[:85]))"
+    # sect.37.4, expect ~79.75 (raw magnitude, NOT small -- exactly cancels adv, net 0)
+```

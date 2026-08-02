@@ -745,6 +745,41 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // re-creating the defect in-step even when RECON keeps the step BOUNDARY consistent.
     const bool f3_dbg = std::getenv("ACID_F3") != nullptr;
     const bool yadv_f3 = std::getenv("ACID_YADV_F3") != nullptr;
+    // ACID_MBAL (round 27, DIAGNOSTIC ONLY, default OFF, stderr only, applies nothing): closes
+    // the discrete continuity budget for the whole domain into four named terms, so a mass
+    // collapse (round 16 sect.26.1's "vacuum blister", case15's own 945->0.76 kg/m^2 collapse
+    // under plain ACID_YADV=1, docs/YADV_ROUND_27_PLAN.md sect.3.3-3.4) can be attributed to a
+    // SPECIFIC mechanism instead of asserted. Per step:
+    //   dM_step = M_new - M_prev
+    //           = (M_star - M_prev)             <- ADV : the explicit rho*Y-consistent flux the
+    //                                               Y-transport block already applies (continuity
+    //                                               predictor rho_star, acid.cpp:1261-1264 --
+    //                                               computed and used to divide there, then
+    //                                               discarded; retained here under the flag)
+    //           + (M_reb  - M_star)             <- REMAP: the Eqs.43-44 old-level rebuild
+    //                                               (acid.cpp:~1320-1332) re-derives rho_o from
+    //                                               the JUST-RECOVERED alpha at the OLD (p_o,T_o)
+    //                                               -- zero iff that alpha's implied density
+    //                                               equals the conservative predictor rho_star;
+    //                                               round 16's blister IS this term
+    //           - dt*BND                        <- physical transmissive boundary outflow
+    //           - dt*LEAK                       <- ACID's per-cell face-blend mass flux does not
+    //                                               telescope between neighbours when alpha
+    //                                               differs cell-to-cell (Denner's own Eqs.41-42
+    //                                               design, not a bug) -- measured, not assumed
+    //           + dt*RES                        <- the accepted iterate's own non-zero continuity
+    //                                               residual (line-search pinned at the p>=1 Pa
+    //                                               floor and accepted anyway, acid.cpp:~2585)
+    // `closure = dM_step - (ADV + REMAP - dt*BND - dt*LEAK + dt*RES)` is the instrument's own
+    // self-test (round 26 P0/P1's cross-validation discipline applied to an instrument instead of
+    // a solver) -- must be ~1e-12 relative; a non-closing budget means a term is missing, and that
+    // is reported as such, not silently absorbed. Exact only when bdf_c0==1 and !tr_bdf2 (true for
+    // case15 -- no acoustic source, verified acid.cpp regime auto-selection); the printed line
+    // carries exact=0/1 so a BDF2 case's non-closure is never mistaken for a bug. On the OFF path
+    // (yadv false) M_star does not exist (no Y-transport block runs); ADV/REMAP print as nan, the
+    // other three terms still print -- a genuine control (OFF's own +2.4% mass gain on case15, per
+    // the plan's sect.3.2, gets attributed too). docs/YADV_ROUND_27_PLAN.md sect.4.
+    const bool mbal = std::getenv("ACID_MBAL") != nullptr;
     // ACID_PROJ_UNTIL (round 23, DIAGNOSTIC SWEEP PARAMETER, default unset = always-apply,
     // byte-identical to the pre-round-23 build): caps ACID_YADV_RECON/ACID_YADV_RESYNC's WRITE to
     // steps < N (0/unset -> negative -> "always apply", matching every prior round's behaviour
@@ -1008,6 +1043,11 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         //      interface/shock cases (07,25) take a smaller first step instead of NaN-ing. ----
         const Field s0 = s;
         const Vec Yv0 = Yv;  // ACID_YADV: the transported Y is outside Field -> restore it too
+        // ACID_MBAL's ADV term (M_star - M_prev): only defined on the yadv path (the OFF path
+        // has no rho_star continuity predictor). Declared here (outermost retry-loop scope, not
+        // the nested Y-transport block) so it is still visible at the accept site. See the flag
+        // declaration for the full budget identity.
+        double mbal_Mstar = yadv ? 0.0 : std::numeric_limits<double>::quiet_NaN();
         bool stepped = false;
         // Stage 1 (round 11, DIAGNOSTIC ONLY): carry the last retry's failure reason out of the
         // retry loop so the stall report below can name it. Ints/doubles only -- no FP arithmetic
@@ -1261,6 +1301,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     const double rho_star =
                         yadv_rhoold ? rho_old
                                     : std::max(rho_old - dt / dx * (mdR_o[i] - mdL_o[i]), 1e-300);
+                    if (mbal) mbal_Mstar += rho_star * dx;
                     anew[i] = std::clamp(rY / rho_star, 0.0, 1.0);
                 }
                 Yv = anew;
@@ -1321,6 +1362,10 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         //      alpha at the OLD (p,T). Without this a moved interface injects a spurious
         //      (rho_new - rho_old)/dt source in the continuity. ----
         Vec rho_o(n), hstat_o(n), Htot_o(n);
+        // ACID_MBAL's REMAP term (M_reb - M_star) accumulates here unconditionally (both yadv
+        // on/off) -- on the OFF path M_star is nan so mbal_Mreb - mbal_Mstar reads nan too, and
+        // mbal_Mreb (== M_prev's own re-evaluation there) is still printed as a control.
+        double mbal_Mreb = 0.0;
         for (int i = 0; i < n; ++i) {
             const double al = std::clamp(s.alpha[i], 0.0, 1.0);
             const auto pa = phase_props(std::max(p_o[i], 1.0), std::max(T_o[i], 1e-6), A);
@@ -1328,6 +1373,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             rho_o[i] = std::max(al * pa.rho + (1.0 - al) * pb.rho, 1e-300);
             hstat_o[i] = (al * pa.rho * pa.h + (1.0 - al) * pb.rho * pb.h) / rho_o[i];
             Htot_o[i] = hstat_o[i] + 0.5 * u_o[i] * u_o[i];
+            if (mbal) mbal_Mreb += rho_o[i] * dx;
         }
 
         // RMISM (round 13 Stage 0, docs/YADV_ROUND_13_PLAN.md sect.1): candidate dt-independent
@@ -2595,6 +2641,43 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
             store_theta_o(trg * dt);
         }
         }  // ===== end TR-BDF2 stage loop =====
+        // ACID_MBAL (round 27): close the discrete mass budget for THIS retry's accepted
+        // iterate. Refresh mdotL/mdotR/Rres for the CURRENT s (compute_R fills scratch AND
+        // re-derives s.alpha/s.T from Yv/s.h under ACID_YADV via a T-RELAXATION step that is
+        // NOT idempotent when the Newton hasn't converged -- exactly case15's own regime,
+        // acid.cpp's own comment above: "case15 cavitation: NEVER converges" -- so an
+        // unrestored extra call would perturb the reported solution. Snapshot/restore around
+        // it, matching the existing "compute_R(); // restore" idiom used elsewhere in this
+        // function for FD-Jacobian probing.
+        if (mbal) {
+            const Field s_mbal_backup = s;
+            compute_R();
+            double M_prev = 0.0, M_new = 0.0;
+            for (int i = 0; i < n; ++i) { M_prev += s0.rho[i] * dx; M_new += s.rho[i] * dx; }
+            const double BND = mdotR[n - 1] - mdotL[0];
+            double LEAK = 0.0;
+            for (int i = 0; i < n - 1; ++i) LEAK += mdotR[i] - mdotL[i + 1];
+            double RES = 0.0;
+            for (int i = 0; i < n; ++i) RES += Rres[i][1];
+            const double dM = M_new - M_prev;
+            const double adv = mbal_Mstar - M_prev;          // nan on the OFF path
+            const double remap = mbal_Mreb - mbal_Mstar;     // nan on the OFF path
+            const double rhs = adv + remap - dt * BND - dt * LEAK + dt * RES;
+            const double closure = std::isfinite(rhs) ? (dM - rhs) : (dM - (mbal_Mreb - M_prev
+                                    - dt * BND - dt * LEAK + dt * RES));
+            bool exact = !tr_bdf2;
+            for (int i = 0; i < n && exact; ++i) exact = (bdf_c0[i] == 1.0);
+            const char* se = std::getenv("ACID_BLK_STEP");
+            const int rstep = se ? std::atoi(se) : -1;
+            if (rstep < 0 || rstep == step)
+                std::fprintf(stderr,
+                    "MBAL case=%s step=%d retry=%d dt=%.6e M_prev=%.9e M_star=%.9e "
+                    "M_reb=%.9e M_new=%.9e dM=%.6e adv=%.6e remap=%.6e bnd=%.6e leak=%.6e "
+                    "res=%.6e closure=%.3e exact=%d\n",
+                    c.id.c_str(), step, retry, dt, M_prev, mbal_Mstar, mbal_Mreb, M_new, dM,
+                    adv, remap, dt * BND, dt * LEAK, dt * RES, closure, exact ? 1 : 0);
+            s = s_mbal_backup;  // undo compute_R()'s non-idempotent T-relaxation mutation
+        }
         // adaptive-dt: accept the step only if it stayed finite & bounded, else halve dt.
         // conv-guard (ajac): dt-retry a non-converged step ONLY when it made NO progress at all
         // (rbest >= r_init) -- that means dt is too large (case24/25 at a violent step), so the

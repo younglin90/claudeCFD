@@ -79,10 +79,65 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 26
-consecutive_failures: 0
+round_counter: 27
+consecutive_failures: 1
 done: false
-next_task: ★ESCALATION LIVE★ Round 26 answered round 25's own thread (b) -- "what's the binding
+next_task: Round 27, first round on the redirected case15 target (see "Current goal" above).
+           Re-measured round 7's cj=30.02 finding live, all 7 configs -- reproduces exactly, but
+           ONLY under config C (ACID_YADV_ALPHA_IMPLICIT=1); the loop's actual headline config B
+           (ACID_YADV=1 alone) instead PASSES cj (2.307 vs 8.0) and fails on l2_rho=0.16761
+           (vs 0.05) and corr_rho=0.984514 (vs 0.99). Root cause of B's l2_rho failure: measured,
+           unambiguous -- the run deletes 99.92% of the domain mass (Sigma-rho*dx: 945.07->0.761
+           at N=400), 322/400 cells pinned at the 1.0 Pa floor by t_end, vs config C's clean 8%
+           physical-outflow loss and zero floor cells. Mechanism = round16 sect.26.1's own named
+           "vacuum blister" (alpha recovered at the stale (p_o,T_o) saturates once a cell floors,
+           then the Eqs.43-44 rebuild deletes the cell's true mass at that spurious alpha) --
+           previously measured at one case24 cell, here running over 80% of case15's domain for
+           85 consecutive steps. Built ACID_MBAL (default OFF, stderr-only instrument): closes
+           the discrete mass budget into ADV/REMAP/BND/LEAK/RES, self-test closure~1e-13 at every
+           step across every config tested. Found+fixed a real bug while building it: the natural
+           implementation's extra compute_R() call is NOT idempotent under ACID_YADV (a
+           T-relaxation update that keeps moving T when Newton hasn't converged -- case15's own
+           regime) and silently perturbed the reported solution; caught by routine G4, fixed with
+           a snapshot/restore. Measurement: REMAP explains 99.67% of B's collapse (Sigma over 85
+           steps: -945.47 of -948.60 total); under every config that AVOIDS the collapse (C,
+           B+RECON, B+F3), REMAP's raw magnitude is NOT small (C: 79.75, B+RECON: 179.997, both
+           LARGER than case15's own total loss) -- it is instead EXACTLY CANCELLED by ADV (net
+           0.0000 in both C and B+RECON) or collapsed directly to ~0 by F3. A materially more
+           precise mechanism statement than the plan's own pre-registered prediction, reported
+           honestly rather than rounded to fit. T4 cross-validated the instrument against round
+           16/24's already-known case24 blister (correct sign, correct order of magnitude).
+           Stage 2 (the one pre-registered candidate, ACID_YADV_REBUILD_ADV -- rebuild the old
+           level from the advective-only part of the alpha change): SEVERE, CLEAN NEGATIVE
+           RESULT. pass_count collapses 15/19 -> 11/19 -- cases 07/13/14/25, all previously
+           PASSING under plain B, newly diverge to NaN, a solver-wide regression the candidate
+           had no business causing. Per the plan's own pre-registered S5 rule (the one rule in
+           this plan that calls for reverting the code, not keeping it gated-off, precisely
+           anticipating a result this unambiguous): Stage-2 code reverted in full (flag +
+           Eqs.43-44 loop branch), only ACID_MBAL merged. consecutive_failures INCREMENTED to 1
+           (S5's own explicit instruction, honored as pre-registered -- first increment since
+           round 20). Config C's own cj=30 central-jump defect characterised, not fixed: an
+           under-resolved near-vacuum core at the stagnation point (4-cell velocity sign
+           reversal, p dropping 137x across one cell) -- a DIFFERENT failure class from the MWI
+           small-dt checkerboard already documented in denner-pitfalls.md (that one is case25's).
+           All hard gates held (OFF 19/19, ALL GATES OK unchanged from round 26, unit-test
+           numbers unchanged, G4 re-verified clean after the compute_R fix).
+           Live threads for round 28: (a) a DIFFERENT Stage-2 candidate for B's mass collapse --
+           REBUILD_ADV's failure means this specific repair was wrong, not that the collapse is
+           unfixable; (b) config C's own cj=30 core-jet, once B's collapse is resolved or if C is
+           adopted as the recommended path instead; (c) case13's Jacobian-approximation-
+           sensitivity finding (round22 sect.32.1); (d) round21's rho_star continuity predictor /
+           theta_o MWI memory, untouched; (e) max_steps exhaustion (case15 legitimately uses it,
+           PASSES on OFF); (f) case29's (excluded) likely-explained blocker. NOT a live thread:
+           anything about cases 24/33/34 -- closed by round 26, ACID_MBAL used case24 only as an
+           out-of-case validation control.
+           Grounded in YADV_RESEARCH.md sect.37, docs/YADV_ROUND_27_PLAN.md.
+```
+
+**Superseded control-state history (round 26's own, for provenance):**
+```
+round_counter: 26 (superseded, see above)
+next_task (superseded): ★ESCALATION LIVE★ Round 26 answered round 25's own thread (b) -- "what's the binding
            constraint keeping 24/33/34's F3 completions from pass:true" -- decisively: it is NOT
            numerical. cases.cpp's reference (Denner Eqs.57-62) holds VOLUME fraction fixed across
            the shock (closure A); ACID_YADV=1 conserves MASS fraction (closure B, since Y is
@@ -575,7 +630,35 @@ not start a new round.
   revising what "all cases pass" means for this family -- none decidable by the autonomous loop
   alone. All hard gates held (OFF 19/19, `ALL GATES OK` unchanged from round 25, unit-test
   numbers unchanged, zero `cpp/` diff).
-  → `YADV_RESEARCH.md` §36, `docs/YADV_ROUND_26_PLAN.md`, commit TBD.
+  → `YADV_RESEARCH.md` §36, `docs/YADV_ROUND_26_PLAN.md`, commit `bf71184`.
+- (Between rounds, by explicit user decision): Phase 3 redirected from cases 24/33/34 to case15
+  (round 7's central-jump defect) -- `docs/YADV_ROADMAP.md`'s "Current goal" section rewritten,
+  original framing kept as a superseded block for provenance. → commit `b792046`.
+- Round 27: first round on the redirected case15 target. Re-measured round 7's `cj=30.02` finding
+  live across all 7 configs: reproduces exactly, but **only under config C**
+  (`ACID_YADV_ALPHA_IMPLICIT=1`) -- the loop's actual headline config **B** (`ACID_YADV=1` alone)
+  instead **passes** `cj` (2.307 vs 8.0) and fails on `l2_rho=0.16761`/`corr_rho=0.984514`
+  instead. Root cause, measured unambiguously: **B deletes 99.92% of the domain mass**
+  (`945.07 → 0.761` at `N=400`, 322/400 cells pinned at the pressure floor) -- round 16 §26.1's
+  own named "vacuum blister" mechanism, previously measured at one case24 cell, here running over
+  80% of case15's domain for 85 consecutive steps. Built `ACID_MBAL` (default OFF, stderr-only):
+  closes the discrete mass budget into `ADV`/`REMAP`/`BND`/`LEAK`/`RES`, self-test `closure~1e-13`
+  at every step. **Found and fixed a real bug while building it**: the natural extra `compute_R()`
+  call is not idempotent under `ACID_YADV` (a non-converging T-relaxation) and silently perturbed
+  the reported solution -- caught by routine G4, fixed with a snapshot/restore. **Measurement**:
+  `REMAP` explains 99.67% of B's collapse; under every config that avoids the collapse (C,
+  `B+RECON`, `B+F3`), `REMAP`'s raw magnitude is NOT small (larger than case15's own total loss in
+  C and `B+RECON`) -- it is instead exactly **cancelled** by `ADV` (net `0.0000`), a materially
+  more precise mechanism statement than the plan's own prediction, reported honestly. T4
+  cross-validated the instrument against round 16/24's known case24 blister. **Stage 2** (the one
+  pre-registered candidate, `ACID_YADV_REBUILD_ADV`): **severe, clean negative result** --
+  `pass_count` collapses `15/19 → 11/19`, cases 07/13/14/25 (previously passing) newly diverge.
+  Per the plan's own pre-registered S5 rule, **the Stage-2 code was reverted in full** (only
+  `ACID_MBAL` merged); `consecutive_failures` **incremented to 1** (S5's explicit instruction,
+  first increment since round 20). Config C's own `cj=30` core-jet characterised (under-resolved
+  near-vacuum, a different failure class from the documented MWI checkerboard), not fixed. All
+  hard gates held (OFF 19/19, `ALL GATES OK` unchanged, unit-test numbers unchanged).
+  → `YADV_RESEARCH.md` §37, `docs/YADV_ROUND_27_PLAN.md`, commit TBD.
 
 ## Setup reference
 

@@ -45,38 +45,42 @@ condition below regardless, at which point re-evaluate between P3a-continued and
 ## Control state
 
 ```
-round_counter: 22
+round_counter: 23
 consecutive_failures: 0
 done: false
-next_task: Round 22 implemented ACID_YADV_RESYNC (default OFF), the dual projection to round 21's
-           ACID_YADV_RECON -- resyncs Yv from the CURRENT (p,T,alpha) each step instead of moving
-           the state onto the Y-manifold, so it writes NO state field. Stage 0 found round21's
-           13/14 regression was NOT a clean Abgrall-pressure-oscillation story as first modeled:
-           config G (FD Jacobian) + RECON gives a MIXED result -- case14 still fails (Abgrall-type,
-           Jacobian-independent) but case13 now PASSES (traced to Jacobian-approximation
-           sensitivity affecting which discrete admissible shock-location state Newton's bounded
-           sweep converges to -- a narrow counterexample to "approximate Jacobian changes only
-           iteration count" worth a future round's attention). RESYNC recovers BOTH 13 and 14 on
-           the pass/fail gate (B+RESYNC=15/19, matching plain B's fail set exactly) -- but case14's
-           phase-mass drift is 16.1% (ACID_RESYNC meter), firing the plan's own pre-registered
-           1%-non-promotable rule. Case24 gains only 2.6x (step19->50) vs RECON's 20x -- an open
-           question whether RECON's larger case24 gain needs the state WRITE, not just dal_remap
-           removal (both mechanisms collapse dal_remap identically). Verdict: gate-passing but
-           non-promotable on an orthogonal, pre-registered conservation cost -- not literally any
-           of S1-S5, recorded as its own category. Flag stays OFF, committed as gated-off research
-           infrastructure (round 4/8/21 precedent).
-           Live threads for round 23, carried forward: (a) a third projection that avoids both
-           RECON's Abgrall perturbation AND RESYNC's conservation cost (partial/damped resync on a
-           structurally-justified cell subset, not a tuning tolerance) -- undesigned; (b) case13's
-           Jacobian-approximation-sensitivity finding as its own narrower question, independent of
-           RECON/RESYNC; (c) round 21's own carried-forward thread -- rho_star continuity predictor
-           (acid.cpp, self-documented O(dt)-inconsistent) and theta_o MWI memory, untouched, may
-           matter for case34/33's residual floor; (d) case33's own difficulty (round 15/16's
-           T-ceiling-saturation-from-advection channel) remains fundamentally unsolved; (e)
-           max_steps exhaustion (case15 legitimately uses it and PASSES on OFF -- needs careful
-           design); (f) case29's (excluded) likely-explained blocker -- not pursued, recorded for
-           the record.
-           Grounded in YADV_RESEARCH.md sect.32, docs/YADV_ROUND_22_PLAN.md.
+next_task: Round 23 asked whether RECON's larger case24 gain (20x vs RESYNC's 2.6x, round 22's
+           open question) needs the state WRITE itself or just dal_remap removal. New
+           ACID_PROJ_UNTIL (diagnostic sweep knob, caps RECON/RESYNC's write to step<N) gives a
+           decisive but SPLIT answer. The roundoff-null control (N=1, RECON applied only at step 0
+           where it's an identity to ~1e-11) reproduces plain B's stall EXACTLY (step 19, identical
+           rbest/r_init) -- this RULES OUT trajectory-chaos (H-B) as the mechanism. The mechanism IS
+           real and measured (H-A): plain B loses ~500 of a cell's 499.58 true mass at steps 0-2
+           (RMISM's drho, near-total collapse exactly as round 16 sect.26.1 predicts for case24),
+           B+RECON suppresses this to single digits by step 4. BUT the dose-response itself is NOT
+           the predicted monotone curve -- N=2 gives step 6 (worse than N=1!), N=10-100 give no
+           stall at all, N=200 gives step 501 (further than N=400's own 399) -- non-monotone.
+           Unplanned discovery, checked directly not assumed: N=50's "no stall" is NOT a success --
+           denner1d_validate gives pass:false with a severely wrong solution (shock frozen
+           mid-domain, l2_p=1.12). "Completes without STALLED" and "correct answer" are different
+           properties, never distinguished before because B+RECON's own always-applied run never
+           completes either. Verdict: S4 (partial attribution) -- H-B decisively excluded, H-A's
+           mechanism confirmed, but the practical "how much correction is needed" question is
+           harder than a simple dose-response (likely a withdrawal-point compounding effect, not
+           characterized). Section 8 (third projection) explicitly NOT attempted -- its own gate
+           ("only if S1/S2 fires") not met by S4.
+           Live threads for round 24, carried forward: (a) characterize the withdrawal-point
+           compounding effect -- does ACID_PROJ_UNTIL ending AFTER the shock-formation transient
+           (a structural, not tuning-constant, criterion) restore monotonicity+correctness
+           together?; (b) round 22's own carried-forward third-projection idea, now known to need
+           a structural criterion for "transient has cleared", not a fixed step count; (c) case13's
+           Jacobian-approximation-sensitivity finding (round 22 sect.32.1) as its own narrower
+           question; (d) round 21's carried-forward thread -- rho_star continuity predictor and
+           theta_o MWI memory, untouched, may matter for case34/33's residual floor; (e) case33's
+           own difficulty (round 15/16's T-ceiling-saturation-from-advection channel) remains
+           fundamentally unsolved; (f) max_steps exhaustion (case15 legitimately uses it and PASSES
+           on OFF -- needs careful design); (g) case29's (excluded) likely-explained blocker -- not
+           pursued, recorded for the record.
+           Grounded in YADV_RESEARCH.md sect.33, docs/YADV_ROUND_23_PLAN.md.
 ```
 
 (Round counter starts at 4 because rounds 1-4 of the `ACID_YADV` experiment were already run
@@ -447,6 +451,25 @@ not start a new round.
   (round 4/8/21 precedent). `consecutive_failures` NOT incremented. All hard gates held (OFF
   19/19, `ALL GATES OK` unchanged from round 21).
   → `YADV_RESEARCH.md` §32, `docs/YADV_ROUND_22_PLAN.md`, commit `ffcd83b`.
+- Round 23: asked whether `ACID_YADV_RECON`'s 20x case24 gain (vs `ACID_YADV_RESYNC`'s 2.6x, round
+  22's open question) needs the state WRITE itself or just `dal_remap` removal. New
+  `ACID_PROJ_UNTIL` diagnostic caps the write to `step<N`. **The roundoff-null control (N=1)
+  reproduces plain B's stall EXACTLY** (step 19, identical `rbest`/`r_init`) -- decisively RULES
+  OUT trajectory-chaos as the mechanism. The state-accuracy mechanism IS real and measured: plain B
+  loses ~500 of a cell's 499.58 true mass at steps 0-2 (`RMISM`'s `drho`, round 16 §26.1's
+  collapse reproduced arithmetically for case24), `B+RECON` suppresses this to single digits by
+  step 4. **But the dose-response is NOT monotone** (N=2 gives step 6, worse than N=1; N=10-100
+  give no stall at all; N=200 gives step 501, further than N=400's own 399). **Unplanned discovery,
+  checked directly**: N=50's "no stall" is `pass:false` on the actual gate -- a severely wrong
+  solution (shock frozen mid-domain), not a success; "completes without STALLED" and "correct
+  answer" had never been distinguished before because `B+RECON`'s own always-applied run never
+  completes either. **Verdict: S4 (partial attribution)** -- trajectory-chaos excluded, the
+  state-accuracy mechanism confirmed, but the practical dose-response is more complex than
+  predicted (a withdrawal-point compounding effect, not characterized). The plan's own "third
+  projection" secondary goal explicitly NOT attempted (its gate not met by S4).
+  `consecutive_failures` NOT incremented. All hard gates held (OFF 19/19, `ALL GATES OK` unchanged
+  from round 22).
+  → `YADV_RESEARCH.md` §33, `docs/YADV_ROUND_23_PLAN.md`, commit TBD.
 
 ## Setup reference
 

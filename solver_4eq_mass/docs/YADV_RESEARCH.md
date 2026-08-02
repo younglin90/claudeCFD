@@ -3528,3 +3528,168 @@ D=./build-cpp/cpp/denner_1d/denner1d_dump
 DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RESYNC=1 ACID_RESYNC=1 $D 14 2>&1 >/dev/null | tail -1
     # sect.32.5, expect dM_total/M0 ~ -0.16
 ```
+
+## 33. Separating `dal_remap` removal from the state write on case24 -- the roundoff-null control
+##    decisively excludes trajectory-chaos (H-B), the state-accuracy mechanism (H-A) is
+##    qualitatively confirmed, but the dose-response is not the simple monotone curve predicted --
+##    declared S4 (partial attribution), not forced into a clean verdict
+
+### 33.1 The derivation and its confirmation
+
+`cases.cpp:148` (`s.alpha_post = s.alpha_pre; // psi held`) establishes case24's exact invariant
+`alpha(x,t) == 0.5` for all x,t -- any departure is pure numerical error, no threshold needed.
+Hand-derived (docs/YADV_ROUND_23_PLAN.md sect.2.2): a cell holding true mass (`rho=499.58`) that
+receives `Y=0.36` while still at the LAGGING pre-shock `(p,T)` recovers `alpha~0.998` via
+`alpha_from_mass_fraction` (`acid.cpp:1184-1190`, `dalpha/dY~859` there), and the Eqs.43-44 rebuild
+(`:1197-1205`) then sets `rho_o~3.2` -- **99.4% of the cell's true mass deleted**, round 16
+§26.1's mechanism reproduced arithmetically for case24. `pT_from_v_e_massfrac` applied to the
+SAME true state instead recovers `p*~3.5e7, T*~407K, alpha*~0.60` (mass-consistent) -- RECON's
+preventive repair. Applied to an ALREADY-collapsed cell, the same inversion returns the collapsed
+state essentially unchanged (§2.4) -- the repair is preventive, not curative.
+
+### 33.2 Measured trajectory tables (Stage 0, zero new code)
+
+**Baseline reproduction** (`ACID_DBG=1`, hard gate): 19 / 399 / 50 for B / B+RECON / B+RESYNC,
+reasons `newton-no-progress` / `T-ceiling-saturated` / `T-ceiling-saturated` -- exact match to
+rounds 21/22, S5 not triggered.
+
+**P1 (step-0 identity)**: CONFIRMED exactly -- step 0 shows `dp=0, dal=0, ntouch=0, nskip=800`
+under both projections' meters. **P2 (RECON does real O(1) work)**: CONFIRMED -- `dal=0.197` at
+step 1 already, reaching `0.5-0.6` by step 2, well above roundoff.
+
+**P4' (the decisive `drho` separation, via `ACID_RINIT`'s existing `RMISM` line, zero new code)**:
+plain `B`'s `drho` (the mass the Eqs.43-44 rebuild deletes) reaches **495-589 at steps 0-2 --
+essentially the cell's ENTIRE pre-shock mass (`rho_pre=499.58`)**, confirming §33.1's arithmetic
+directly on the real run, then oscillates in the tens through step 19. `B+RECON`'s `drho` is
+suppressed to single digits by step ~4 and decays to `~1.4e-3` by step 399. **`B+RESYNC`'s `drho`
+is NOT suppressed early** -- it reaches `1181` and `374` at steps 2-3 (LARGER than plain `B`'s
+peak), then only gradually settles to `~0.1` from step ~30 onward. This nuances §32.5's "lag fully
+intact" framing: RESYNC does NOT prevent the initial collapse at all (confirming §2.5's mechanism
+argument), but the system finds its own way to a lower-`drho` oscillation later -- a detail not
+predicted by the plan, recorded honestly rather than smoothed over.
+
+### 33.3 The decisive test: `ACID_PROJ_UNTIL` dose-response
+
+New diagnostic sweep parameter (`acid.cpp`, ~15 lines, unset -> `proj_until<0` -> `proj_now` always
+true -> textually identical to pre-round-23 behaviour, verified by G1/G2 below): caps
+`ACID_YADV_RECON`/`ACID_YADV_RESYNC`'s WRITE to `step < N`.
+
+| `N` | case24 stall step (`B+RECON+PROJ_UNTIL=N`) | note |
+|---|---|---|
+| 1 | **19** | **exactly plain `B`'s stall step, including identical `rbest`/`r_init` in `STALLED-DETAIL`** |
+| 2 | 6 | worse than N=1 |
+| 5 | 19 | same step as plain B, different `t` |
+| 10, 20, 50, 100 | **no stall -- runs to `t_end`** | see §33.4, this is NOT a success |
+| 200 | 501 | further than N=400's own 399 |
+| 400 (~"always apply") | 399 | matches round 21's own measurement exactly |
+
+**P6' (roundoff-null control, the sharpest single test): CONFIRMED, decisively.** `N=1` applies
+RECON's correction only at step 0, where §33.2's P1 measured it as an identity to roundoff
+(`~1e-11` relative). If case24's stall step were a chaotic function of the Newton trajectory
+(hypothesis H-B), a roundoff-scale perturbation at step 0 should be capable of moving the stall
+step anywhere. **It does not move it at all** -- `N=1` reproduces plain `B`'s stall EXACTLY, down
+to the same `rbest=2.7939e13, r_init=2.3095e13` in `STALLED-DETAIL`. **This single result excludes
+H-B (pure trajectory-chaos) as the explanation for RECON's case24 gain.** A roundoff-scale
+perturbation provably does nothing; only a sustained, O(1) correction (P2) moves the outcome.
+
+**P6 (monotone near-affine dose-response): FALSIFIED.** The table above is not monotone (`N=2`
+gives step 6, WORSE than `N=1`'s 19; `N=200`'s 501 exceeds `N=400`'s 399) and is not affine in any
+simple sense. The plan's own falsification criterion for P6 fires, but its stated consequence ("H-B
+dominates, S2") does not follow, because P6' -- the sharper, more direct test of H-B -- gives the
+opposite verdict. **The two pre-registered predictions disagree with each other on which
+hypothesis is correct**; this is recorded as the round's central finding, not resolved by picking
+whichever one is more convenient.
+
+### 33.4 An unplanned discovery: "no stall" is not "success" -- validated directly, not assumed
+
+`N=50`'s "no stall" result was checked against the actual gate, not just the absence of a
+`STALLED` line: `denner1d_validate --only 24` under `ACID_YADV_RECON=1 ACID_PROJ_UNTIL=50` gives
+`pass=false, finite=true, l2_p=1.118, corr_p=-0.288, corr_u=0.245, linf_p=2.638` -- a SEVERELY
+WRONG solution, not a near-miss. The raw `denner1d_dump` trace shows `max|u|` and `maxp` both
+FREEZE at step ~200 (`max|u|=4698, maxp=2.768e10`, unchanged through step 2200) and `p[mid]` jumps
+to the post-shock value partway through -- consistent with the shock stalling/reflecting inside the
+domain rather than propagating and exiting correctly, once RECON's preventive correction is
+withdrawn at step 50 while the run is mid-transient. **"Completes to `t_end` without a `STALLED`
+line" and "produces the correct answer" are DIFFERENT properties for this case family, and prior
+rounds' "stall step" metric measures only the former.** This was never checked in rounds 21/22
+because `B+RECON`'s own always-applied run also never completes (it stalls at 399) -- so the gap
+between the two properties was never exposed until this round's dose-response sweep produced a
+completing-but-wrong case to check it against.
+
+### 33.5 Gate results
+
+G1 `--verify`: OFF byte-identical to `solver_denner`, 9/9. G2 `--sweep`, `ACID_PROJ_UNTIL` unset:
+`ALL GATES OK`, A19/B15/C14/D13/E14/F14/G15 -- unchanged from round 22 (confirms the new flag's
+default-off no-op on every published path). G3 `denner1d_unit` clean. G5 diff hygiene: change
+confined to one flag declaration + two `&& (proj_until<0 || step<proj_until)` conjunctions in
+`acid.cpp`, plus the `ACID_ENV_VARS` addition in `scripts/yadv_r9_sweep.py`; no `cases.cpp`, no
+`validation.cpp`, no `CONFIGS`/`EXPECTED` edit.
+
+**Scope note, recorded honestly**: the plan's Stage 1 also specified a relative-`dp`/`dT` meter
+extension (§5.1) and an `ACID_ADRIFT` per-step state-extremum trace (§5.3). Neither was
+implemented this round -- the `drho`/`dal` observables already in the tree (via `ACID_RINIT`,
+zero new code) were sufficient to answer the round's primary question decisively (§33.2-33.3), and
+`ACID_PROJ_UNTIL` alone was sufficient to produce the round's central, unplanned finding (§33.4).
+Both remain available as straightforward additions for a future round that needs the relative-error
+locality or the tuning-constant-free `alpha`/`rho`/`T` extremum trace specifically.
+
+### 33.6 Verdict -- S4 (partial attribution), declared explicitly, not forced
+
+Per `docs/YADV_ROUND_23_PLAN.md` sect.7: neither S1 nor S2's full predicate holds (P6 and P6'
+disagree), and S3's "bounded sensitivity" framing does not fit a dose-response that is actively
+non-monotone. **Declaring S4 explicitly rather than picking a side:**
+
+1. **What IS established, decisively**: RECON's case24 gain is NOT a trajectory-chaos artifact.
+   `N=1`'s exact reproduction of plain `B` rules out sensitivity to an arbitrarily small
+   perturbation (P6'). The mechanism described in §33.1 (preventing round 16 §26.1's density
+   collapse by keeping the recovery site's `(p_o,T_o)` consistent with the transported `Y`) is a
+   real, measured effect (`drho` suppression, §33.2) that does real, non-roundoff work from the
+   first step (P2).
+2. **What is NOT established**: a clean, predictable relationship between HOW LONG the correction
+   is applied and the resulting outcome quality. The non-monotone stall-step table (§33.3) and the
+   completing-but-wrong `N=50` result (§33.4) together show the dose-response is genuinely more
+   complex than "more correction = proportionally more delay" -- likely because withdrawing the
+   correction mid-transient (rather than never applying it, or applying it long enough to clear the
+   whole shock-formation transient) can itself inject a NEW inconsistency at the withdrawal step,
+   compounding with whatever state the run has reached by then. This compounding effect was not
+   modeled in the plan's derivation and is not characterized further this round.
+3. Round 22 §32.6 pt.3's open question is therefore ANSWERED for the "is it the state write"
+   half (yes, decisively) but the practical, quantitative "how much state write is needed"
+   question remains open -- and is now known to be harder than a simple dose-response, not merely
+   unmeasured.
+4. **Per round 13/21/22's precedent** (a correctly-instrumented result -- confirming part of a
+   hypothesis while complicating another part -- is measured progress): `consecutive_failures` is
+   **NOT** incremented.
+5. `ACID_YADV`'s recommended default status is UNCHANGED (default OFF, 15/19). `ACID_PROJ_UNTIL`
+   is a diagnostic sweep parameter only (same category as `ACID_BLK_STEP`/`ACID_TEND_SCALE`),
+   never set in a validation run, and has no default-on promotion question of its own. All hard
+   gates held.
+6. **§8's "third projection" secondary goal is explicitly NOT attempted** -- the plan's own gate
+   ("do not begin unless S1 or S2 has fired") is not met by S4. §2.6's derivation-level result
+   (any third projection that helps case24 must move `p`, and therefore confronts the Abgrall
+   mechanism on 13/14 -- docs/YADV_ROUND_23_PLAN.md sect.2.6/8) stands as a deliverable regardless,
+   since it required no measurement to establish.
+
+**Live thread for a future round**: characterize the withdrawal-point compounding effect §33.3/33.4
+surfaced -- e.g. does `ACID_PROJ_UNTIL` chosen to end AFTER the shock-formation transient (rather
+than at an arbitrary fixed step count) restore monotonicity and correctness together? This would
+need a structural (not tuning-constant) criterion for "transient has cleared" -- a genuinely new
+design question, not attempted here per this round's own "do not manufacture a verdict" discipline.
+
+### 33.7 Reproducing
+
+```bash
+cd /home/younglin90/work/claude_code/claudeCFD/solver_4eq_mass
+cmake -S . -B build-cpp -DCMAKE_BUILD_TYPE=Release && cmake --build build-cpp -j8
+
+D=./build-cpp/cpp/denner_1d/denner1d_dump
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 ACID_PROJ_UNTIL=1 ACID_DBG=1 $D 24 2>&1 >/dev/null \
+    | grep STALLED   # sect.33.3 P6', expect step=19, identical rbest/r_init to plain B
+
+DENNER_ACID=1 ACID_YADV=1 ACID_RINIT=1 $D 24 2>&1 >/dev/null | grep "^RMISM" | grep "retry=0 " \
+    | head -3   # sect.33.2, expect drho ~495-589 in the first 2-3 steps (near-total mass deletion)
+
+V=./build-cpp/cpp/denner_1d/denner1d_validate
+DENNER_ACID=1 ACID_YADV=1 ACID_YADV_RECON=1 ACID_PROJ_UNTIL=50 $V --only 24 2>&1
+    # sect.33.4, expect pass:false despite no STALLED line in a dump run
+```

@@ -707,6 +707,24 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
     // ACID_YADV_HREINIT (same exclusion rationale as RECON's). Skipped with a one-line stderr
     // notice if ACID_YADV_RECON is also set. docs/YADV_ROUND_22_PLAN.md sect.3.3.
     const bool yresync = std::getenv("ACID_YADV_RESYNC") != nullptr;
+    // ACID_PROJ_UNTIL (round 23, DIAGNOSTIC SWEEP PARAMETER, default unset = always-apply,
+    // byte-identical to the pre-round-23 build): caps ACID_YADV_RECON/ACID_YADV_RESYNC's WRITE to
+    // steps < N (0/unset -> negative -> "always apply", matching every prior round's behaviour
+    // exactly). Same category as ACID_BLK_STEP/ACID_TEND_SCALE -- a diagnostic sweep knob, never
+    // set in a validation run, structurally (not numerically) parameterised, no physics. Exists to
+    // separate two competing explanations for case24's differing stall-step gain under RECON vs
+    // RESYNC (docs/YADV_ROUND_23_PLAN.md sect.3/6): H-A (the state write prevents round 16
+    // sect.26.1's density collapse -- predicts a monotone, near-affine dose-response in N) vs H-B
+    // (the gain is a Newton-trajectory/basin-of-attraction sensitivity to ANY perturbation,
+    // however small -- predicts the stall step is roughly independent of how long the projection
+    // is applied, since round 22 sect.32.1 already found a state write can shift which discrete
+    // admissible state a bounded Newton sweep converges near). N=1 = apply at step 0 only, where
+    // the IC is already a p-T-equilibrium state so the write is an identity to roundoff
+    // (docs/YADV_ROUND_23_PLAN.md sect.2/3.1) -- the roundoff-null control. Never applies to
+    // ACID_RECON/ACID_RESYNC's own diagnostic-only measurement (those read state, they don't gate
+    // on this).
+    const int proj_until = []{ const char* e = std::getenv("ACID_PROJ_UNTIL");
+                               return e ? std::atoi(e) : -1; }();
     // ACID_TEND_SCALE (round 11, Phase 3a Stage 2, DIAGNOSTIC ONLY, default 1.0 = byte-identical
     // when unset): multiplies THIS SOLVER's stop time only. It is an OBSERVATION WINDOW, not a
     // physical or tuning parameter -- the standard shock-tube verification convention is to sample
@@ -836,7 +854,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                 if (std::abs(dp) > worst_dp) { worst_dp = std::abs(dp); worst_dp_rel = dp / s.p[i]; worst_dp_i = i; }
                 if (std::abs(dT) > worst_dT) { worst_dT = std::abs(dT); worst_dT_rel = dT / s.T[i]; worst_dT_i = i; }
                 if (std::abs(dal) > worst_dal) { worst_dal = std::abs(dal); worst_dal_i = i; }
-                if (yrecon) {
+                if (yrecon && (proj_until < 0 || step < proj_until)) {
                     s.p[i] = r.p;
                     s.T[i] = r.T;
                     const auto ra2 = phase_props(std::max(r.p, 1.0), std::max(r.T, 1e-6), A);
@@ -899,7 +917,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                 if (dY == 0.0) continue;
                 if (std::abs(dY) > worst_dY) { worst_dY = std::abs(dY); worst_dY_i = i; }
                 dM_step += s.rho[i] * dY * dx;
-                if (yresync) { Yv[i] = Ynew; ++ntouch; }
+                if (yresync && (proj_until < 0 || step < proj_until)) { Yv[i] = Ynew; ++ntouch; }
             }
             if (resync_dbg) {
                 static double dM_total = 0.0, M0 = -1.0;

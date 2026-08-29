@@ -7,6 +7,7 @@
 // smooth one in smooth regions. Port of TMLPUSmoothSharpBVD's TBV selection.
 #pragma once
 #include "cfd/mesh.hpp"
+#include "cfd/quad_paper3d.hpp"   // shared paper_quad() switch and the 1D Gauss-Legendre tables
 #include "cfd/reconstruct2d.hpp"
 #include "cfd/reconstruct2d_o2.hpp"
 #include "cfd/io_vtk.hpp"   // BVD_CANDFLAG diagnostic buffers (bvd_cand_flag); io_vtk pulls only mesh.hpp (no cycle)
@@ -101,6 +102,37 @@ inline int c3_cell_fan(const double* nodes, const int* vs, int nv,
 inline int c3_cell_quad_P(const double (*TQp)[4], int NQC, const double* nodes,
                           const int* vs, int nv, double cx, double cy,
                           const double* A, double* Pg, double* wq) {
+    // Quadrilaterals use the 9-point rule of the original THINC/QQ formulation, a 3x3 Gauss-
+    // Legendre product on the bilinear map, instead of the 4-sub-triangle fan's 24 points.
+    // Unlike the three-dimensional case there is no ambiguity about the region: a planar
+    // quadrilateral is covered exactly by both its centroid fan and its bilinear image, so the
+    // two rules integrate the same domain and only the point placement differs. The Jacobian is
+    // kept SIGNED and the weights normalised by its signed sum, which reproduces the shoelace
+    // area and matches how the fan already treats a re-entrant cell.
+    if (nv == 4 && paper_quad()) {
+        const double vx[4] = {nodes[vs[0]*2], nodes[vs[1]*2], nodes[vs[2]*2], nodes[vs[3]*2]};
+        const double vy[4] = {nodes[vs[0]*2+1], nodes[vs[1]*2+1], nodes[vs[2]*2+1], nodes[vs[3]*2+1]};
+        const GL1D& G = gl1d(3);
+        int nq = 0; double sw = 0.0;
+        for (int i = 0; i < G.n; ++i) for (int j = 0; j < G.n; ++j) {
+            const double u = G.x[i], v = G.x[j];
+            const double N[4]  = {(1-u)*(1-v), u*(1-v), u*v, (1-u)*v};
+            const double dU[4] = {-(1-v), (1-v), v, -v};
+            const double dV[4] = {-(1-u), -u, u, (1-u)};
+            double x = 0, y = 0, xu = 0, yu = 0, xv = 0, yv = 0;
+            for (int k = 0; k < 4; ++k) {
+                x += N[k]*vx[k];  y += N[k]*vy[k];
+                xu += dU[k]*vx[k]; yu += dU[k]*vy[k];
+                xv += dV[k]*vx[k]; yv += dV[k]*vy[k];
+            }
+            const double w = G.w[i]*G.w[j]*(xu*yv - xv*yu);
+            const double dx = x-cx, dy = y-cy;
+            Pg[nq] = A[0]*dx + A[1]*dy + A[2]*dx*dx + A[3]*dy*dy + A[4]*dx*dy;
+            wq[nq] = w; sw += w; ++nq;
+        }
+        if (std::fabs(sw) > 1e-300) for (int q = 0; q < nq; ++q) wq[q] /= sw;
+        return nq;
+    }
     double tri[C3_FAN_MAX][6], ar[C3_FAN_MAX];
     const int nt=c3_cell_fan(nodes,vs,nv,cx,cy,tri,ar);
     double at=0.0; for(int k=0;k<nt;++k) at+=ar[k]; if(!(std::fabs(at)>1e-300)) at=1.0;   // signed total area

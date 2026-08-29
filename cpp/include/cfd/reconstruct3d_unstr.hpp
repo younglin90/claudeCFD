@@ -9,6 +9,7 @@
 // min total-boundary-variation per cell/variable. GAUSS via THINCQQ_GAUSS (+_SKEW).
 #pragma once
 #include "cfd/mesh.hpp"
+#include "cfd/quad_paper3d.hpp"   // element rules at the published THINC/QQ point counts
 #include "cfd/reconstruct3d_o2.hpp"
 #include "cfd/reconstruct3d_bvd_core.hpp"
 #include "cfd/io_vtk.hpp"   // BVD_CANDFLAG diagnostic buffers (bvd_cand_flag); io_vtk pulls only mesh.hpp (no cycle)
@@ -172,6 +173,36 @@ inline void u3_cell_pvals(const Mesh& m,int ci,const D3Poly& P,std::vector<doubl
     const double* X=m.nodes.data();
     double cx=m.cell_centers[3*ci],cy=m.cell_centers[3*ci+1],cz=m.cell_centers[3*ci+2]; double V=m.cell_volumes[ci];
     Pv.clear(); wt.clear();
+    // TETRAHEDRA use the 11-point rule published for THINC/QQ instead of the (face x face-edge)
+    // sub-tetrahedron fan, which spends 96 points. Measured on randomly distorted cells the
+    // 11-point rule is the more accurate of the two below smax ~ 4 (ratio 0.35 at smax 1.4-2),
+    // being degree-4 exact where the fan's Duffy collapse is not; above smax ~ 4 the fan regains
+    // the advantage on sample density alone.
+    //
+    // The other element types deliberately keep the fan. Once distorted their faces are bilinear,
+    // so an isoparametric element rule integrates a DIFFERENT solid from the one the fan tiles,
+    // and the fan's solid is the one m.cell_volumes and the finite-volume update are built on.
+    // Matching the published point counts there would trade a consistent cell average for an
+    // inconsistent one; measured, it was also 2-6x less accurate for exactly that reason.
+    //
+    // Gated on the production order NQ==2, so the reference evaluator (which raises
+    // THINCQQ_TANH_NQ to 8 or 16 and needs that refinement to converge) keeps the fan
+    // automatically; U3_PAPER_QUAD=0 forces the fan outright.
+    {
+        const int nv = (int)m.cell_nodes[ci].size();
+        if (u3_paper_quad() && (nv==4 || nv==5 || nv==6 || nv==8)) {
+            double Vtx[8][3];
+            for (int i=0;i<nv;++i){ const int n=m.cell_nodes[ci][i];
+                Vtx[i][0]=X[3*n]; Vtx[i][1]=X[3*n+1]; Vtx[i][2]=X[3*n+2]; }
+            const double g[3]={P.c[0],P.c[1],P.c[2]};
+            thread_local std::vector<QPoint> Q;
+            cell_rule_paper(nv, Vtx, g, Q, u3_tanh_nq());
+            Pv.reserve(Q.size()); wt.reserve(Q.size());
+            for (const auto& q : Q){ double x[3]; cell_point_xyz(nv, Vtx, q, x);
+                Pv.push_back(u3_Peval(P, x[0]-cx, x[1]-cy, x[2]-cz)); wt.push_back(q.w); }
+            return;
+        }
+    }
     const auto& gl=u3_tanh_gl();
     for(int fc:m.cell_faces[ci]){ const auto& fn=m.face_nodes[fc];
         double fx=m.face_centers[3*fc],fy=m.face_centers[3*fc+1],fz=m.face_centers[3*fc+2];
@@ -188,6 +219,21 @@ inline void u3_face_pvals(const Mesh& m,int fc,const D3Poly& P,double cx,double 
     const double* X=m.nodes.data(); const auto& fn=m.face_nodes[fc];
     double fx=m.face_centers[3*fc],fy=m.face_centers[3*fc+1],fz=m.face_centers[3*fc+2];
     Pv.clear(); wt.clear();
+    // TRIANGULAR faces use the published 6-point rule against the 12 the centroid fan spends.
+    // The face is planar, so both rules integrate the same surface and the comparison is clean:
+    // the 6-point rule measured 6-14x more accurate. Quadrilateral faces keep the fan for the
+    // same reason the non-tetrahedral cells do -- warped, they are not the surface an
+    // isoparametric rule would integrate.
+    if (u3_paper_quad() && (fn.size()==3 || fn.size()==4)) {
+        double F[4][3];
+        for (size_t i=0;i<fn.size();++i){ const int n=fn[i];
+            F[i][0]=X[3*n]; F[i][1]=X[3*n+1]; F[i][2]=X[3*n+2]; }
+        thread_local std::vector<std::array<double,4>> Q;
+        face_rule_paper((int)fn.size(), F, Q, u3_tanh_nq());
+        Pv.reserve(Q.size()); wt.reserve(Q.size());
+        for (const auto& q : Q){ Pv.push_back(u3_Peval(P, q[0]-cx, q[1]-cy, q[2]-cz)); wt.push_back(q[3]); }
+        return;
+    }
     const auto& gl=u3_tanh_gl();
     // A = SELF-CONSISTENT fan area (sum of the sub-triangles actually used below), NOT
     // m.face_areas[fc] (v0-fan). Accumulated in the same pass, then divided out at the end,

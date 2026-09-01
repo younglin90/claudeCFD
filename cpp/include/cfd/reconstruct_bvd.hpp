@@ -31,10 +31,41 @@ inline double fast_tanh(double x){
 #include <chrono>
 #include <cstdio>
 struct Cheng3Prof { double muscl=0,thinc=0,sel=0,geom=0,face=0; long ncall=0;
-    ~Cheng3Prof(){ if(std::getenv("CHENG3_PROF") && ncall>0)
+    // How much THINC work a case actually asks for. ncv counts every (cell, variable) offered to the
+    // interface test, nif how many admit a THINC profile at all -- their ratio is the interface
+    // fraction, and the GAUSS kernel's share of the run is proportional to it. nsolve/niter separate
+    // the two ways a case can spend little time in the shift: few cells reaching it, or cheap Newton
+    // convergence per cell. GAUSS is closed-form, so it reports no iterations.
+    long long ncv=0, nif=0, nsolve=0, niter=0;
+    // Which of the THINC well-posedness conditions actually rejects a cell. flat = the vertex
+    // neighbourhood is constant to 1e-14, so there is no jump to represent; extremum = the cell
+    // average sits at the edge of its neighbourhood band, where the shift D that matches it is
+    // infinite; nograd = no gradient to orient the interface plane with. These are the domain of
+    // the reconstruction, not a cost filter -- the split says which one the case is hitting.
+    long long rej_flat=0, rej_ext=0, rej_deg=0, rej_grad=0;
+    // Cycles spent in the shift-D kernel itself -- for tanh that is the cell quadrature plus the
+    // Newton iteration, for GAUSS the moment contraction plus the closed form. The surrounding
+    // phase bucket cannot stand in for it: `geom` also carries the LSQ gradient and the interface
+    // polynomial. RDTSC costs ~20 cycles against a 730-910 cycle solve here.
+    unsigned long long tsc_dsolve=0, tsc_faceval=0;
+    ~Cheng3Prof(){ if(std::getenv("CHENG3_PROF") && ncall>0){
         std::fprintf(stderr,"[CHENG3_PROF] recon_calls=%ld  MUSCL=%.3fs  THINC=%.3fs (geom=%.3fs face=%.3fs)  BVD_sel=%.3fs  (THINC/MUSCL=%.2fx)\n",
-            ncall,muscl,thinc,geom,face,sel, muscl>0?thinc/muscl:0.0); } };
+            ncall,muscl,thinc,geom,face,sel, muscl>0?thinc/muscl:0.0);
+        std::fprintf(stderr,"[CHENG3_IF] cell-vars=%lld  interface=%lld (%.2f%%)  D-solves=%lld  Newton iters/solve=%.2f\n",
+            ncv, nif, ncv? 100.0*(double)nif/(double)ncv : 0.0,
+            nsolve, nsolve? (double)niter/(double)nsolve : 0.0);
+        { const double GHZ = 3.593246;   // TSC rate, as the microbenchmark reports it
+          std::fprintf(stderr, "[CHENG3_K] D-solve %.0fms   face-value %.0fms (CPU across threads)\n",
+              tsc_dsolve/GHZ*1e-6, tsc_faceval/GHZ*1e-6); }
+        std::fprintf(stderr, "[CHENG3_REJ] flat(no jump)=%lld (%.2f%%)  extremum(D infinite)=%lld (%.2f%%)"
+            "  no-gradient=%lld (%.2f%%)  degenerate-cell=%lld (%.2f%%)\n",
+            rej_flat, ncv?100.0*rej_flat/ncv:0.0, rej_ext, ncv?100.0*rej_ext/ncv:0.0,
+            rej_grad, ncv?100.0*rej_grad/ncv:0.0, rej_deg, ncv?100.0*rej_deg/ncv:0.0); } } };
 inline Cheng3Prof& cheng3_prof(){ static Cheng3Prof p; return p; }
+inline unsigned long long c3_tsc(){
+    __builtin_ia32_lfence();          // order the counter read against the work around it
+    return __builtin_ia32_rdtsc();
+}
 inline double prof_now(){ return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
 // ML-free predictive-BVD feasibility (env CHENG3_PREDICT): can the CHEAP MUSCL total-boundary-
@@ -1434,21 +1465,42 @@ inline void reconstruct_cheng3(const Mesh& m, const ReconCtxO2& c,
     static const double BSTAR_PREFILT = std::getenv("THINCQQ_BSTAR_PREFILT")?std::atof(std::getenv("THINCQQ_BSTAR_PREFILT")):0.0;
     static std::vector<double> gm1,gm2; if(BETASTAR&&BSTAR_EXACT){ gm1.assign((size_t)nvar*N,0.0); gm2.assign((size_t)nvar*N,0.0); }   // H2 persistent
     static std::vector<char> hasint; hasint.assign((size_t)nvar*N,0);   // H2 persistent (MUST re-zero: interface gate)
-    #pragma omp parallel for
+    long long d_ncv=0, d_nif=0, d_nsolve=0, d_niter=0;   // see Cheng3Prof: interface fraction + Newton cost
+    long long d_flat=0, d_ext=0, d_deg=0, d_grad=0;      // which condition rejected a cell
+    unsigned long long d_tscD=0;                         // shift-D kernel cycles (see Cheng3Prof)
+    #pragma omp parallel for reduction(+:d_ncv,d_nif,d_nsolve,d_niter,d_flat,d_ext,d_deg,d_grad,d_tscD)
     for(int ci=0;ci<N;++ci){ const auto& vs=m.cell_nodes[ci]; int nv=(int)vs.size();
         double perim=0; for(int f:m.cell_faces[ci]) perim+=m.face_areas[f];
         double kb=perim/std::max(4.0*m.cell_volumes[ci],1e-30); kbc[ci]=kb;   // 1/H
-        for(int v=0;v<nvar;++v){ double qbar=W[(size_t)v*N+ci], qmn=1e300,qmx=-1e300;
+        for(int v=0;v<nvar;++v){ ++d_ncv; double qbar=W[(size_t)v*N+ci], qmn=1e300,qmx=-1e300;
             for(int vid:vs){ double a=vmn[(size_t)vid*nvar+v],b=vmx[(size_t)vid*nvar+v]; if(a<qmn)qmn=a; if(b>qmx)qmx=b; }
             qmnc[(size_t)ci*nvar+v]=qmn; qmxc[(size_t)ci*nvar+v]=qmx; double rng=qmx-qmn;
             double cbar = rng>1e-14 ? (qbar-qmn)/rng : 0.5;
-            if(cbar<=1e-6||cbar>=1.0-1e-6||rng<=1e-14||nv<3){ hasint[(size_t)ci*nvar+v]=0; continue; }
+            // DIAGNOSTIC ONLY (THINCQQ_FORCE_ALL): build a THINC profile even where one is not
+            // defined -- a flat neighbourhood has no jump to represent, and a cell average sitting
+            // at the edge of its band needs an infinite shift. Kept behind an env flag to answer
+            // what the timings would look like if every cell paid for THINC; the reconstruction it
+            // produces there is meaningless, so this must never be used for a published result.
+            // The nv<3 and zero-gradient guards stay: those divide by zero rather than mislead.
+            static const bool FORCE_ALL = std::getenv("THINCQQ_FORCE_ALL")!=nullptr;
+            if(nv<3 || (!FORCE_ALL && (cbar<=1e-6||cbar>=1.0-1e-6||rng<=1e-14))){
+                if(nv<3) ++d_deg; else if(rng<=1e-14) ++d_flat; else ++d_ext;
+                hasint[(size_t)ci*nvar+v]=0; continue; }
             double g0=0,g1=0,g2=0,g3=0,g4=0;   // o2 quadratic coeffs (interface cells only)
             for(int k=0;k<c.max_nb;++k){ int nb=c.nb[(size_t)ci*c.max_nb+k]; if(nb<0)continue;
                 double dW=W[(size_t)v*N+nb]-qbar; const double* Mr=&c.M[((size_t)ci*5)*c.max_nb+k];
                 g0+=Mr[0]*dW; g1+=Mr[c.max_nb]*dW; g2+=Mr[2*c.max_nb]*dW; g3+=Mr[3*c.max_nb]*dW; g4+=Mr[4*c.max_nb]*dW; }
             double Gm=std::sqrt(g0*g0+g1*g1);
-            if(Gm<1e-30){ hasint[(size_t)ci*nvar+v]=0; continue; }
+            // A cell whose least-squares gradient is exactly zero has no direction to orient an
+            // interface with, and nx=g0/Gm would be 0/0. Normally it is skipped. Under FORCE_ALL it
+            // is given an arbitrary unit normal instead, so that every cell pays the full THINC
+            // cost and the timing comparison is over an identical workload in every case -- the
+            // fraction of cells reaching the kernel stops being a variable. The profile it builds
+            // there is meaningless; this is a cost probe, not a result.
+            if(Gm<1e-30){
+                if(!FORCE_ALL){ ++d_grad; hasint[(size_t)ci*nvar+v]=0; continue; }
+                Gm=1.0; g0=1.0; g1=0.0; g2=0.0; g3=0.0; g4=0.0;   // unit normal along +x, no curvature
+            }
             double nx=g0/Gm, ny=g1/Gm;
             double* A=&acoef[((size_t)ci*nvar+v)*5];
             A[0]=nx; A[1]=ny;
@@ -1458,12 +1510,14 @@ inline void reconstruct_cheng3(const Mesh& m, const ReconCtxO2& c,
                 double nyx=g4/Gm-g1*(g0*g2+g1*g4)/G3, nyy=g3/Gm-g1*(g0*g4+g1*g3)/G3;
                 A[2]=0.5*nxx; A[3]=0.5*nyy; A[4]=0.5*(nxy+nyx); }
             double Q=2.0*cbar-1.0;
+            unsigned long long _k0=c3_tsc();
             if(GAUSS){   // probit closed-form cell-D: solve tanh((kk<P>+D)/sqrt(1+c v))=Q => D=atanh(Q)sqrt(1+c v)-kk<P>, v=kk^2(<P^2>-<P>^2). NO Newton, NO cell-quadrature beyond the deg-4-exact 6-pt moments.
                 double mm1,mm2; c3_gmom_moments(GT.g[ci],A,mm1,mm2);   // <P>,<P^2> = algebraic contraction of A[] with the per-mesh cached geometric moments (analytic, exact)
                 double Qc=Q; if(Qc>0.999)Qc=0.999; else if(Qc<-0.999)Qc=-0.999; double aQ=0.5*std::log((1.0+Qc)/(1.0-Qc));
                 auto solveG=[&](double kk){ double vv=kk*kk*(mm2-mm1*mm1); if(vv<0)vv=0; return aQ*std::sqrt(1.0+GC*vv)-kk*mm1; };
                 Dl[(size_t)ci*nvar+v]=solveG(beta_l*kb); if(!single) Ds[(size_t)ci*nvar+v]=solveG(beta_s*kb);
                 if(BETASTAR&&BSTAR_EXACT){ gm1[(size_t)ci*nvar+v]=mm1; gm2[(size_t)ci*nvar+v]=mm2; }   // store for exact beta* TBV search
+                d_tscD += c3_tsc()-_k0;
             }
             else if(SPL && SPL_CENTROID){   // closed-form CENTROID-D (no Newton, no cell-quadrature), beta-independent. WARNING: diffuses
                 double D;
@@ -1563,16 +1617,21 @@ inline void reconstruct_cheng3(const Mesh& m, const ReconCtxO2& c,
             const int NQ=c3_cell_quad_P(TQp,NQC,m.nodes.data(),vs.data(),nv,cc[ci*2],cc[ci*2+1],A,Pg,cwq);
             for(int pass=0;pass<(single?1:2);++pass){ double kk=(pass?beta_s:beta_l)*kb, Ag[C3_NQMAX];   // SHEARBETA needs ANALYTIC_D (skips here)
                 for(int q=0;q<NQ;++q) Ag[q]=std::tanh(kk*Pg[q]);   // exact tanh (S1 high-accuracy: cell-D must match the exact-tanh face for conservation)
-                double D=0.0;
-                for(int it=0;it<10;++it){ double f=-Q,fp=0.0;
+                double D=0.0; int nit=0;
+                for(int it=0;it<10;++it){ ++nit; double f=-Q,fp=0.0;
                     for(int q=0;q<NQ;++q){ double den=1.0+Ag[q]*D; if(std::fabs(den)<1e-12)den=(den<0?-1e-12:1e-12);
                         f+=cwq[q]*(Ag[q]+D)/den; fp+=cwq[q]*(1.0-Ag[q]*Ag[q])/(den*den); }
                     if(std::fabs(fp)<1e-30)break; double dD=f/fp; D-=dD;
                     if(D>0.999999)D=0.999999; else if(D<-0.999999)D=-0.999999;
                     if(std::fabs(dD)<1e-11)break; }
-                (pass?Ds:Dl)[(size_t)ci*nvar+v]=D; } }
-            hasint[(size_t)ci*nvar+v]=1; }
+                d_nsolve+=1; d_niter+=nit;
+                (pass?Ds:Dl)[(size_t)ci*nvar+v]=D; }
+            d_tscD += c3_tsc()-_k0; }
+            d_nif+=1; hasint[(size_t)ci*nvar+v]=1; }
     }
+    { auto& P=cheng3_prof(); P.ncv+=d_ncv; P.nif+=d_nif; P.nsolve+=d_nsolve; P.niter+=d_niter;
+      P.rej_flat+=d_flat; P.rej_ext+=d_ext; P.rej_deg+=d_deg; P.rej_grad+=d_grad;
+      P.tsc_dsolve+=d_tscD; }
     cheng3_prof().geom += prof_now()-_t0; double _tg=prof_now();   // pass0+pass1 = geometry+D-solve
     if(SHEARBETA && nvar>=3){ beff.assign(N,beta_l);   // INTERFACE cells only (hasint) -> ~3x cheaper than all-cells
         #pragma omp parallel for
@@ -1986,7 +2045,8 @@ inline void reconstruct_cheng3(const Mesh& m, const ReconCtxO2& c,
     static std::vector<double> WL1,WR1,WL0,WR0; WL1.assign((size_t)nvar*Nf,0.0);WR1.assign((size_t)nvar*Nf,0.0);WL0.assign((size_t)nvar*Nf,0.0);WR0.assign((size_t)nvar*Nf,0.0);
     static std::vector<double> WLst, WRst, jst; if(BOPT3){ WLst.assign((size_t)nvar*Nf,0.0); WRst.assign((size_t)nvar*Nf,0.0); jst.assign((size_t)nvar*Nf,0.0); }
     static std::vector<double> jM,j1,j0; jM.assign((size_t)nvar*Nf,0.0);j1.assign((size_t)nvar*Nf,0.0);j0.assign((size_t)nvar*Nf,0.0);
-    #pragma omp parallel for schedule(dynamic,32)
+    unsigned long long d_tscF=0;   // THINC face-value cycles (see Cheng3Prof)
+    #pragma omp parallel for schedule(dynamic,32) reduction(+:d_tscF)
     for(int f=0;f<Nf;++f){ int o=m.face_owner[f],n=m.face_neighbour[f]; const auto& fn=m.face_nodes[f];
         bool he=fn.size()>=2; double ax=0,ay=0,bx=0,by=0;
         if(he){ ax=m.nodes[fn[0]*2];ay=m.nodes[fn[0]*2+1];bx=m.nodes[fn[1]*2];by=m.nodes[fn[1]*2+1]; }
@@ -2073,6 +2133,7 @@ inline void reconstruct_cheng3(const Mesh& m, const ReconCtxO2& c,
             bool obs=(BOPT3&&(BSTAR_4WAY||binc[o]==1)), nbs=(n>=0&&BOPT3&&(BSTAR_4WAY||binc[n]==1));
             bool need2b=o2b||n2b, needBstar=obs||nbs;
             double L1=0.0,R1=0.0,L0=0.0,R0=0.0;
+            unsigned long long _f0=c3_tsc();
             if(need2b){ L1=tf(o,bo,Dl[(size_t)o*nvar+v]); R1=L1; if(!single){ L0=tf(o,beta_s,Ds[(size_t)o*nvar+v]); R0=L0; } }
             double Lst=0.0,Rst=0.0; if(needBstar){ Lst=tf(o,BSTAR_PERVAR?bstv[(size_t)o*nvar+v]:beff[o],Dstar[(size_t)o*nvar+v]); Rst=Lst; }   // 4th candidate THINC(beta*_v per-var when BSTAR_PERVAR)
             if(n>=0){
@@ -2080,9 +2141,11 @@ inline void reconstruct_cheng3(const Mesh& m, const ReconCtxO2& c,
                 if(need2b){ R1=tf(n,bn,Dl[(size_t)n*nvar+v]); j1[(size_t)f*nvar+v]=std::fabs(L1-R1);
                     if(!single){ R0=tf(n,beta_s,Ds[(size_t)n*nvar+v]); j0[(size_t)f*nvar+v]=std::fabs(L0-R0); } }
                 if(needBstar){ Rst=tf(n,BSTAR_PERVAR?bstv[(size_t)n*nvar+v]:beff[n],Dstar[(size_t)n*nvar+v]); jst[(size_t)f*nvar+v]=std::fabs(Lst-Rst); } }
+            d_tscF += c3_tsc()-_f0;
             if(need2b){ WL1[(size_t)f*nvar+v]=L1; WR1[(size_t)f*nvar+v]=R1; WL0[(size_t)f*nvar+v]=L0; WR0[(size_t)f*nvar+v]=R0; }
             if(needBstar){ WLst[(size_t)f*nvar+v]=Lst; WRst[(size_t)f*nvar+v]=Rst; } }
     }
+    cheng3_prof().tsc_faceval += d_tscF;
     cheng3_prof().face += prof_now()-_tg;   // pass2 = face values (candidate-count proportional)
     cheng3_prof().thinc += prof_now()-_t0; double _t1=prof_now();
     // Pass 3 (cell loop): per-variable min-TBV pick. Wave-appropriate PROXY (primitive):

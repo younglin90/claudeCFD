@@ -6,6 +6,7 @@
 #include "cfd/diagnostics.hpp"
 #include "cfd/io_vtk.hpp"
 #include "cfd/mesh.hpp"
+#include "cfd/mesh_rcm.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -142,6 +143,10 @@ int main(int argc, char** argv) {
             if (cy <= 1e-6)        return (cx < xs) ? 3 : 4; // bottom: post-shock / reflective wall
             return 5;                                        // top time-dependent
         };
+        // MESH_RCM: renumber the elements so stencil neighbours land near each other in memory.
+        // This mesh comes from a file, so its numbering is unrelated to adjacency and every
+        // stencil walk is a random gather; see mesh_rcm.hpp.
+        if (std::getenv("MESH_RCM")) els = rcm_reorder(els, Nn);
         m = build_unstructured_2d(nds, els, classify, {"left","right","bottom_post","bottom_wall","top"});
         m.kind = "double_mach";
         std::printf("DM_MESH2D=%s cells=%d nodes=%d\n", mfile, m.n_cells(), Nn);

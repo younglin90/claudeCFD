@@ -42,6 +42,11 @@ inline bool inv5(double A[5][5], double Inv[5][5]) {
 }
 
 inline ReconCtxO2 build_recon_ctx_o2(const Mesh& m) {
+    // MESH_LOCALITY: how far apart a cell and its stencil neighbours are in memory. The
+    // least-squares fit, the vertex limiter and the BVD selection all walk this stencil, so
+    // a mesh whose neighbours are numbered far away pays a random gather where a
+    // lexicographically numbered one pays a sequential read. Printed once per context build.
+
     ReconCtxO2 c; const int N=m.n_cells(); c.N=N;
     const double* cc=m.cell_centers.data();
     int Nn=(int)m.nodes.size()/2;
@@ -86,6 +91,18 @@ inline ReconCtxO2 build_recon_ctx_o2(const Mesh& m) {
     c.v2c.assign((size_t)Nn*c.max_v2c,-1);
     for(int v=0;v<Nn;++v) for(int k=0;k<(int)vcells[v].size();++k)
         c.v2c[(size_t)v*c.max_v2c+k]=vcells[v][k];
+    if (std::getenv("MESH_LOCALITY")) {
+        double sum = 0; long n = 0; size_t far = 0;
+        for (int ci = 0; ci < c.N; ++ci)
+            for (int k = 0; k < c.max_nb; ++k) {
+                int nb = c.nb[(size_t)ci * c.max_nb + k];
+                if (nb < 0) continue;
+                long d = nb > ci ? nb - ci : ci - nb;
+                sum += (double)d; ++n; if (d > 1000) ++far;
+            }
+        std::fprintf(stderr, "[MESH_LOCALITY] cells=%d  mean|nb-ci|=%.1f  frac(|nb-ci|>1000)=%.3f\n",
+            c.N, n ? sum / n : 0.0, n ? (double)far / n : 0.0);
+    }
     return c;
 }
 

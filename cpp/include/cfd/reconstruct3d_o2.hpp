@@ -27,7 +27,38 @@ namespace cfd {
 struct ReconCtx3DO2 {
     int N = 0, max_nb = 0;
     std::vector<int>    nb;     // N*max_nb (-1 pad) — the vertex-26 stencil
-    std::vector<double> M;      // N*9*max_nb : operator, coeff i = Σ_k M[(ci*9+i)*max_nb+k]*dW_k
+    std::vector<double> M;      // N*max_nb*9 : operator, coeff i = Σ_k M[mi(ci,i,k)]*dW_k
+
+    // Alternative storage: the 9x9 normal-equation inverse per cell (N*81) instead of the
+    // assembled operator. M folds the inverse together with the stencil geometry, which costs
+    // 9*max_nb doubles a cell -- on a 70-neighbour tetrahedral stencil that is 5 kB a cell and
+    // several GB of table that the reconstruction streams on every call. The inverse is 648
+    // bytes a cell and the geometry it was folded with is recoverable from the neighbour
+    // centres, so the same coefficients come out of far less memory traffic.
+    //
+    // NOT bit-identical to the M path: it sums Inv*(Σ_k a_k dW_k) where M sums Σ_k (Inv*a_k) dW_k.
+    // Same value in exact arithmetic, different rounding.
+    //
+    // Only valid where the stencil offsets are plain centre-to-centre differences, which is the
+    // unstructured builder. The structured builder snaps offsets to the grid and wraps them
+    // periodically, so its geometry cannot be recovered this way -- it leaves inv_mode false.
+    std::vector<double> Inv;    // N*81 (row-major 9x9), used when inv_mode
+    bool inv_mode = false;
+
+    // Index of coefficient i for neighbour k of cell ci, with i as the CONTIGUOUS axis.
+    //
+    // The table was laid out as [(ci*9+i)*max_nb+k], which put a stride of max_nb doubles
+    // between the nine coefficients a consumer reads together. With the 20-30 neighbours a 3D
+    // stencil carries that is 160-240 bytes apart, so every one of the nine landed on its own
+    // cache line while only 8 of its 64 bytes were used. This is the largest geometry array in
+    // the solver and the reconstruction is bandwidth-bound on it. With i contiguous the same
+    // nine doubles are 72 consecutive bytes: two cache lines instead of nine.
+    //
+    // Only the memory layout changes. Every consumer accumulates the same products in the same
+    // order, so the reconstructed coefficients stay bit-identical.
+    inline size_t mi(int ci, int i, int k) const {
+        return ((size_t)ci * (size_t)max_nb + (size_t)k) * 9 + (size_t)i;
+    }
 };
 
 // invert a 9x9 (Gauss-Jordan, partial pivot); returns false if singular.
@@ -117,7 +148,7 @@ inline ReconCtx3DO2 build_recon_ctx_3d_o2(const Mesh& m) {
         for (int k = 0; k < K; ++k)
             for (int i = 0; i < 9; ++i) {
                 double v = 0; for (int j = 0; j < 9; ++j) v += Inv[i][j] * a[k][j];
-                c.M[((size_t)ci * 9 + i) * c.max_nb + k] = v * sw[k];
+                c.M[c.mi(ci, i, k)] = v * sw[k];
             }
     }
     return c;
@@ -131,6 +162,30 @@ inline void reconstruct3d_o2_coeffs(const Mesh& m, const ReconCtx3DO2& c,
     (void)nvar;
     const int N = m.n_cells();
     g.assign((size_t)N * 9, 0.0);
+    if (c.inv_mode) {                        // see ReconCtx3DO2::Inv
+        const double* cc = m.cell_centers.data();
+        #pragma omp parallel for
+        for (int ci = 0; ci < N; ++ci) {
+            double wc = W[(size_t)v * N + ci], b[9] = {0,0,0,0,0,0,0,0,0};
+            const double cx = cc[3*ci], cy = cc[3*ci+1], cz = cc[3*ci+2];
+            for (int k = 0; k < c.max_nb; ++k) {
+                int nb = c.nb[(size_t)ci * c.max_nb + k]; if (nb < 0) continue;
+                double dx = cc[3*nb] - cx, dy = cc[3*nb+1] - cy, dz = cc[3*nb+2] - cz;
+                double w = 1.0 / std::max(dx*dx + dy*dy + dz*dz, 1e-30), sq = std::sqrt(w);
+                double a[9] = {dx*sq, dy*sq, dz*sq, 0.5*dx*dx*sq, 0.5*dy*dy*sq, 0.5*dz*dz*sq,
+                               dx*dy*sq, dx*dz*sq, dy*dz*sq};
+                double dW = (W[(size_t)v * N + nb] - wc) * sq;
+                for (int j = 0; j < 9; ++j) b[j] += a[j] * dW;
+            }
+            const double* Iv = &c.Inv[(size_t)ci * 81];
+            for (int i = 0; i < 9; ++i) {
+                const double* Ir = &Iv[i * 9]; double t = 0;
+                for (int j = 0; j < 9; ++j) t += Ir[j] * b[j];
+                g[(size_t)ci * 9 + i] = t;
+            }
+        }
+        return;
+    }
     #pragma omp parallel for
     for (int ci = 0; ci < N; ++ci) {
         double wc = W[(size_t)v * N + ci];
@@ -138,7 +193,7 @@ inline void reconstruct3d_o2_coeffs(const Mesh& m, const ReconCtx3DO2& c,
         for (int k = 0; k < c.max_nb; ++k) {
             int nb = c.nb[(size_t)ci * c.max_nb + k]; if (nb < 0) continue;
             double dW = W[(size_t)v * N + nb] - wc;
-            for (int i = 0; i < 9; ++i) co[i] += c.M[((size_t)ci * 9 + i) * c.max_nb + k] * dW;
+            for (int i = 0; i < 9; ++i) co[i] += c.M[c.mi(ci, i, k)] * dW;
         }
         for (int i = 0; i < 9; ++i) g[(size_t)ci * 9 + i] = co[i];
     }
@@ -159,6 +214,45 @@ inline void reconstruct3d_o2_coeffs_allvars(const Mesh& m, const ReconCtx3DO2& c
     const int mnb = c.max_nb;
     const size_t per_var = (size_t)N * 9;
     g_all.resize((size_t)nvar * per_var);
+    if (c.inv_mode) {                       // rebuild the stencil geometry, apply the inverse once
+        const double* cc = m.cell_centers.data();
+        #pragma omp parallel
+        {
+            std::vector<double> b((size_t)nvar * 9), wc((size_t)nvar);
+            #pragma omp for schedule(static)
+            for (int ci = 0; ci < N; ++ci) {
+                for (int v = 0; v < nvar; ++v) wc[v] = W[(size_t)v * N + ci];
+                std::fill(b.begin(), b.end(), 0.0);
+                const double cx = cc[3*ci], cy = cc[3*ci+1], cz = cc[3*ci+2];
+                const size_t nbbase = (size_t)ci * mnb;
+                for (int k = 0; k < mnb; ++k) {
+                    int nb = c.nb[nbbase + k]; if (nb < 0) continue;
+                    double dx = cc[3*nb] - cx, dy = cc[3*nb+1] - cy, dz = cc[3*nb+2] - cz;
+                    double w = 1.0 / std::max(dx*dx + dy*dy + dz*dz, 1e-30), sq = std::sqrt(w);
+                    // a_j * sw : the row the builder scaled by sw before folding in the inverse
+                    double a[9] = {dx*sq, dy*sq, dz*sq, 0.5*dx*dx*sq, 0.5*dy*dy*sq, 0.5*dz*dz*sq,
+                                   dx*dy*sq, dx*dz*sq, dy*dz*sq};
+                    for (int j = 0; j < 9; ++j) a[j] *= sq;
+                    for (int v = 0; v < nvar; ++v) {
+                        double dW = W[(size_t)v * N + nb] - wc[v];
+                        double* bv = &b[(size_t)v * 9];
+                        for (int j = 0; j < 9; ++j) bv[j] += a[j] * dW;
+                    }
+                }
+                const double* Iv = &c.Inv[(size_t)ci * 81];
+                for (int v = 0; v < nvar; ++v) {
+                    const double* bv = &b[(size_t)v * 9];
+                    double* dst = &g_all[(size_t)v * per_var + (size_t)ci * 9];
+                    for (int i = 0; i < 9; ++i) {
+                        const double* Ir = &Iv[i * 9]; double t = 0;
+                        for (int j = 0; j < 9; ++j) t += Ir[j] * bv[j];
+                        dst[i] = t;
+                    }
+                }
+            }
+        }
+        return;
+    }
     #pragma omp parallel
     {
         std::vector<double> co((size_t)nvar * 9), wc((size_t)nvar);
@@ -167,12 +261,12 @@ inline void reconstruct3d_o2_coeffs_allvars(const Mesh& m, const ReconCtx3DO2& c
             for (int v = 0; v < nvar; ++v) wc[v] = W[(size_t)v * N + ci];
             std::fill(co.begin(), co.end(), 0.0);
             const size_t nbbase = (size_t)ci * mnb;
-            const size_t mrow0  = (size_t)ci * 9;            // M[(ci*9+i)*mnb + k]
             for (int k = 0; k < mnb; ++k) {
                 int nb = c.nb[nbbase + k]; if (nb < 0) continue;
-                double Mk[9];                                 // stream this cell's M column ONCE
-                for (int i = 0; i < 9; ++i) Mk[i] = c.M[(mrow0 + i) * (size_t)mnb + k];
-                for (int v = 0; v < nvar; ++v) {              // ...reuse it for every variable
+                // the nine coefficients are contiguous, so this is a pointer into the table
+                // rather than a nine-element strided gather into a local buffer
+                const double* Mk = &c.M[c.mi(ci, 0, k)];
+                for (int v = 0; v < nvar; ++v) {              // reuse it for every variable
                     double dW = W[(size_t)v * N + nb] - wc[v];
                     double* cov = &co[(size_t)v * 9];
                     for (int i = 0; i < 9; ++i) cov[i] += Mk[i] * dW;

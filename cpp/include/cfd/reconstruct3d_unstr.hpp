@@ -23,8 +23,42 @@
 
 namespace cfd {
 
+// Published P2 coefficients of the last reconstruction, with a token saying what they were
+// built from.
+//
+// The reconstruction already fits every variable. MOOD then wants the density and pressure
+// coefficients and calls reconstruct3d_o2_coeffs twice to get them, and each of those sweeps
+// the whole M operator table again. On a 2.6M-cell tetrahedral mesh with a 70-neighbour
+// stencil that table is 13 GB, so the two extra sweeps move more memory than the entire
+// reconstruction does. Publishing the fused result lets MOOD read the slices instead. The
+// values are the same ones it would have recomputed: the fused routine is byte-identical to
+// the per-variable calls, so nothing about the scheme changes.
+//
+// The token is checked before reuse so a caller that reconstructed from a different field, mesh
+// or variable count falls back to computing its own.
+struct U3GallStamp { const void* W = nullptr; const void* mesh = nullptr; int nvar = 0, N = 0; };
+inline U3GallStamp& u3_gall_stamp() { static U3GallStamp s; return s; }
+inline std::vector<double>& u3_gall() { static std::vector<double> g; return g; }
+inline const double* u3_gall_var(const void* W, const void* mesh, int nvar, int N, int v) {
+    const U3GallStamp& s = u3_gall_stamp();
+    if (s.W != W || s.mesh != mesh || s.nvar != nvar || s.N != N || v < 0 || v >= nvar)
+        return nullptr;
+    if (u3_gall().size() < (size_t)nvar * (size_t)N * 9) return nullptr;
+    return &u3_gall()[(size_t)v * (size_t)N * 9];
+}
+
 // recon sub-phase profiler (env E3D_PROF): split the BVD recon into o2-LSQ / cell-D / face.
-struct U3Prof { double lsq=0, celld=0, facebvd=0; };
+// Cycle counts for the two kernels the GAUSS closure replaces, measured where they run rather
+// than inferred from the surrounding phase. The phase buckets cannot stand in for them: the
+// cell-D bucket also carries the vertex bound, the limiter and the interface polynomial, which is
+// why it still costs 880s on sphere3d under GAUSS, where no shift is solved at all. RDTSC is ~20
+// cycles against a ~1900-cycle tanh solve, so the reading is the kernel and not the timer.
+inline unsigned long long u3_tsc(){
+    __builtin_ia32_lfence();          // order the counter read against the work around it
+    return __builtin_ia32_rdtsc();
+}
+struct U3Prof { double lsq=0, celld=0, facebvd=0; double f2a=0, f2b=0, f2c=0; double pro=0;
+                unsigned long long tsc_dsolve=0, tsc_faceval=0; };
 inline U3Prof& u3_prof(){ static U3Prof p; return p; }
 // cell-D Newton iteration accountancy (diagnostic: total iters / total Newton solves -> avg).
 inline std::atomic<long>& u3_celld_iters(){ static std::atomic<long> n{0}; return n; }
@@ -343,7 +377,7 @@ inline void u3_build_gmom(const Mesh& m, U3Gmom& G){
     for(int ci=0;ci<N;++ci) G.face_off[ci+1]=G.face_off[ci]+(size_t)m.cell_faces[ci].size()*35;
     G.facem.assign(G.face_off[N],0.0);
     const auto& L=u3_mon_list();
-    #pragma omp parallel for schedule(dynamic,64)
+    #pragma omp parallel for schedule(guided)
     for(int ci=0;ci<N;++ci){
         double cx=m.cell_centers[3*ci],cy=m.cell_centers[3*ci+1],cz=m.cell_centers[3*ci+2];
         double V=m.cell_volumes[ci];
@@ -447,10 +481,14 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
     static const bool ABVD3   = std::getenv("BVD_ABVD") != nullptr;
     static const bool A3_SAFE = std::getenv("BVD_ABVD_SAFE") != nullptr;
     static const bool A3_EMM  = std::getenv("BVD_ABVD_EMM") != nullptr;
+    // The three phase timers below cover the LSQ solve and the per-variable work; this one covers
+    // everything before them (scratch re-initialisation and the cached geometry builds), so the four
+    // together account for the whole call and a gap cannot hide.
+    const bool PRO_ON = u3_prof_on(); double _pr = PRO_ON ? u3_prof_ms() : 0.0;
     auto a3_mm = [](double r){ return std::max(0.0, std::min(r, 1.0)); };
     auto a3_sb = [](double r){ return std::max(0.0, std::max(std::min(2.0*r,1.0), std::min(r,2.0))); };
     auto a3_vl = [](double r){ return (r+std::fabs(r))/(1.0+std::fabs(r)); };
-    static std::vector<double> g_all;      // OPT1: o2 P2 coeffs ALL vars (var-outermost, nvar*N*9); H2 persistent (fused reconstruct3d_o2_coeffs_allvars)
+    std::vector<double>& g_all = u3_gall();   // OPT1: o2 P2 coeffs ALL vars (var-outermost, nvar*N*9); H2 persistent (fused reconstruct3d_o2_coeffs_allvars), published for MOOD
 
     // per-cell interface state (current var): TWO THINC candidates (sharp beta_l, gentle beta_s)
     struct Cint{ D3Poly P; double D_l=0,D_s=0,D_star=0,kk_l=0,kk_s=0,M1=0,M2=0,qmin=0,qmax=0; int hasint=0; double phi=1.0; double phi2=1.0; };
@@ -459,8 +497,30 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
     // candidates {o2-quad, THINC_l, THINC_s}, the OWNER-side (qoF) and NEIGHBOUR-side (qnF) face
     // value. TBV = Σ_faces |qoF − qnF| (true boundary variation), shared by both adjacent cells.
     // 4th candidate slot (index 3) = PAPER 3 per-cell TBV-min beta* (GAUSS closed-form D(beta)).
-    static std::vector<double> qoF, qnF; qoF.assign((size_t)4*Nf,0.0); qnF.assign((size_t)4*Nf,0.0);   // H2 persistent; OPT3 layout = candidate-INNERMOST [f*4+cand] (4 cands per face = 1 cache line)
+    // Layout = candidate-OUTERMOST [cand*Nf + f]. The innermost form put all four candidates of a
+    // face on one cache line, which is the right shape only if every consumer wants all four. It
+    // does not: a cell with no interface can only ever pick candidate 0, so the min-TBV pass reads
+    // slots 1 and 2 for ~85% of cells purely to discard them, and slot 3 is dead unless beta* is on.
+    // Splitting the candidates into separate streams lets those passes touch just the slot they use.
+    // One array, the two sides of a face adjacent: [cand*2*Nf + 2*f + side], side 0 = owner.
+    // The min-TBV pass reads |owner - neighbour| for the same face and candidate, which as two
+    // arrays was two random cache lines per face; adjacent it is one.
+    static std::vector<double> qF; qF.assign((size_t)8*Nf,0.0);   // H2 persistent
+    auto QO=[&](int cand,int f)->double&{ return qF[(size_t)cand*2*Nf + (size_t)2*f]; };
+    auto QN=[&](int cand,int f)->double&{ return qF[(size_t)cand*2*Nf + (size_t)2*f + 1]; };
     static std::vector<int> pickv; pickv.assign(N,0);   // H2 persistent
+    // Everything the SMOOTH candidate needs, one cell per cache line.
+    //
+    // The candidate pass is indexed by face but reads by cell, so each of qbar, phi, the gradient,
+    // and the cell centre is a separate random line -- five lines fetched, 120 of the 320 bytes
+    // used, and Cint alone is 168 bytes of which the smooth path wants two. Packing the eight
+    // doubles it actually reads makes that one line. The interface flag rides in its own byte
+    // array (one byte a cell, small enough to stay resident) so the branch does not pull Cint back
+    // in; cells that do have an interface still read Cint for the THINC candidates.
+    //   [0]=qbar [1]=phi [2..4]=gx,gy,gz [5..7]=cell centre
+    // Filled in the per-cell pass below, which already computes every one of them.
+    static std::vector<double> cpk; cpk.assign((size_t)8*N, 0.0);
+    static std::vector<unsigned char> hint; hint.assign((size_t)N, 0);
 
     // a-priori strong-shock sensor: at big-pressure-jump COMPRESSIVE cells force FIRST-ORDER
     // (the MLP-bounded GAUSS still over-sharpens a Mach-strong shock into neg-p on the
@@ -518,7 +578,9 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
     const bool VMLP=u3_vmlp();
     static U3NodeAdj NA;
     if(VMLP && (NA.mp!=&m || NA.N!=N)) u3_build_nodeadj(m, NA);
-    static std::vector<double> vnmin, vnmax; if(VMLP){ vnmin.assign((size_t)NA.nn,0.0); vnmax.assign((size_t)NA.nn,0.0); }   // H2 persistent
+    // Per-vertex bound, min and max interleaved: every consumer reads both together, and as two
+    // arrays that was two random cache lines a vertex. Interleaved it is one. [2p]=min [2p+1]=max.
+    static std::vector<double> vnb; if(VMLP){ vnb.assign((size_t)2*NA.nn,0.0); }   // H2 persistent
 
     // ===== PAPER 3 (THINCQQ_BETASTAR + THINCQQ_BSTAR_EXACT): per-cell TBV-min beta* replaces the
     // fixed 2-beta set. beta* interior (beta_s<beta*<beta_l) -> candidate {smooth, THINC(beta*)};
@@ -547,10 +609,12 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
     // all-GAUSS recon (option A) with THINCQQ_BSTAR_GAUSSRECON=1.
     const bool BSTAR3_TANHRECON = (std::getenv("THINCQQ_BSTAR_GAUSSRECON")==nullptr);
     const bool PROF=u3_prof_on(); double _pt;
+    if(PRO_ON) u3_prof().pro += u3_prof_ms()-_pr;
     // OPT1: fused P2-LSQ across all nvar (stream the big M operator table ONCE, not nvar x).
     // g_all layout = var-outermost: g_all[v*N*9 + ci*9 + i]. Byte-identical to per-var calls.
     if(PROF) _pt=u3_prof_ms();
     reconstruct3d_o2_coeffs_allvars(m,o2c,W,nvar,g_all);
+    u3_gall_stamp() = U3GallStamp{W.data(), (const void*)&m, nvar, N};   // MOOD may reuse these
     if(PROF) u3_prof().lsq += u3_prof_ms()-_pt;
     for(int v=0; v<nvar; ++v){
         const double* g = &g_all[(size_t)v*(size_t)N*9];   // this var's slice (replaces reconstruct3d_o2_coeffs per var)
@@ -559,10 +623,10 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
         if(VMLP){
             #pragma omp parallel for schedule(static)
             for(int p=0;p<NA.nn;++p){ int b=NA.off[p],e=NA.off[p+1];
-                if(b==e){ vnmin[p]=0; vnmax[p]=0; continue; }
+                if(b==e){ vnb[(size_t)2*p]=0; vnb[(size_t)2*p+1]=0; continue; }
                 double lo=W[(size_t)v*N+NA.cells[b]], hi=lo;
                 for(int k=b+1;k<e;++k){ double q=W[(size_t)v*N+NA.cells[k]]; if(q<lo)lo=q; if(q>hi)hi=q; }
-                vnmin[p]=lo; vnmax[p]=hi; }
+                vnb[(size_t)2*p]=lo; vnb[(size_t)2*p+1]=hi; }
         }
         // SMOOTH-candidate polynomial order. 2D's BVD smooth/MUSCL candidate is P1 (gradient-only,
         // vertex-MLP limited); 3D used P2 (grad+Hessian). The P2 Hessian term 0.5*dx^T H dx grows as
@@ -574,42 +638,46 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
         // smooth regions instead of 3rd. Opt back to P2 with RECON_P2_SMOOTH.
         static const double HFAC = (std::getenv("RECON_P2_SMOOTH")!=nullptr) ? 1.0 : 0.0;
         // (1) per-cell: stencil bound, MLP phi, interface P + GAUSS cell-D
-        #pragma omp parallel for schedule(dynamic,64)
+        unsigned long long d_tsc_D=0;
+        #pragma omp parallel for schedule(guided) reduction(+:d_tsc_D)
         for(int ci=0; ci<N; ++ci){
             Cint st; double qbar=W[(size_t)v*N+ci];
             // FIX2: THINC normalization band = 2D S1's qmnc/qmxc (reconstruct_bvd.hpp:1246): min/max
             // of the per-node vertex-neighbour bounds over the cell's nodes (VMLP). cbar + the
             // interface gate + Q all use this SAME band (2D consistency). Fallback = old o2c.nb LSQ
             // stencil when VMLP is off (RECON_BJ_FACE, legacy).
-            double qmin,qmax;
-            if(VMLP){
-                qmin=1e300; qmax=-1e300;
-                for(int p:m.cell_nodes[ci]){ if(p<0||p>=NA.nn)continue; double a=vnmin[p],b=vnmax[p]; if(a<qmin)qmin=a; if(b>qmax)qmax=b; }
-                if(qmin>qmax){ qmin=qbar; qmax=qbar; }
-            } else {
-                qmin=qbar; qmax=qbar;
-                for(int k=0;k<o2c.max_nb;++k){int nb=o2c.nb[(size_t)ci*o2c.max_nb+k]; if(nb<0)continue;
-                    double wn=W[(size_t)v*N+nb]; qmin=std::min(qmin,wn); qmax=std::max(qmax,wn);}
-            }
-            st.qmin=qmin; st.qmax=qmax;
             const double* gi=&g[(size_t)ci*9];
             double cx=m.cell_centers[3*ci],cy=m.cell_centers[3*ci+1],cz=m.cell_centers[3*ci+2];
-            // limiter on the o2 gradient. DEFAULT = genuine vertex-MLP (Park-Yoon-Kim MLP-u):
-            // check the o2 reconstruction AT EACH VERTEX against that vertex's neighbour-min/max
-            // (multi-dimensional bound). Opt-out RECON_BJ_FACE = legacy face-center Barth-Jespersen.
-            double phi=1.0;
+            // The normalization band and the MLP limiter both walk this cell's nodes and both read
+            // that node's bound, so they are done in ONE pass -- two passes fetched the same vertex
+            // bounds twice. The limiter is independent of the band (it compares against each
+            // vertex's own bound, not the cell's), so nothing is reordered.
+            //
+            // The guard is kept exactly where it was: the band skips out-of-range nodes, the
+            // limiter does not, so the values are unchanged from the two-pass form.
+            double qmin,qmax,phi=1.0;
             if(VMLP){
                 // FIX1: 2D S1 smooth candidate (reconstruct2d.hpp:1100-1108). Per vertex p, project the
                 // P1 gradient (HFAC=0) and take the MLP-u2 Venkatakrishnan limiter (MLP_U2>0) OR hard
                 // Barth-Jespersen (K==0) on that vertex's neighbour min/max bound. phi = min over p.
+                qmin=1e300; qmax=-1e300;
                 double eps2 = (U2K>0.0) ? std::pow(U2K*std::cbrt(2.0*m.cell_volumes[ci]),3) : 0.0;
                 for(int p:m.cell_nodes[ci]){
+                    const double a=vnb[(size_t)2*p], b=vnb[(size_t)2*p+1];
+                    if(p>=0 && p<NA.nn){ if(a<qmin)qmin=a; if(b>qmax)qmax=b; }
                     double dx=m.nodes[3*p]-cx,dy=m.nodes[3*p+1]-cy,dz=m.nodes[3*p+2]-cz;
-                    double dq=gi[0]*dx+gi[1]*dy+gi[2]*dz+HFAC*(0.5*gi[3]*dx*dx+0.5*gi[4]*dy*dy+0.5*gi[5]*dz*dz+gi[6]*dx*dy+gi[7]*dx*dz+gi[8]*dy*dz);
-                    double pk = (U2K>0.0) ? u3_venk_phi(dq,qbar,vnmin[p],vnmax[p],eps2)
-                                          : u3_bj_phi(dq,qbar,vnmin[p],vnmax[p]);
+                    double dq=gi[0]*dx+gi[1]*dy+gi[2]*dz;
+                    if(HFAC!=0.0) dq+=HFAC*(0.5*gi[3]*dx*dx+0.5*gi[4]*dy*dy+0.5*gi[5]*dz*dz+gi[6]*dx*dy+gi[7]*dx*dz+gi[8]*dy*dz);
+                    double pk = (U2K>0.0) ? u3_venk_phi(dq,qbar,a,b,eps2)
+                                          : u3_bj_phi(dq,qbar,a,b);
                     if(pk<phi)phi=pk; }
+                if(qmin>qmax){ qmin=qbar; qmax=qbar; }
+                st.qmin=qmin; st.qmax=qmax;
             } else {
+                qmin=qbar; qmax=qbar;
+                for(int k=0;k<o2c.max_nb;++k){int nb=o2c.nb[(size_t)ci*o2c.max_nb+k]; if(nb<0)continue;
+                    double wn=W[(size_t)v*N+nb]; qmin=std::min(qmin,wn); qmax=std::max(qmax,wn);}
+                st.qmin=qmin; st.qmax=qmax;
                 for(int fc:m.cell_faces[ci]){ double dx=m.face_centers[3*fc]-cx,dy=m.face_centers[3*fc+1]-cy,dz=m.face_centers[3*fc+2]-cz;
                     double dq=gi[0]*dx+gi[1]*dy+gi[2]*dz+HFAC*(0.5*gi[3]*dx*dx+0.5*gi[4]*dy*dy+0.5*gi[5]*dz*dz+gi[6]*dx*dy+gi[7]*dx*dz+gi[8]*dy*dz);
                     double allowed = dq>0?(qmax-qbar):(qmin-qbar);
@@ -622,7 +690,7 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
                     for(int p:m.cell_nodes[ci]){
                         double dx=m.nodes[3*p]-cx,dy=m.nodes[3*p+1]-cy,dz=m.nodes[3*p+2]-cz;
                         double proj=gi[0]*dx+gi[1]*dy+gi[2]*dz;
-                        double allowed = proj>=0.0?(vnmax[p]-qbar):(qbar-vnmin[p]);
+                        double allowed = proj>=0.0?(vnb[(size_t)2*p+1]-qbar):(qbar-vnb[(size_t)2*p]);
                         double pk=(std::fabs(proj)>1e-30)?std::max(allowed,0.0)/std::fabs(proj):2.0;
                         if(pk<p2)p2=pk; }
                 } else {
@@ -666,7 +734,21 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
             // i.e. the MLP limiter activated → genuine discontinuity; smooth φ≈1 cells skip THINC)
             double rng=qmax-qmin, cbar=(rng>1e-14)?(qbar-qmin)/rng:0.5;
             // FIX4: interface-cell cbar gate 1e-4 -> 1e-6 (2D reconstruct_bvd.hpp:1249 value).
-            if(rng>1e-14 && cbar>1e-6 && cbar<1.0-1e-6 && (!APRIORI || st.phi<APHI) && u3_build_P(gi, st.P)){
+            // DIAGNOSTIC ONLY (THINCQQ_FORCE_ALL): build a THINC profile on every cell that has a
+            // usable gradient, including those whose neighbourhood is flat or whose average sits at
+            // the edge of its band -- where the shift the constraint asks for does not exist. It
+            // stays finite (a flat band collapses the profile back to the cell average) but it is
+            // not the published scheme and it moves the answer, so it is a cost probe only.
+            static const bool FORCE_ALL3 = std::getenv("THINCQQ_FORCE_ALL")!=nullptr;
+            const bool if_ok = FORCE_ALL3 ? true
+                             : (rng>1e-14 && cbar>1e-6 && cbar<1.0-1e-6 && (!APRIORI || st.phi<APHI));
+            bool P_ok = u3_build_P(gi, st.P);
+            if(!P_ok && FORCE_ALL3){   // see the 2D note: arbitrary plane so the cell still pays
+                st.P.c[0]=1.0; st.P.c[1]=0.0; st.P.c[2]=0.0;
+                for(int _i=3;_i<9;++_i) st.P.c[_i]=0.0;
+                P_ok=true;
+            }
+            if(if_ok && P_ok){
                 // THINC sharpness scale H. 2D uses the HYDRAULIC DIAMETER H=4V/perimeter (shape-aware:
                 // shrinks for high-aspect cells). The 3D port used H=cbrt(V) (pure volume cube-root, NO
                 // directional info): for a cube it equals the edge (matches 2D), but for a pointy/elongated
@@ -699,14 +781,23 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
                     static const bool WARM = std::getenv("THINCQQ_TANH_WARM")!=nullptr;
                     double D0l=WARM?deg3t3d_cellD_fromM_gauss(M1,M2,st.kk_l,Q):0.0;
                     double D0s=WARM?deg3t3d_cellD_fromM_gauss(M1,M2,st.kk_s,Q):0.0;
-                    st.D_l=u3_tanh_cellD(tl_Pv,tl_wt,st.kk_l,Q,D0l); st.D_s=u3_tanh_cellD(tl_Pv,tl_wt,st.kk_s,Q,D0s);
+                    { unsigned long long _c0=u3_tsc();
+                      st.D_l=u3_tanh_cellD(tl_Pv,tl_wt,st.kk_l,Q,D0l); st.D_s=u3_tanh_cellD(tl_Pv,tl_wt,st.kk_s,Q,D0s);
+                      d_tsc_D += u3_tsc()-_c0; }
                 } else if(deg3t_gauss_skew()){ st.D_l=deg3t3d_cellD_fromM_gaussS(M1,M2,M3,st.kk_l,Q); st.D_s=deg3t3d_cellD_fromM_gaussS(M1,M2,M3,st.kk_s,Q); }
-                else { st.D_l=deg3t3d_cellD_fromM_gauss(M1,M2,st.kk_l,Q); st.D_s=deg3t3d_cellD_fromM_gauss(M1,M2,st.kk_s,Q); }
+                else { unsigned long long _c0=u3_tsc();
+                       st.D_l=deg3t3d_cellD_fromM_gauss(M1,M2,st.kk_l,Q); st.D_s=deg3t3d_cellD_fromM_gauss(M1,M2,st.kk_s,Q);
+                       d_tsc_D += u3_tsc()-_c0; }
                 st.M1=M1; st.M2=M2;   // stored for the beta* search / D_star (paper3); D_star set per-var in the search below
                 st.hasint=1;
             }
             ci_st[ci]=st;
+            { double* pk=&cpk[(size_t)8*ci];
+              pk[0]=qbar; pk[1]=st.phi; pk[2]=gi[0]; pk[3]=gi[1]; pk[4]=gi[2];
+              pk[5]=cx;   pk[6]=cy;     pk[7]=cz;
+              hint[ci]=(unsigned char)(st.hasint?1:0); }
         }
+        u3_prof().tsc_dsolve += d_tsc_D;
         if(PROF){ u3_prof().celld += u3_prof_ms()-_pt; _pt=u3_prof_ms(); }
         // (1b) PAPER 3 exact beta*: per-cell TBV(beta) grid-min over [beta_s,beta_l], selected on
         // density (v==0), reused for all vars. GAUSS closed-form D(beta) (deg3t3d_cellD_fromM_gauss)
@@ -715,7 +806,7 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
         if(BSTAR3){   // PAPER3 PER-VARIABLE beta* (runs every v; density v==0 also drives beff/binc/pick)
             const int NB = BSTAR3_WIDE?16:9;
             const double blo = BSTAR3_WIDE?BSTAR3_WMIN:beta_s, bhi = BSTAR3_WIDE?BSTAR3_WMAX:beta_l;
-            #pragma omp parallel for schedule(dynamic,64)
+            #pragma omp parallel for schedule(guided)
             for(int ci=0; ci<N; ++ci){
                 Cint& st=ci_st[ci]; if(!st.hasint) continue;
                 double Hci=(st.kk_l>0.0)?beta_l/st.kk_l:std::cbrt(m.cell_volumes[ci]);
@@ -803,17 +894,26 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
         // H1 (perf, result-preserving): wantLS = the beta_l/beta_s (q1,q2) candidates are actually needed.
         // In WIDE the pick for a binc==1 cell uses only {smooth, THINC(beta*)} (L776), so for a face whose
         // BOTH cells are binc==1 the q1/q2 candidates (and their GAUSS moment assembly) are dead -> skip.
-        auto cellFaceCands=[&](int ci,int fc,bool wantLS,bool wantBS,double& q0,double& q1,double& q2,double& q3){
-            const Cint& st=ci_st[ci]; double qbar=W[(size_t)v*N+ci];
-            const double* gi=&g[(size_t)ci*9];
-            double cx=m.cell_centers[3*ci],cy=m.cell_centers[3*ci+1],cz=m.cell_centers[3*ci+2];
+        unsigned long long d_tsc_F=0;
+        auto cellFaceCands=[&](int ci,int fc,bool wantLS,bool wantBS,double& q0,double& q1,double& q2,double& q3,
+                               unsigned long long& tsc_F){
+            const double* pk=&cpk[(size_t)8*ci];
+            const double qbar=pk[0], cx=pk[5], cy=pk[6], cz=pk[7];
             double dx=m.face_centers[3*fc]-cx,dy=m.face_centers[3*fc+1]-cy,dz=m.face_centers[3*fc+2]-cz;
-            double dq=gi[0]*dx+gi[1]*dy+gi[2]*dz+HFAC*(0.5*gi[3]*dx*dx+0.5*gi[4]*dy*dy+0.5*gi[5]*dz*dz+gi[6]*dx*dy+gi[7]*dx*dz+gi[8]*dy*dz);
-            q0=qbar+st.phi*dq; q1=qbar; q2=qbar; q3=qbar;               // smooth candidate (P1 default, MLP-limited; P2 if RECON_P2_SMOOTH)
-            if(st.hasint){ const D3Poly&P=st.P; double fal=0,fas=0;
+            double dq=pk[2]*dx+pk[3]*dy+pk[4]*dz;
+            // HFAC is 0 unless RECON_P2_SMOOTH: the Hessian terms are multiplied by zero and the
+            // six coefficients they read are dead weight, but the compiler cannot know that from a
+            // runtime constant. Branching keeps them out of the default path; adding 0.0 to a
+            // finite dq is a no-op, so the value is unchanged.
+            if(HFAC!=0.0){ const double* gi=&g[(size_t)ci*9];
+                dq+=HFAC*(0.5*gi[3]*dx*dx+0.5*gi[4]*dy*dy+0.5*gi[5]*dz*dz+gi[6]*dx*dy+gi[7]*dx*dz+gi[8]*dy*dz); }
+            q0=qbar+pk[1]*dq; q1=qbar; q2=qbar; q3=qbar;               // smooth candidate (P1 default, MLP-limited; P2 if RECON_P2_SMOOTH)
+            if(hint[ci]){ const Cint& st=ci_st[ci]; const D3Poly&P=st.P; double fal=0,fas=0;
                 if(USE_TANH){
-                    if(wantLS){ thread_local std::vector<double> pv,wt; u3_face_pvals(m,fc,P,cx,cy,cz,pv,wt);
-                        fal=u3_tanh_face_avg(pv,wt,st.kk_l,st.D_l); fas=u3_tanh_face_avg(pv,wt,st.kk_s,st.D_s); }
+                    if(wantLS){ unsigned long long _c0=u3_tsc();
+                        thread_local std::vector<double> pv,wt; u3_face_pvals(m,fc,P,cx,cy,cz,pv,wt);
+                        fal=u3_tanh_face_avg(pv,wt,st.kk_l,st.D_l); fas=u3_tanh_face_avg(pv,wt,st.kk_s,st.D_s);
+                        tsc_F += u3_tsc()-_c0; }
                 } else {   // GAUSS: closed-form face moments <P>,<P^2> from precomputed GMOM (no quadrature)
                     // fm is used by fal/fas (wantLS) and by the GAUSS-recon beta* face (option A, !TANHRECON, only when wantBS).
                     bool needFM = wantLS || (BSTAR3 && wantBS && !BSTAR3_TANHRECON);
@@ -827,9 +927,10 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
                                F2=u3_int_face(m,fc,[&](double x,double y,double z){double p=u3_Peval(P,x-cx,y-cy,z-cz);return p*p;})/Afan; }
                         double F3= deg3t_gauss_skew()? u3_int_face(m,fc,[&](double x,double y,double z){double p=u3_Peval(P,x-cx,y-cy,z-cz);return p*p*p;})/u3_face_area_fan(m,fc) : 0.0;
                         fm=D3FaceMom{F1,F2,F3,u3_Peval(P,dx,dy,dz)}; }
-                    if(wantLS){
+                    if(wantLS){ unsigned long long _c0=u3_tsc();
                         fal= deg3t_gauss_skew()? deg3t3d_face_avg_gaussS(fm,st.D_l,st.kk_l):deg3t3d_face_avg_gauss(fm,st.D_l,st.kk_l);
                         fas= deg3t_gauss_skew()? deg3t3d_face_avg_gaussS(fm,st.D_s,st.kk_s):deg3t3d_face_avg_gauss(fm,st.D_s,st.kk_s);
+                        tsc_F += u3_tsc()-_c0;
                     }
                     if(BSTAR3 && wantBS){   // PAPER 3 per-var beta* candidate face value (kk=beta*_v/H); skipped when no adjacent cell picks {beta*}
                         double kks=bstv3[(size_t)v*N+ci]*st.kk_l/beta_l;   // = beta*_v/H (kk_l = beta_l/H)
@@ -852,18 +953,31 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
             }
         };
         // (2a) per-FACE: owner-side & neighbour-side candidate face values.
-        #pragma omp parallel for schedule(dynamic,64)
+        //
+        // Measured, not assumed: evaluating cell-major instead (visit each cell once, do all of its
+        // faces from that side, so the cell's P2 coefficients and interface state are read once
+        // rather than once per incident face) came out 8% SLOWER on the two-cylinder mesh at
+        // identical results. The scattered writes cost more than the re-gathers save, so the
+        // coefficient gather is not what this loop is waiting on. Keep it face-major.
+        double _ps = PROF ? u3_prof_ms() : 0.0;
+        #pragma omp parallel for schedule(guided) reduction(+:d_tsc_F)
         for(int f=0; f<Nf; ++f){
             int o=m.face_owner[f], nb=m.face_neighbour[f];
             // H1 (result-preserving): binc==1 cell picks {smooth,beta*} (beta_l/beta_s dead); binc==0 cell picks
             // {smooth,beta_l,beta_s} (beta* dead). Compute each candidate iff an adjacent cell consults it.
             bool wantLS = !BSTAR3 || binc[o]==0 || (nb>=0 && binc[nb]==0);
             bool wantBS = BSTAR3 && (binc[o]==1 || (nb>=0 && binc[nb]==1));
-            double a0,a1,a2,a3; cellFaceCands(o,f,wantLS,wantBS,a0,a1,a2,a3);
-            qoF[(size_t)f*4+0]=a0; qoF[(size_t)f*4+1]=a1; qoF[(size_t)f*4+2]=a2; qoF[(size_t)f*4+3]=a3;   // OPT3 cand-innermost
-            if(nb>=0){ double b0,b1,b2,b3; cellFaceCands(nb,f,wantLS,wantBS,b0,b1,b2,b3);
-                qnF[(size_t)f*4+0]=b0; qnF[(size_t)f*4+1]=b1; qnF[(size_t)f*4+2]=b2; qnF[(size_t)f*4+3]=b3;
-            } else { qnF[(size_t)f*4+0]=a0; qnF[(size_t)f*4+1]=a1; qnF[(size_t)f*4+2]=a2; qnF[(size_t)f*4+3]=a3; } // boundary -> zero jump
+            unsigned long long tsc_F=0;
+            double a0,a1,a2,a3; cellFaceCands(o,f,wantLS,wantBS,a0,a1,a2,a3,tsc_F);
+            QO(0,f)=a0; QO(1,f)=a1; QO(2,f)=a2;
+            if(BSTAR3) QO(3,f)=a3;                                   // slot 3 is read only under beta*
+            if(nb>=0){ double b0,b1,b2,b3; cellFaceCands(nb,f,wantLS,wantBS,b0,b1,b2,b3,tsc_F);
+                QN(0,f)=b0; QN(1,f)=b1; QN(2,f)=b2;
+                if(BSTAR3) QN(3,f)=b3;
+            } else {                                                  // boundary -> zero jump
+                QN(0,f)=a0; QN(1,f)=a1; QN(2,f)=a2;
+                if(BSTAR3) QN(3,f)=a3; }
+            d_tsc_F += tsc_F;
         }
         // (2a') ABVD: overwrite candidate-0 (smooth slot) face values with the adaptive
         // TVD-BVD interval pick + vertex-LMP clamp. Boundary faces keep the MLP-P1 value.
@@ -875,7 +989,7 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
                 if(nb<0) continue;
                 double qi=W[(size_t)v*N+o], qj=W[(size_t)v*N+nb], dq=qj-qi;
                 if(std::fabs(dq)<1e-13*(std::fabs(qi)+std::fabs(qj)+1e-100)){
-                    qoF[(size_t)f*4+0]=qi; qnF[(size_t)f*4+0]=qj; continue; }
+                    QO(0,f)=qi; QN(0,f)=qj; continue; }
                 const double* gi=&g[(size_t)o*9]; const double* gj=&g[(size_t)nb*9];
                 double cox=m.cell_centers[3*o],coy=m.cell_centers[3*o+1],coz=m.cell_centers[3*o+2];
                 double cnx=m.cell_centers[3*nb],cny=m.cell_centers[3*nb+1],cnz=m.cell_centers[3*nb+2];
@@ -910,16 +1024,16 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
                 double sbL=a3_sb(rL), sbR=a3_sb(rR);
                 if(sbL+sbR<2.0 || ssonic){   // pattern (a): zero-BV unreachable (or supersonic guard)
                     double pL=A3_SAFE?a3_vl(rL):sbL, pR=A3_SAFE?a3_vl(rR):sbR;
-                    qoF[(size_t)f*4+0]=capv(qi,qi+0.5*pL*dq,dpL);
-                    qnF[(size_t)f*4+0]=capv(qj,qj-0.5*pR*dq,dpR);
+                    QO(0,f)=capv(qi,qi+0.5*pL*dq,dpL);
+                    QN(0,f)=capv(qj,qj-0.5*pR*dq,dpR);
                     continue; }
                 double qLmm=qi+0.5*a3_mm(rL)*dq, qLsb=qi+0.5*sbL*dq;
                 double qRmm=qj-0.5*a3_mm(rR)*dq, qRsb=qj-0.5*sbR*dq;
                 double B=(qLsb-qRmm)*(qLsb-qRsb), Cc=(qRsb-qLmm)*(qRsb-qLsb);
                 if(B>=0.0 && Cc>=0.0){   // pattern (e): intervals crossed
-                    if(A3_EMM){ qoF[(size_t)f*4+0]=capv(qi,qLmm,dpL); qnF[(size_t)f*4+0]=capv(qj,qRmm,dpR); }
+                    if(A3_EMM){ QO(0,f)=capv(qi,qLmm,dpL); QN(0,f)=capv(qj,qRmm,dpR); }
                     else { double qs=0.5*(qi+qj);
-                        qoF[(size_t)f*4+0]=capv(qi,qs,dpL); qnF[(size_t)f*4+0]=capv(qj,qs,dpR); }
+                        QO(0,f)=capv(qi,qs,dpL); QN(0,f)=capv(qj,qs,dpR); }
                     continue; }
                 double e0,e1;
                 if(B<=0.0 && Cc<=0.0){ e0=qLsb; e1=qRsb; }        // (b)
@@ -928,27 +1042,35 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
                 double xmn=std::min(e0,e1), xmx=std::max(e0,e1), qs;
                 if(have_a) qs=(af*(qi-qj)<0.0)?xmx:xmn;           // Eq.26 upwind endpoint
                 else       qs=0.5*(xmn+xmx);                      // no velocity info (avoid: NOT TVD)
-                qoF[(size_t)f*4+0]=capv(qi,qs,dpL);
-                qnF[(size_t)f*4+0]=capv(qj,qs,dpR);
+                QO(0,f)=capv(qi,qs,dpL);
+                QN(0,f)=capv(qj,qs,dpR);
             }
         }
+        u3_prof().tsc_faceval += d_tsc_F;
+        if(PROF){ u3_prof().f2a += u3_prof_ms()-_ps; _ps=u3_prof_ms(); }
         // (2b) per-cell min-TBV over Σ_faces |qoF − qnF| (true face-jump; symmetric for both cells).
-        #pragma omp parallel for schedule(dynamic,64)
+        #pragma omp parallel for schedule(guided)
         for(int ci=0; ci<N; ++ci){
-            const Cint& st=ci_st[ci]; double t0=0,t1=0,t2=0,t3=0;
-            for(int fc:m.cell_faces[ci]){
-                t0+=std::fabs(qoF[(size_t)fc*4+0]-qnF[(size_t)fc*4+0]);
-                t1+=std::fabs(qoF[(size_t)fc*4+1]-qnF[(size_t)fc*4+1]);
-                t2+=std::fabs(qoF[(size_t)fc*4+2]-qnF[(size_t)fc*4+2]);
-                if(BSTAR3) t3+=std::fabs(qoF[(size_t)fc*4+3]-qnF[(size_t)fc*4+3]);
-            }
+            const Cint& st=ci_st[ci]; double t0=0;
+            for(int fc:m.cell_faces[ci]) t0+=std::fabs(QO(0,fc)-QN(0,fc));
             int pick=0; double best=t0;                          // 0=o2-quad (smooth)
-            if(BSTAR3){   // PAPER 3: interior beta* -> {smooth, THINC(beta*)}; else fallback {smooth,THINC_l,THINC_s}
-                if(st.hasint){ if(binc[ci]){ if(t3<best){best=t3;pick=3;} }
-                               else { if(t1<best){best=t1;pick=1;} if(t2<best){best=t2;pick=2;} } }
-            } else if(st.hasint){ if(t1<best){best=t1;pick=1;} if(t2<best){best=t2;pick=2;} }
+            // A cell with no interface has q1=q2=q3=qbar and can only pick 0, so the THINC jumps
+            // are not summed for it at all. Same faces, same order, same values where they matter.
+            if(st.hasint){
+                double t1=0,t2=0,t3=0;
+                for(int fc:m.cell_faces[ci]){
+                    t1+=std::fabs(QO(1,fc)-QN(1,fc));
+                    t2+=std::fabs(QO(2,fc)-QN(2,fc));
+                    if(BSTAR3) t3+=std::fabs(QO(3,fc)-QN(3,fc));
+                }
+                if(BSTAR3){   // PAPER 3: interior beta* -> {smooth, THINC(beta*)}; else {smooth,THINC_l,THINC_s}
+                    if(binc[ci]){ if(t3<best){best=t3;pick=3;} }
+                    else { if(t1<best){best=t1;pick=1;} if(t2<best){best=t2;pick=2;} }
+                } else { if(t1<best){best=t1;pick=1;} if(t2<best){best=t2;pick=2;} }
+            }
             pickv[ci]=pick;
         }
+        if(PROF){ u3_prof().f2b += u3_prof_ms()-_ps; _ps=u3_prof_ms(); }
         // BVD_CANDFLAG: export DENSITY (v=0) per-cell candidate slot for the paper diagnostic.
         // 3D pickv convention already matches 2D: 0=o2-quad(MUSCL slot),1=THINC_l(beta_l),
         // 2=THINC_s(beta_s),3=THINC(beta*). Overwrites each call -> LAST recon (final-time) wins.
@@ -957,15 +1079,15 @@ inline void reconstruct3d_bvd_gauss_unstr(const Mesh& m, const ReconCtx3DO2& o2c
                 for(int ci=0;ci<N;++ci) cf[ci]=(signed char)pickv[ci]; } }
         // (2c) assemble (face loop, race-free): owner->WL (its pick, owner-side), neighbour->WR (its pick, neighbour-side).
         //   shockcell -> first-order (qbar) on that cell's side.
-        #pragma omp parallel for schedule(dynamic,64)
+        #pragma omp parallel for schedule(guided)
         for(int f=0; f<Nf; ++f){
             int o=m.face_owner[f], nb=m.face_neighbour[f];
             bool sho=!shockcell.empty() && shockcell[o];
-            WL[(size_t)v*Nf+f] = sho? W[(size_t)v*N+o] : qoF[(size_t)f*4+pickv[o]];
+            WL[(size_t)v*Nf+f] = sho? W[(size_t)v*N+o] : QO(pickv[o],f);
             if(nb>=0){ bool shn=!shockcell.empty() && shockcell[nb];
-                WR[(size_t)v*Nf+f] = shn? W[(size_t)v*N+nb] : qnF[(size_t)f*4+pickv[nb]]; }
+                WR[(size_t)v*Nf+f] = shn? W[(size_t)v*N+nb] : QN(pickv[nb],f); }
         }
-        if(PROF) u3_prof().facebvd += u3_prof_ms()-_pt;
+        if(PROF){ u3_prof().f2c += u3_prof_ms()-_ps; u3_prof().facebvd += u3_prof_ms()-_pt; }
     }
 }
 

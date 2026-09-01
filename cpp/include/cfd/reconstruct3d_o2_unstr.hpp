@@ -34,8 +34,13 @@ inline ReconCtx3DO2 build_recon_ctx_3d_o2_unstr(const Mesh& m) {
         c.max_nb = std::max(c.max_nb, (int)s.size());
     }
     c.max_nb = std::max(c.max_nb, 9);
+    // RECON_O2_INVSTORE: keep the 9x9 inverse (648 B a cell) instead of the assembled operator
+    // (9*max_nb doubles a cell). See ReconCtx3DO2::Inv -- same coefficients, different rounding.
+    static const bool invstore = std::getenv("RECON_O2_INVSTORE") != nullptr;
+    c.inv_mode = invstore;
     c.nb.assign((size_t)N * c.max_nb, -1);
-    c.M.assign((size_t)N * 9 * c.max_nb, 0.0);
+    if (invstore) c.Inv.assign((size_t)N * 81, 0.0);
+    else          c.M.assign((size_t)N * 9 * c.max_nb, 0.0);
 
     #pragma omp parallel for
     for (int ci = 0; ci < N; ++ci) {
@@ -73,8 +78,10 @@ inline ReconCtx3DO2 build_recon_ctx_3d_o2_unstr(const Mesh& m) {
         } else {
             if (!inv9(ATA, Inv)) continue;   // degenerate (too few nbrs) -> M=0 -> first-order
         }
-        for (int k=0;k<K;++k) for(int i=0;i<9;++i){ double v=0; for(int j=0;j<9;++j) v+=Inv[i][j]*a[k][j];
-            c.M[((size_t)ci*9+i)*c.max_nb+k]=v*sw[k]; }
+        if (invstore) { double* Iv=&c.Inv[(size_t)ci*81];
+            for(int i=0;i<9;++i) for(int j=0;j<9;++j) Iv[i*9+j]=Inv[i][j]; }
+        else for (int k=0;k<K;++k) for(int i=0;i<9;++i){ double v=0; for(int j=0;j<9;++j) v+=Inv[i][j]*a[k][j];
+            c.M[c.mi(ci,i,k)]=v*sw[k]; }
     }
     return c;
 }

@@ -21,6 +21,8 @@
 // the o2/core math (reconstruct3d_o2.hpp, reconstruct3d_bvd_core.hpp) is FROZEN and
 // only consumed here.
 #pragma once
+#include <cstdio>
+#include <cstdlib>
 #include "cfd/mesh.hpp"
 #include "cfd/reconstruct3d_o2.hpp"
 #include "cfd/reconstruct3d_bvd_core.hpp"
@@ -59,6 +61,11 @@ inline void dem_build_thinc_cells(const Mesh& m, const ReconCtx3DO2& o2c,
                                   const std::vector<double>& W, int nvar, int v,
                                   double beta_l, double beta_s,
                                   std::vector<D3ThincCellEM>& tc) {
+    // These paths index the assembled operator directly; RECON_O2_INVSTORE does not build it.
+    if (o2c.inv_mode) {
+        std::fprintf(stderr, "FATAL: %s needs the assembled LSQ operator; "
+            "RECON_O2_INVSTORE stored only the inverse. Drop it for this path.", __func__);
+        std::putc(10, stderr); std::abort(); }
     (void)nvar;
     const int N = m.n_cells();
     const double hx = m.s3_h[0], hy = m.s3_h[1], hz = m.s3_h[2];
@@ -88,7 +95,7 @@ inline void dem_build_thinc_cells(const Mesh& m, const ReconCtx3DO2& o2c,
             for (int k = 0; k < o2c.max_nb; ++k) {
                 int nbk = o2c.nb[(size_t)ci * o2c.max_nb + k];
                 if (nbk < 0) continue;
-                co += o2c.M[((size_t)ci * 9 + i) * o2c.max_nb + k] * (W[(size_t)v * N + nbk] - qbar);
+                co += o2c.M[o2c.mi(ci, i, k)] * (W[(size_t)v * N + nbk] - qbar);
             }
             gg[i] = co;
         }

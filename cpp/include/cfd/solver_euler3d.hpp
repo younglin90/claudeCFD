@@ -401,9 +401,17 @@ inline void euler3d_rhs_mood(const Mesh& m, const Euler3D& eq,
     if (use_dmp) {
         rhomin.assign((size_t)N, 0.0); rhomax.assign((size_t)N, 0.0);
         deltad.assign((size_t)N, 0.0); u2smooth.assign((size_t)N, 0);
-        // density P2 Hessian per cell (reuse the o2 LSQ): g_rho[ci*9+{3,4,5}]=hxx,hyy,hzz.
-        std::vector<double> g_rho;
-        reconstruct3d_o2_coeffs(m, *o2ctx, Wc, 5, 0, g_rho);
+        // density P2 Hessian per cell: g_rho[ci*9+{3,4,5}]=hxx,hyy,hzz.
+        // The reconstruction above already fitted every variable, so take its density slice
+        // rather than sweeping the M operator table again; on the tetrahedral meshes that table
+        // is 13 GB and this call was moving all of it a second time. Falls back to computing it
+        // when the reconstruction did not publish a matching set.
+        std::vector<double> g_rho_own;
+        const double* g_rho = u3_gall_var(Wc.data(), (const void*)&m, 5, N, 0);
+        if (!g_rho) {
+            reconstruct3d_o2_coeffs(m, *o2ctx, Wc, 5, 0, g_rho_own);
+            g_rho = g_rho_own.data();
+        }
         const int mnb = o2ctx->max_nb;
         // DMP min/max stencil. CANONICAL MOOD (GP-MOOD Eq.22; Diot 2011/13; Dumbser 2014) uses the
         // COMPACT FACE-NEIGHBOUR set. We had the WIDE vertex node-ring (~70 cells on a tet): a gradual
@@ -467,8 +475,13 @@ inline void euler3d_rhs_mood(const Mesh& m, const Euler3D& eq,
     std::vector<double> pmind, pmaxd, deltap; std::vector<unsigned char> p2smooth;
     if (use_pdmp) {
         pmind.assign((size_t)N,0.0); pmaxd.assign((size_t)N,0.0); deltap.assign((size_t)N,0.0); p2smooth.assign((size_t)N,0);
-        std::vector<double> g_p;
-        reconstruct3d_o2_coeffs(m, *o2ctx, Wc, 5, 4, g_p);     // pressure P2 (Wc var 4)
+        // pressure P2 (Wc var 4) — same reuse as the density block above
+        std::vector<double> g_p_own;
+        const double* g_p = u3_gall_var(Wc.data(), (const void*)&m, 5, N, 4);
+        if (!g_p) {
+            reconstruct3d_o2_coeffs(m, *o2ctx, Wc, 5, 4, g_p_own);
+            g_p = g_p_own.data();
+        }
         const int mnb = o2ctx->max_nb;
         static const bool dmp_wide = std::getenv("MOOD_DMP_WIDE") != nullptr;   // compact face-neighbour DMP (canonical); see density DMP
         #pragma omp parallel for
@@ -905,6 +918,14 @@ inline Solve3DResult solve_euler3d(const Mesh& m, const Euler3D& eq,
             "cell-D-Newton %.0fms(%.1f%%, avg %.2f Newton iters/solve over %ld solves)  "
             "face-quad+BVD %.0fms(%.1f%%)\n",
             rtot, r.lsq,100*r.lsq/rtot, r.celld,100*r.celld/rtot, nso?(double)nit/nso:0.0, nso, r.facebvd,100*r.facebvd/rtot);
+        std::printf("E3D_PROF recon prologue (scratch re-init + cached builds): %.0fms  |  phases total %.0fms\n", r.pro, r.pro+rtot);
+        { const double GHZ = 3.593246;   // TSC rate of this machine, as the microbenchmark reports it
+          std::printf("E3D_PROF kernels (RDTSC): D-solve %.0fms   face-value %.0fms\n",
+              r.tsc_dsolve/GHZ*1e-6, r.tsc_faceval/GHZ*1e-6); }
+        double fb = r.facebvd > 1e-9 ? r.facebvd : 1.0;
+        std::printf("E3D_PROF (euler3d) face-quad+BVD split: (2a)cand %.0fms(%.1f%%)  "
+            "(2b)minTBV %.0fms(%.1f%%)  (2c)assemble %.0fms(%.1f%%)",
+            r.f2a,100*r.f2a/fb, r.f2b,100*r.f2b/fb, r.f2c,100*r.f2c/fb); std::putchar(10);
     }
     return Solve3DResult{std::move(U), n, t};
 }

@@ -39,6 +39,13 @@ using Velocity3D = std::function<void(double, double, double, double, double*)>;
 //  - first order: g_L = g[owner], g_R = g[neighbour].
 //  - boundary faces (n<0): the deformation velocity vanishes on the cube wall by
 //    construction so u.n ~ 0; we use g_R = g_L and flux = (u.n) g_L (~0).
+// Where an advection RHS actually spends its time. The reconstruction has its own breakdown
+// (U3Prof), but on this solver it is a minority of the step -- the flux pass evaluates the
+// velocity field at every face and the two big per-face arrays are rebuilt on every call --
+// so the recon buckets alone cannot explain the wall. env E3D_PROF.
+struct Adv3Prof { double alloc=0, recon=0, flux=0, gather=0, mood=0; };
+inline Adv3Prof& adv3_prof(){ static Adv3Prof p; return p; }
+
 inline void advect3d_rhs(const Mesh& m, const std::vector<double>& g, double t,
                          const Velocity3D& vel, std::vector<double>& dgdt,
                          int recon, const ReconCtx3D* ctx,
@@ -62,6 +69,7 @@ inline void advect3d_rhs(const Mesh& m, const std::vector<double>& g, double t,
             unf[f] = uvw[0]*m.face_normals[3*f] + uvw[1]*m.face_normals[3*f+1] + uvw[2]*m.face_normals[3*f+2];
         }
     }
+    const bool APROF = u3_prof_on(); double _at = APROF ? u3_prof_ms() : 0.0;
     static const bool TMLPU_GATED_ADV = std::getenv("TMLPU_GATED") != nullptr;
     if (bvd && unstr && TMLPU_GATED_ADV) reconstruct_tmlpu_gated_3d(m, g, /*nvar*/1, gL, gR);
     else if (bvd && unstr) reconstruct3d_bvd_gauss_unstr(m, *o2ctx, g, /*nvar*/1, gL, gR, beta_l, beta_s,
@@ -69,9 +77,11 @@ inline void advect3d_rhs(const Mesh& m, const std::vector<double>& g, double t,
     else if (bvd) reconstruct3d_bvd(m, *o2ctx, *ctx, g, /*nvar*/1, gL, gR, beta_l, beta_s);
     else if (ho) reconstruct_bj_vertex_3d(m, *ctx, g, /*nvar*/1, gL, gR);
 
+    if(APROF){ adv3_prof().recon += u3_prof_ms()-_at; _at=u3_prof_ms(); }
     // Pass 1 (race-free): per-face area-weighted upwind flux into Fall[f]. uA[f]=(u·n)·area (cached for
     // the MOOD first-order recompute so the same wind direction/magnitude is reused).
     std::vector<double> Fall((size_t)Nf), uA((size_t)Nf);
+    if(APROF){ adv3_prof().alloc += u3_prof_ms()-_at; _at=u3_prof_ms(); }
     #pragma omp parallel for
     for (int f = 0; f < Nf; ++f) {
         int o = m.face_owner[f], n = m.face_neighbour[f];
@@ -92,12 +102,14 @@ inline void advect3d_rhs(const Mesh& m, const std::vector<double>& g, double t,
         double gup = (un >= 0.0) ? uLval : uRval;   // upwind scalar
         Fall[f] = uA[f] * gup;
     }
+    if(APROF){ adv3_prof().flux += u3_prof_ms()-_at; _at=u3_prof_ms(); }
     auto gather = [&](int i)->double{ double acc=0.0;
         for (int f : m.cell_faces[i]) acc += ((m.face_owner[f]==i)?-1.0:1.0)*Fall[f];
         return acc / m.cell_volumes[i]; };
     // Pass 2 (race-free): each cell gathers its faces (owner -F, neighbour +F).
     #pragma omp parallel for
     for (int i = 0; i < N; ++i) dgdt[i] = gather(i);
+    if(APROF){ adv3_prof().gather += u3_prof_ms()-_at; _at=u3_prof_ms(); }
 
     // SCALAR MOOD (a-posteriori): the sharp THINC interface can push the CONSERVATIVE update g+dt·L over
     // the local bound (deform sphere: g 1.0->1.6) — the reconstruction is bounded but the update is not,
@@ -129,6 +141,7 @@ inline void advect3d_rhs(const Mesh& m, const std::vector<double>& g, double t,
             for (int i = 0; i < N; ++i) dgdt[i] = gather(i);   // re-gather (only faces on bad cells changed)
         }
     }
+    if(APROF) adv3_prof().mood += u3_prof_ms()-_at;
 }
 
 // SSP-RK scalar advection march. integrator: 0 fwd-Euler, 1 SSP-RK2, 2 SSP-RK3.
@@ -244,6 +257,17 @@ inline std::vector<double> solve_advect3d(
             "face-quad+BVD %.0fms(%.1f%%)\n",
             rtot, r.lsq,100*r.lsq/rtot, r.celld,100*r.celld/rtot, nso?(double)nit/nso:0.0, nso,
             r.facebvd,100*r.facebvd/rtot);
+        std::printf("E3D_PROF recon prologue (scratch re-init + cached builds): %.0fms  |  phases total %.0fms\n", r.pro, r.pro+rtot);
+        { const double GHZ = 3.593246;   // TSC rate of this machine, as the microbenchmark reports it
+          std::printf("E3D_PROF kernels (RDTSC): D-solve %.0fms   face-value %.0fms\n",
+              r.tsc_dsolve/GHZ*1e-6, r.tsc_faceval/GHZ*1e-6); }
+        const Adv3Prof& a = adv3_prof();
+        double atot = a.alloc + a.recon + a.flux + a.gather + a.mood; if (atot < 1e-9) atot = 1.0;
+        std::printf("E3D_PROF (advect3d) RHS breakdown (summed %.0fms): recon %.0fms(%.1f%%)  "
+            "face-array alloc %.0fms(%.1f%%)  flux %.0fms(%.1f%%)  gather %.0fms(%.1f%%)  "
+            "MOOD %.0fms(%.1f%%)\n",
+            atot, a.recon,100*a.recon/atot, a.alloc,100*a.alloc/atot, a.flux,100*a.flux/atot,
+            a.gather,100*a.gather/atot, a.mood,100*a.mood/atot);
     }
     return g;
 }

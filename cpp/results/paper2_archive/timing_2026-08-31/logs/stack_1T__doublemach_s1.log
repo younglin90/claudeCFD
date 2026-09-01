@@ -1,0 +1,15 @@
+### threads=1 case=doublemach scheme=s1 steps=500 mode=forced
+DM_MESH2D=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/dmr_wc_paper.mesh2d cells=370421 nodes=186212
+(idw_p=2.0 bj_idw=2.0)
+Double-Mach reflection: cells=370421 grid=240x60 t_end=0.200
+[WALL] BVD wall=2474.291s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=504.063s  THINC=1827.255s (geom=848.810s face=978.444s)  BVD_sel=92.447s  (THINC/MUSCL=3.63x)
+[CHENG3_IF] cell-vars=2222526000  interface=784359046 (35.29%)  D-solves=1568718092  Newton iters/solve=4.12
+[CHENG3_K] D-solve 346435ms   face-value 896701ms (CPU across threads)
+[CHENG3_REJ] flat(no jump)=0 (0.00%)  extremum(D infinite)=0 (0.00%)  no-gradient=1438166954 (64.71%)  degenerate-cell=0 (0.00%)
+  BVD          : posOK=1 rho[1.399,18.183] p_min=0.9990 | Q-crit vort=82 (S81/M1/L0) Qint=0.00
+  mlp_u1_tmlpu : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  T-MLP-u-L    : VIOL | rawW: vort=0 ens=0.0 | Q-crit: vort=0 (S0/M0/L0) Qint=0.00
+  DM gate BVD vs mlp_u1: vortices 82 vs 0 (BVD MORE); size-bins S/M/L 81/1/0 vs 0/0/0; Qint ratio 10.329
+  DM gate (Q-criterion, robust): vortices 0 vs 0 (tie); size-bins S/M/L 0/0/0 vs 0/0/0; Qint ratio 0.000
+[WALL] TOTAL wall=2474.769s

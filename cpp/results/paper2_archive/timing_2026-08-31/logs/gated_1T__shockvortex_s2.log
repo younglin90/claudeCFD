@@ -1,0 +1,7 @@
+[C3GMOM] moment table (re)built: N=160000 cells, analytic
+case               grid      status  wall(s)  diagnostics
+shockvortex_2d     100x50     DIVERGE    281.3  rho_min=9.15e-01 p_min=8.84e-01 steps=500 t=0.096/0.350
+[WALL] shockvortex_2d wall=281.258s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=82.456s  THINC=145.053s (geom=36.223s face=108.829s)  BVD_sel=16.190s  (THINC/MUSCL=1.76x)
+[CHENG3_IF] cell-vars=960000000  interface=275559984 (28.70%)  D-solves=0  Newton iters/solve=0.00
+[CHENG3_REJ] flat(no jump)=681451009 (70.98%)  extremum(D infinite)=2989007 (0.31%)  no-gradient=0 (0.00%)  degenerate-cell=0 (0.00%)

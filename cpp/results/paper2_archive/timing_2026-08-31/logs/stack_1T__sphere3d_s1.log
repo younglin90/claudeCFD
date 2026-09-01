@@ -1,0 +1,7 @@
+### threads=1 case=sphere3d scheme=s1 steps=20 mode=forced core=40
+E3D_PROF: 60 RHS calls, summed 2420240ms  ||  prim 1028ms(0.0%)  RECON 2377954ms(98.3%)  ppfloor 975ms(0.0%)  FLUX 26094ms(1.1%)  MOOD 0ms(0.0%)  visc 0ms(0.0%)  asm 14189ms(0.6%)
+E3D_PROF (euler3d) RECON breakdown (summed 1918315ms): o2-LSQ 295517ms(15.4%)  cell-D-Newton 838895ms(43.7%, avg 4.50 Newton iters/solve over 1442527092 solves)  face-quad+BVD 783904ms(40.9%)
+E3D_PROF recon prologue (scratch re-init + cached builds): 456947ms  |  phases total 2375262ms
+E3D_PROF kernels (RDTSC): D-solve 342096ms   face-value 667333ms
+E3D_PROF (euler3d) face-quad+BVD split: (2a)cand 709410ms(90.5%)  (2b)minTBV 69500ms(8.9%)  (2c)assemble 4993ms(0.6%)
+LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_nx100.umsh cells=4020000 rho=[0.5038,1.9180] p_min=0.9998 finite=1 enstrophy=0.2443 steps=20 t=0.0079 wall=2461.3s

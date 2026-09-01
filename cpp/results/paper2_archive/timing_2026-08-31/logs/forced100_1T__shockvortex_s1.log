@@ -1,0 +1,8 @@
+### threads=1 case=shockvortex scheme=s1 steps=500 mode=forced
+case               grid      status  wall(s)  diagnostics
+shockvortex_2d     100x50     DIVERGE   1115.6  rho_min=9.15e-01 p_min=8.84e-01 steps=500 t=0.096/0.350
+[WALL] shockvortex_2d wall=1115.624s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=86.533s  THINC=967.950s (geom=408.634s face=559.316s)  BVD_sel=18.845s  (THINC/MUSCL=11.19x)
+[CHENG3_IF] cell-vars=960000000  interface=933792524 (97.27%)  D-solves=1867585048  Newton iters/solve=4.58
+[CHENG3_K] D-solve 364665ms   face-value 562470ms (CPU across threads)
+[CHENG3_REJ] flat(no jump)=0 (0.00%)  extremum(D infinite)=0 (0.00%)  no-gradient=26207476 (2.73%)  degenerate-cell=0 (0.00%)

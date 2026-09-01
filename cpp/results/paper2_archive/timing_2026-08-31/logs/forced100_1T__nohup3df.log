@@ -1,0 +1,13 @@
+[10:07:37] START deform3d s1
+[10:21:00] END   deform3d s1 (803s)
+[10:21:00] START deform3d s2
+[10:31:24] END   deform3d s2 (624s)
+[10:31:24] START twocyl3d s1
+[11:00:12] END   twocyl3d s1 (1728s)
+[11:00:12] START twocyl3d s2
+[11:17:26] END   twocyl3d s2 (1034s)
+[11:17:26] START sphere3d s1
+[12:18:01] END   sphere3d s1 (3635s)
+[12:18:01] START sphere3d s2
+[12:55:22] END   sphere3d s2 (2241s)
+[12:55:22] 3D-FULL DONE

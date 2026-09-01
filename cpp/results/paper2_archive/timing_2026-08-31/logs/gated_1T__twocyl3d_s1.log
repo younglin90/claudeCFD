@@ -1,0 +1,5 @@
+E3D_PROF: 600 RHS calls, summed 3784553ms  ||  prim 5041ms(0.1%)  RECON 3579842ms(94.6%)  ppfloor 4244ms(0.1%)  FLUX 125498ms(3.3%)  MOOD 0ms(0.0%)  visc 0ms(0.0%)  asm 69929ms(1.8%)
+E3D_PROF (euler3d) RECON breakdown (summed 3324230ms): o2-LSQ 1322480ms(39.8%)  cell-D-Newton 917606ms(27.6%, avg 5.29 Newton iters/solve over 918424298 solves)  face-quad+BVD 1084144ms(32.6%)
+E3D_PROF recon prologue (scratch re-init + cached builds): 245402ms  |  phases total 3569632ms
+E3D_PROF (euler3d) face-quad+BVD split: (2a)cand 841671ms(77.6%)  (2b)minTBV 220393ms(20.3%)  (2c)assemble 22078ms(2.0%)
+LangsethUnstr recon=bvd flux=1 mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.0999,3.4347] p_min=0.9806 finite=1 enstrophy=8.7090 steps=200 t=0.0338 wall=3811.0s

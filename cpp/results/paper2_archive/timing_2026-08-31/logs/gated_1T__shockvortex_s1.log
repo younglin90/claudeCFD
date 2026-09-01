@@ -1,0 +1,6 @@
+case               grid      status  wall(s)  diagnostics
+shockvortex_2d     100x50     DIVERGE    443.5  rho_min=9.15e-01 p_min=8.84e-01 steps=500 t=0.096/0.350
+[WALL] shockvortex_2d wall=443.521s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=81.451s  THINC=310.025s (geom=124.892s face=185.133s)  BVD_sel=14.914s  (THINC/MUSCL=3.81x)
+[CHENG3_IF] cell-vars=960000000  interface=274317136 (28.57%)  D-solves=548634272  Newton iters/solve=4.51
+[CHENG3_REJ] flat(no jump)=682821040 (71.13%)  extremum(D infinite)=2861824 (0.30%)  no-gradient=0 (0.00%)  degenerate-cell=0 (0.00%)

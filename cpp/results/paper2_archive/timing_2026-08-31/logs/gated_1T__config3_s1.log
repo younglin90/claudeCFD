@@ -1,0 +1,8 @@
+  [C3_BC=dirichlet active]
+Config3 four-shock: N=280 cells=156800 t_end=0.800 flux=0
+[WALL] T-MLP-u wall=393.656s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=78.375s  THINC=289.749s (geom=119.195s face=170.554s)  BVD_sel=14.224s  (THINC/MUSCL=3.70x)
+[CHENG3_IF] cell-vars=940800000  interface=248325507 (26.40%)  D-solves=496651014  Newton iters/solve=4.84
+[CHENG3_REJ] flat(no jump)=685656296 (72.88%)  extremum(D infinite)=6818197 (0.72%)  no-gradient=0 (0.00%)  degenerate-cell=0 (0.00%)
+  T-MLP-u  : enstrophy=28.97663 sym_rms=4.74e-04 rho_min=0.1378 p_min=0.0290 steps=500
+[WALL] TOTAL wall=393.842s

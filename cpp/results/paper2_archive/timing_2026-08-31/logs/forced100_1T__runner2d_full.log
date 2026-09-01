@@ -1,0 +1,13 @@
+[10:07:39] START leveque s1
+[10:12:59] END   leveque s1 (320s)
+[10:12:59] START leveque s2
+[10:16:00] END   leveque s2 (181s)
+[10:16:00] START config3 s1
+[10:33:56] END   config3 s1 (1076s)
+[10:33:56] START config3 s2
+[10:42:18] END   config3 s2 (502s)
+[10:42:18] START doublemach s1
+[11:43:37] END   doublemach s1 (3679s)
+[11:43:37] START doublemach s2
+[12:23:59] END   doublemach s2 (2422s)
+[12:23:59] 2D-FULL DONE

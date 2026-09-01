@@ -1,0 +1,7 @@
+### threads=1 case=twocyl3d scheme=s2 steps=20 mode=forced100 core=40
+E3D_PROF: 60 RHS calls, summed 906079ms  ||  prim 461ms(0.1%)  RECON 887346ms(97.9%)  ppfloor 396ms(0.0%)  FLUX 11627ms(1.3%)  MOOD 0ms(0.0%)  visc 0ms(0.0%)  asm 6250ms(0.7%)
+E3D_PROF (euler3d) RECON breakdown (summed 674243ms): o2-LSQ 121466ms(18.0%)  cell-D-Newton 121323ms(18.0%, avg 0.00 Newton iters/solve over 0 solves)  face-quad+BVD 431454ms(64.0%)
+E3D_PROF recon prologue (scratch re-init + cached builds): 211973ms  |  phases total 886216ms
+E3D_PROF kernels (RDTSC): D-solve 13959ms   face-value 123287ms
+E3D_PROF (euler3d) face-quad+BVD split: (2a)cand 388983ms(90.2%)  (2b)minTBV 40082ms(9.3%)  (2c)assemble 2390ms(0.6%)
+LangsethUnstr recon=bvd flux=1+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/lang_vortex_nx112.umsh cells=1864800 rho=[0.0999,1.9386] p_min=0.9989 finite=1 enstrophy=1.8187 steps=20 t=0.0038 wall=923.5s

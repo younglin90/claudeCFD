@@ -1,0 +1,12 @@
+Mach-3 forward step: cells=129024  grid=480x160  mesh=unstructured_2d  t_end=4.00
+[WALL] mlp_u1 wall=72.512s steps=500
+[WALL] BVD wall=146.272s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=58.836s  THINC=67.753s (geom=21.422s face=46.330s)  BVD_sel=11.146s  (THINC/MUSCL=1.15x)
+[CHENG3_IF] cell-vars=774144000  interface=13702674 (1.77%)  D-solves=27405348  Newton iters/solve=4.89
+[CHENG3_REJ] flat(no jump)=759556018 (98.12%)  extremum(D infinite)=885308 (0.11%)  no-gradient=0 (0.00%)  degenerate-cell=0 (0.00%)
+  BVD       : steps=500 rho[0.2698,6.5380] p_min=0.3079 max|drho|=4.3302 | rollups=0 Qint=0.000
+  BVD vs mlp_u1: shock 1.3703, rollups 0 vs 0
+  mlp_u1    : steps=500 rho[0.3076,6.3274] p_min=0.3564 max|drho|=3.1601 | upper-rollups=0 enstrophy=0.000
+  T-MLP-u-L : steps=0 rho[0.0000,0.0000] p_min=0.0000 max|drho|=0.0000 | upper-rollups=0 enstrophy=0.000
+  Mach3 gate: shock 0.0000 (softer), rollups 0 vs 0, enstrophy ratio 0.0000; positivity VIOLATION
+[WALL] TOTAL wall=219.085s

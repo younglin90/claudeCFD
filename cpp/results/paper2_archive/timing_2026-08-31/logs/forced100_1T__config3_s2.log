@@ -1,0 +1,11 @@
+### threads=1 case=config3 scheme=s2 steps=500 mode=forced100
+[C3GMOM] moment table (re)built: N=156800 cells, analytic
+  [C3_BC=dirichlet active]
+Config3 four-shock: N=280 cells=156800 t_end=0.800 flux=0
+[WALL] T-MLP-u wall=459.715s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=77.790s  THINC=355.971s (geom=91.810s face=264.160s)  BVD_sel=15.429s  (THINC/MUSCL=4.58x)
+[CHENG3_IF] cell-vars=940800000  interface=940800000 (100.00%)  D-solves=0  Newton iters/solve=0.00
+[CHENG3_K] D-solve 34747ms   face-value 253365ms (CPU across threads)
+[CHENG3_REJ] flat(no jump)=0 (0.00%)  extremum(D infinite)=0 (0.00%)  no-gradient=0 (0.00%)  degenerate-cell=0 (0.00%)
+  T-MLP-u  : enstrophy=28.55641 sym_rms=2.41e-04 rho_min=0.1378 p_min=0.0289 steps=500
+[WALL] TOTAL wall=459.884s

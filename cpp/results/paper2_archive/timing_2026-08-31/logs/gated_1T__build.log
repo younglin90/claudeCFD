@@ -1,0 +1,153 @@
+[  2%] Building CXX object CMakeFiles/leveque_bench.dir/apps/leveque_bench.cpp.o
+[  2%] Building CXX object CMakeFiles/candflag_pp.dir/apps/candflag_pp.cpp.o
+[  2%] Building CXX object CMakeFiles/mach3_bench.dir/apps/mach3_bench.cpp.o
+[  2%] Building CXX object CMakeFiles/double_mach_bench.dir/apps/double_mach_bench.cpp.o
+[  2%] Building CXX object CMakeFiles/leveque_compare.dir/apps/leveque_compare.cpp.o
+[  3%] Building CXX object CMakeFiles/config3_bench.dir/apps/config3_bench.cpp.o
+[  3%] Building CXX object CMakeFiles/kh_linear_bench.dir/apps/kh_linear_bench.cpp.o
+[  3%] Building CXX object CMakeFiles/gresho_bench.dir/apps/gresho_bench.cpp.o
+[  3%] Building CXX object CMakeFiles/vortex_bench.dir/apps/vortex_bench.cpp.o
+[  3%] Building CXX object CMakeFiles/shock_mixing_bench.dir/apps/shock_mixing_bench.cpp.o
+[  3%] Building CXX object CMakeFiles/double_mach_ramp_bench.dir/apps/double_mach_ramp_bench.cpp.o
+[  4%] Building CXX object CMakeFiles/rt_bench.dir/apps/rt_bench.cpp.o
+[  4%] Building CXX object CMakeFiles/kh_bench.dir/apps/kh_bench.cpp.o
+[  5%] Built target deform3d_bench
+[  5%] Building CXX object CMakeFiles/bench_euler2d.dir/apps/bench_euler2d.cpp.o
+[  6%] Built target euler3d_bench
+[  7%] Built target rmi3d_bench
+[  8%] Built target shock_tube3d_bench
+[  9%] Built target langseth3d_bench
+[ 10%] Built target octant3d_bench
+[ 10%] Built target octant3d_unstr_bench
+[ 11%] Built target langseth3d_unstr_bench
+[ 13%] Built target deform3d_unstr_bench
+[ 13%] Built target viscshock3d_unstr_bench
+[ 14%] Built target thinc_cellshape_bench
+[ 14%] Building CXX object CMakeFiles/validation_smoke.dir/apps/validation_smoke.cpp.o
+[ 15%] Built target thinc_cellshape2d_bench
+[ 16%] Built target tanh_quad_probe
+[ 17%] Built target five_eq_02a_validate
+[ 18%] Built target five_eq_07b_validate
+[ 19%] Built target five_eq_profile_from_spec
+[ 19%] Built target test_unstructured3d
+[ 20%] Built target test_recon3d_unstr
+[ 21%] Built target test_visc_grad
+[ 22%] Built target test_mms_skew
+[ 23%] Built target test_eos
+[ 24%] Built target test_primitive
+[ 25%] Built target test_mesh
+[ 26%] Built target test_mesh2d
+[ 27%] Built target test_mesh_unstructured
+[ 27%] Building CXX object CMakeFiles/test_adv2d.dir/tests/test_adv2d.cpp.o
+[ 27%] Linking CXX executable candflag_pp
+[ 28%] Linking CXX executable leveque_compare
+[ 28%] Linking CXX executable leveque_bench
+[ 28%] Built target candflag_pp
+[ 29%] Built target test_recon2d
+[ 29%] Building CXX object CMakeFiles/test_rot2d.dir/tests/test_rot2d.cpp.o
+[ 29%] Built target leveque_compare
+[ 30%] Building CXX object CMakeFiles/test_euler2d.dir/tests/test_euler2d.cpp.o
+[ 30%] Linking CXX executable test_adv2d
+[ 30%] Built target leveque_bench
+[ 31%] Built target test_sod1d
+[ 32%] Built target test_recon_o2
+[ 33%] Built target recon3d_o2_test
+[ 34%] Built target test_5eq_sound_speed
+[ 35%] Built target test_5eq_primitive_near_pure
+[ 36%] Built target test_5eq_weno
+[ 37%] Built target test_5eq_slau2
+[ 38%] Built target test_5eq_reconstruct
+[ 38%] Built target test_adv2d
+[ 39%] Built target test_5eq_acoustic_solve
+[ 40%] Built target test_5eq_alpha_bvd
+[ 41%] Built target test_5eq_acoustic_frozen
+[ 42%] Built target test_5eq_acoustic_interface_be
+[ 43%] Built target test_5eq_acoustic_pure_tol
+[ 43%] Built target test_5eq_acoustic_acid
+[ 44%] Built target test_5eq_acoustic_trbdf2
+[ 44%] Built target test_5eq_acoustic_waf
+[ 45%] Built target test_5eq_acoustic_diss_consistent
+[ 46%] Built target test_5eq_acoustic_characteristic
+[ 48%] Built target test_5eq_acoustic_muscl3
+[ 48%] Built target test_5eq_acoustic_weno3
+[ 49%] Built target test_5eq_acoustic_bvd
+[ 49%] Built target test_5eq_acoustic_interface_one_sided
+[ 50%] Built target test_5eq_acoustic_first_order
+[ 51%] Built target test_5eq_acoustic_stencil_clean
+[ 52%] Built target test_5eq_acoustic_waf_sensor
+[ 53%] Built target test_5eq_acoustic_waf_one_minus_nu
+[ 53%] Linking CXX executable bench_euler2d
+[ 54%] Built target test_5eq_eos_facade
+[ 55%] Built target test_5eq_material_update
+[ 55%] Built target test_5eq_primitive_utils
+[ 56%] Built target test_5eq_material_source_modes
+[ 57%] Built target test_5eq_primitive_filters
+[ 57%] Built target test_5eq_material_options
+[ 59%] Built target test_5eq_energy_flux
+[ 59%] Built target test_5eq_pure_euler
+[ 60%] Built target test_5eq_step_implicit_energy
+[ 61%] Built target test_5eq_step
+[ 63%] Built target test_5eq_step_implicit_energy_momentum
+[ 63%] Built target test_5eq_step_apec_pe
+[ 63%] Built target test_oscillation_guards
+[ 64%] Built target test_5eq_run
+[ 64%] Linking CXX executable kh_linear_bench
+[ 65%] Built target test_5eq_source_terms
+[ 66%] Built target test_5eq_source_terms_oracle
+[ 67%] Built target test_5eq_boundary
+[ 68%] Built target test_5eq_explicit
+[ 69%] Built target test_5eq_explicit_alpha_options
+[ 70%] Built target test_5eq_relaxation
+[ 71%] Built target test_5eq_primitive_nd
+[ 71%] Built target bench_euler2d
+[ 72%] Built target test_5eq_implicit_faces
+[ 72%] Built target test_5eq_explicit_residual
+[ 73%] Built target test_5eq_ars222
+[ 74%] Built target test_5eq_legacy_integrators
+[ 75%] Built target test_5eq_python_solve_defaults
+[ 75%] Built target test_5eq_ssp3_stage_residual
+[ 76%] Built target test_5eq_ssp3_explicit_residual
+[ 76%] Built target test_5eq_pe_correction
+[ 77%] Built target test_5eq_pe_diagnostic
+[ 78%] Built target test_5eq_pe_projection_modes
+[ 79%] Linking CXX executable gresho_bench
+[ 79%] Built target test_5eq_schur_blocks
+[ 80%] Built target test_5eq_helmholtz
+[ 81%] Built target test_5eq_schur_iteration
+[ 82%] Built target test_5eq_rhie_chow
+[ 82%] Built target test_5eq_ars_rhie_chow
+[ 83%] Built target test_5eq_acoustic_riemann_faces
+[ 85%] Built target test_5eq_ars_acoustic_riemann
+[ 85%] Built target test_5eq_upwind_implicit_faces
+[ 86%] Built target test_5eq_compact_implicit
+[ 86%] Built target kh_linear_bench
+[ 87%] Built target test_5eq_face_state_options
+[ 88%] Built target test_5eq_positivity
+[ 89%] Built target test_5eq_low_flux
+[ 90%] Built target test_5eq_nd_transport
+[ 91%] Built target test_5eq_nd_reconstruction
+[ 92%] Built target test_5eq_nd_solver
+[ 93%] Built target test_5eq_nd3_solver
+[ 93%] Linking CXX executable rt_bench
+[ 94%] Linking CXX executable shock_mixing_bench
+[ 94%] Built target gresho_bench
+[ 95%] Linking CXX executable vortex_bench
+[ 95%] Linking CXX executable double_mach_ramp_bench
+[ 95%] Built target rt_bench
+[ 95%] Built target shock_mixing_bench
+[ 95%] Built target vortex_bench
+[ 96%] Linking CXX executable validation_smoke
+[ 96%] Built target double_mach_ramp_bench
+[ 96%] Linking CXX executable config3_bench
+[ 97%] Linking CXX executable mach3_bench
+[ 98%] Linking CXX executable double_mach_bench
+[ 98%] Built target validation_smoke
+[ 98%] Built target config3_bench
+[ 98%] Built target mach3_bench
+[ 98%] Built target double_mach_bench
+[ 99%] Linking CXX executable kh_bench
+[ 99%] Built target kh_bench
+[100%] Linking CXX executable test_rot2d
+[100%] Built target test_rot2d
+[100%] Linking CXX executable test_euler2d
+[100%] Built target test_euler2d

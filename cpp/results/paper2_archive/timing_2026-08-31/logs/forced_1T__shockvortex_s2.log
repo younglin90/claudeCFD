@@ -1,0 +1,9 @@
+### threads=1 case=shockvortex scheme=s2 steps=500 mode=forced core=48
+[C3GMOM] moment table (re)built: N=160000 cells, analytic
+case               grid      status  wall(s)  diagnostics
+shockvortex_2d     100x50     DIVERGE    578.0  rho_min=9.15e-01 p_min=8.84e-01 steps=500 t=0.096/0.350
+[WALL] shockvortex_2d wall=578.040s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=104.891s  THINC=401.930s (geom=113.755s face=288.175s)  BVD_sel=23.426s  (THINC/MUSCL=3.83x)
+[CHENG3_IF] cell-vars=960000000  interface=932599308 (97.15%)  D-solves=0  Newton iters/solve=0.00
+[CHENG3_K] D-solve 36161ms (CPU across threads)
+[CHENG3_REJ] flat(no jump)=0 (0.00%)  extremum(D infinite)=0 (0.00%)  no-gradient=27400692 (2.85%)  degenerate-cell=0 (0.00%)

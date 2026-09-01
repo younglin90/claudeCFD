@@ -1,0 +1,9 @@
+[C3GMOM] moment table (re)built: N=156800 cells, analytic
+  [C3_BC=dirichlet active]
+Config3 four-shock: N=280 cells=156800 t_end=0.800 flux=0
+[WALL] T-MLP-u wall=243.304s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=79.130s  THINC=137.645s (geom=34.722s face=102.922s)  BVD_sel=15.105s  (THINC/MUSCL=1.74x)
+[CHENG3_IF] cell-vars=940800000  interface=256547042 (27.27%)  D-solves=0  Newton iters/solve=0.00
+[CHENG3_REJ] flat(no jump)=675225096 (71.77%)  extremum(D infinite)=9027862 (0.96%)  no-gradient=0 (0.00%)  degenerate-cell=0 (0.00%)
+  T-MLP-u  : enstrophy=28.40731 sym_rms=1.00e-03 rho_min=0.1378 p_min=0.0290 steps=500
+[WALL] TOTAL wall=243.484s

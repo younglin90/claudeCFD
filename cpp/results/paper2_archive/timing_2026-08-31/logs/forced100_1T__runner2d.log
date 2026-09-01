@@ -1,0 +1,17 @@
+[20:18:03] START shockvortex s1
+[20:37:57] END   shockvortex s1 (1194s)
+[20:37:57] START shockvortex s2
+[20:47:32] END   shockvortex s2 (575s)
+[20:47:32] START shockmixing s1
+[20:55:23] END   shockmixing s1 (471s)
+[20:55:23] START shockmixing s2
+[20:59:13] END   shockmixing s2 (230s)
+[20:59:13] START mach3 s1
+[21:16:03] END   mach3 s1 (1010s)
+[21:16:03] START mach3 s2
+[21:24:32] END   mach3 s2 (509s)
+[21:24:32] START doublemach s1
+[22:08:37] END   doublemach s1 (2645s)
+[22:08:37] START doublemach s2
+[22:43:19] END   doublemach s2 (2082s)
+[22:43:19] 2D DONE

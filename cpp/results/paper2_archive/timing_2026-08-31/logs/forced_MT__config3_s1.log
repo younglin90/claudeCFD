@@ -1,0 +1,10 @@
+### threads=16 case=config3 scheme=s1 steps=500 mode=forced
+  [C3_BC=dirichlet active]
+Config3 four-shock: N=280 cells=156800 t_end=0.800 flux=0
+[WALL] T-MLP-u wall=104.368s steps=500
+[CHENG3_PROF] recon_calls=1500  MUSCL=39.548s  THINC=58.931s (geom=32.825s face=26.105s)  BVD_sel=3.641s  (THINC/MUSCL=1.49x)
+[CHENG3_IF] cell-vars=940800000  interface=465500234 (49.48%)  D-solves=931000468  Newton iters/solve=4.78
+[CHENG3_K] D-solve 183749ms (CPU across threads)
+[CHENG3_REJ] flat(no jump)=0 (0.00%)  extremum(D infinite)=0 (0.00%)  no-gradient=475299766 (50.52%)  degenerate-cell=0 (0.00%)
+  T-MLP-u  : enstrophy=28.92872 sym_rms=8.77e-04 rho_min=0.1378 p_min=0.0290 steps=500
+[WALL] TOTAL wall=104.568s

@@ -1,0 +1,6 @@
+### threads=1 case=deform3d scheme=s1 steps=20 mode=forced core=40
+E3D_PROF (advect3d) RECON breakdown (summed 119849ms): o2-LSQ 64773ms(54.0%)  cell-D-Newton 27089ms(22.6%, avg 4.11 Newton iters/solve over 32860996 solves)  face-quad+BVD 27987ms(23.4%)
+E3D_PROF recon prologue (scratch re-init + cached builds): 298116ms  |  phases total 417965ms
+E3D_PROF kernels (RDTSC): D-solve 8179ms   face-value 16831ms
+E3D_PROF (advect3d) RHS breakdown (summed 442737ms): recon 418312ms(94.5%)  face-array alloc 405ms(0.1%)  flux 19720ms(4.5%)  gather 4300ms(1.0%)  MOOD 0ms(0.0%)
+DeformUnstr recon=bvd mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh cells=2633856 E1=1.388896e-03 volRatio=1.000000 g_range=[-0.0000,1.0006] steps=20 t=0.0078 wall=446.1s

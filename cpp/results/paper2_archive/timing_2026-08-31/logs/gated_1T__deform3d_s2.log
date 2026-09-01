@@ -1,0 +1,4 @@
+E3D_PROF (advect3d) RECON breakdown (summed 1012631ms): o2-LSQ 679347ms(67.1%)  cell-D-Newton 121297ms(12.0%, avg 0.00 Newton iters/solve over 0 solves)  face-quad+BVD 211987ms(20.9%)
+E3D_PROF recon prologue (scratch re-init + cached builds): 350535ms  |  phases total 1363166ms
+E3D_PROF (advect3d) RHS breakdown (summed 1631881ms): recon 1366062ms(83.7%)  face-array alloc 3205ms(0.2%)  flux 211358ms(13.0%)  gather 51255ms(3.1%)  MOOD 0ms(0.0%)
+DeformUnstr recon=bvd+GAUSS mesh=/home/younglin90/work/claude_code/claudeCFD/cpp/results/paper_final/meshes/def_nx76.umsh cells=2633856 E1=1.167657e-02 volRatio=1.000000 g_range=[-0.0008,1.0019] steps=200 t=0.0777 wall=1666.3s

@@ -1,0 +1,12 @@
+### threads=1 case=shockmixing scheme=s2 steps=500 mode=forced
+Oblique shock (upper stream M1=u1/c1=3.6001, deflection theta=12 deg):
+  weak shock angle beta_s = 25.7503 deg
+  post-shock (rho2,u2,v2,p2) = (1.97116, 2.72102, -0.57837, 1.33293)
+Shock-mixing layer: cells=64000 grid=400x80  h=(0.500,0.500)  t_end=120.000  flux=2 recon=BVD cfl=0.40
+[C3GMOM] moment table (re)built: N=64000 cells, analytic
+  status=INCOMPLETE  wall=214.2s steps=500 t=8.9239/120.0000  rho[0.9557,1.9706] p[0.4656,1.3340]
+[CHENG3_PROF] recon_calls=1500  MUSCL=38.014s  THINC=153.047s (geom=38.782s face=114.264s)  BVD_sel=6.503s  (THINC/MUSCL=4.03x)
+[CHENG3_IF] cell-vars=384000000  interface=380991237 (99.22%)  D-solves=0  Newton iters/solve=0.00
+[CHENG3_K] D-solve 14127ms   face-value 107247ms (CPU across threads)
+[CHENG3_REJ] flat(no jump)=0 (0.00%)  extremum(D infinite)=0 (0.00%)  no-gradient=3008763 (0.78%)  degenerate-cell=0 (0.00%)
+  dumped pressure -> shock_mixing.txt

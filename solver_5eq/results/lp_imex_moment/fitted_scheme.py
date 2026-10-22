@@ -106,12 +106,38 @@ def lagrange(st, tau, phases):
                 dp[i] = 0.5 * (pf(l0 + 0.5 * dL + e) - pf(l0 + 0.5 * dL - e)) / (2 * e)
         return pt, dp
 
+    corr = np.zeros(B)
+    if FORCE_CORR[0]:
+        # zone pressure is a zone average; the dual-zone momentum balance needs p at the zone's mass
+        # midpoint: p_avg - p(x_mass_mid) = c_p l^2/12 - s_p s_rho l^2/(8 rho_bar)  (explicit, frozen)
+        srr, spp = _slopes(Zs, phases, True)
+        # band of zones within two zones of a material interface: there neighbouring zones have
+        # unequal lengths (interface-adjacent zone of length xi*h next to full zones), so the O(h^2)
+        # terms do not cancel in the nodal force; elsewhere no correction (no explicit stiffness)
+        band = np.zeros(B, bool)
+        for b in range(B):
+            if not st.isface[b]:
+                for d in (-2, -1, 0, 1):
+                    band[(b + d) % B] = True
+        if CORR_ALL[0]:
+            band[:] = True
+        for i, z in enumerate(Zs):
+            if not band[i]:
+                continue
+            l = z[2] - z[1]
+            rbar = z[3] / l
+            corr[i] = spp[i][1] * l * l / 12 - spp[i][0] * srr[i][0] * l * l / (8 * rbar)
+            # never let the correction exceed a small fraction of the thermal pressure margin
+            ph = phases[z[0]]
+            margin_p = zone_p(z, ph) - ph.A * z[4] / l
+            corr[i] = float(np.clip(corr[i], -0.1 * margin_p, 0.1 * margin_p))
     D = tau * w.copy()
     for it in range(80):
         Lz = L0 + np.roll(D, -1) - D            # zone b between boundary b and b+1
         if np.any(Lz <= 0):
             raise RuntimeError("zone collapsed")
         pt, dp = pt_of(Lz)
+        pt = pt - corr
         R = M * (D - tau * w) + 0.5 * tau ** 2 * (pt - np.roll(pt, 1))
         if np.max(np.abs(R) / np.maximum(M, 1e-300)) < 1e-14 * max(1.0, np.max(np.abs(D))):
             break
@@ -129,11 +155,16 @@ def lagrange(st, tau, phases):
         ph = phases[z[0]]
         J = L / l0
         a2 = z[1] + Db
-        newzones.append([z[0], a2, a2 + L, z[3], z[4] * J ** (1 - ph.n), Ef(L)])
+        # work of the correction force is returned to the zone as heat (total energy exact):
+        # the force used p - corr, so the zone receives + corr * dL
+        newzones.append([z[0], a2, a2 + L, z[3], z[4] * J ** (1 - ph.n), Ef(L) + corr[len(newzones)] * (L - l0)])
     return newzones, wn, M, it
 
 
 # ------------------------------------------------------------------ remap helpers
+FORCE_CORR = [False]  # dual-boundary pressure correction in the Lagrange force, section 57
+VCURV = [True]        # one-sided velocity curvature at interface nodes (only with PARABOLIC)
+CORR_ALL = [False]    # apply the force correction in every zone (stable only for moderate acoustic CFL)
 PARABOLIC = [False]   # curvature-corrected (monotone parabolic) reconstruction, section 56
 
 
@@ -424,6 +455,38 @@ def remap(st, lz, wL, M, phases, N, recon=True, vslope=True):
                 sL[b] = _minmod(dl, dll) if st.isface[bl] else dl
                 sR[b] = _minmod(dr, drr) if st.isface[br] else dr
             dlt[b] = -(sR[b] * mR ** 2 / 8 - sL[b] * mL ** 2 / 8) / Mo[b]
+    cL, cR = np.zeros(B), np.zeros(B)
+    if vslope and PARABOLIC[0] and VCURV[0]:
+        # one-sided parabolic (in mu) velocity profiles at interface nodes (u_x jumps across a
+        # contact); monotone-limited
+        for b in range(B):
+            bl, br, bll, brr = (b - 1) % B, (b + 1) % B, (b - 2) % B, (b + 2) % B
+            mL1, mR1, mL2, mR2 = mo[bl], mo[b], mo[bll], mo[br]
+            dl = (wL[b] - wL[bl]) / mL1
+            dr = (wL[br] - wL[b]) / mR1
+            if st.isface[b]:
+                # face nodes keep the minmod-linear profile (a central slope + curvature here was
+                # measured anti-diffusive: unstable at acoustic CFL ~5, section 57)
+                continue
+            else:
+                dll = (wL[bl] - wL[bll]) / mL2
+                drr = (wL[brr] - wL[br]) / mR2
+                if st.isface[bl] and dl * dll > 0:
+                    c = (dl - dll) / (mL1 + mL2)
+                    s0 = dl + c * mL1
+                    if s0 * dl > 0:
+                        cm = abs(s0) / mL1
+                        sL[b], cL[b] = s0, float(np.clip(c, -cm, cm))
+                if st.isface[br] and dr * drr > 0:
+                    c = (drr - dr) / (mR1 + mR2)
+                    s0 = dr - c * mR1
+                    if s0 * dr > 0:
+                        cm = abs(s0) / mR1
+                        sR[b], cR[b] = s0, float(np.clip(c, -cm, cm))
+            aL, bR = 0.5 * mL1, 0.5 * mR1
+            left = -sL[b] * aL ** 2 / 2 + cL[b] * aL ** 3 / 3
+            right = sR[b] * bR ** 2 / 2 + cR[b] * bR ** 3 / 3
+            dlt[b] = -(left + right) / Mo[b]
 
     # extended (periodic) list of old dual intervals sorted in mu for local search
     order = np.argsort(dual_lo)
@@ -444,12 +507,16 @@ def remap(st, lz, wL, M, phases, N, recon=True, vslope=True):
             if hi > lo:
                 node = s_lo + 0.5 * mo[(b - 1) % B]
                 a1, b1 = lo - node, hi - node
+
+                def seg(s_, c_, u, v):
+                    return s_ * (v * v - u * u) / 2 + c_ * (v ** 3 - u ** 3) / 3
                 if b1 <= 0:
-                    wbar = wL[b] + dlt[b] + sL[b] * 0.5 * (a1 + b1)
+                    tot = seg(sL[b], cL[b], a1, b1)
                 elif a1 >= 0:
-                    wbar = wL[b] + dlt[b] + sR[b] * 0.5 * (a1 + b1)
+                    tot = seg(sR[b], cR[b], a1, b1)
                 else:
-                    wbar = wL[b] + dlt[b] + (sL[b] * (-a1 * a1 / 2) + sR[b] * (b1 * b1 / 2)) / (b1 - a1)
+                    tot = seg(sL[b], cL[b], a1, 0.0) + seg(sR[b], cR[b], 0.0, b1)
+                wbar = wL[b] + dlt[b] + tot / (b1 - a1)
                 dm = hi - lo
                 out_m += dm
                 out_p += dm * wbar
@@ -498,6 +565,8 @@ def remap(st, lz, wL, M, phases, N, recon=True, vslope=True):
     if np.any(phi < 1.0):
         sL *= phi
         sR *= phi
+        cL *= phi
+        cR *= phi
         dlt *= phi
         wn, heat_new, G_old = repartition()
     # subtract the splitting gaps from the Lagrangian zones BEFORE the energy re-partition, then

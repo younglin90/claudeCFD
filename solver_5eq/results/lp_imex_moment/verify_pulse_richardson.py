@@ -16,6 +16,14 @@ def main():
     if "--parabolic" in sys.argv:
         vp.fs.PARABOLIC[0] = True
         print("PARABOLIC reconstruction on", flush=True)
+    if "--forcecorr" in sys.argv:
+        vp.fs.FORCE_CORR[0] = True
+        print("FORCE_CORR on", flush=True)
+    if "--corrall" in sys.argv:
+        vp.fs.CORR_ALL[0] = True
+        print("CORR_ALL on", flush=True)
+    if "--novcurv" in sys.argv:
+        vp.fs.VCURV[0] = False
     Ns = (200, 400, 800, 1600, 3200) if "--to3200" in sys.argv else (200, 400, 800, 1600)
     sol = {}
     for N in Ns:

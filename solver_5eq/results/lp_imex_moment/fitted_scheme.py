@@ -84,6 +84,20 @@ def _isentrope(z, ph):
     return p, E, l0
 
 
+_LAST = {}                # last force correction (diagnostics)
+
+
+def _keep_positive(D, dD, L0):
+    """Newton update D - dD, halved until every zone length stays positive (sub-1e-6 h zones can be
+    overshot by a full step; the converged solution is unchanged)."""
+    for _ in range(60):
+        Dn = D - dD
+        if np.all(L0 + np.roll(Dn, -1) - Dn > 0):
+            return Dn
+        dD = 0.5 * dD
+    return D
+
+
 def lagrange(st, tau, phases):
     Zs = st.zones
     B = len(Zs)
@@ -107,6 +121,7 @@ def lagrange(st, tau, phases):
         return pt, dp
 
     corr = np.zeros(B)
+    Cimp = None                               # CORR_IMPLICIT: curvature part corr_curv = Cimp @ p_secant
     if FORCE_CORR[0]:
         # zone pressure is a zone average; the dual-zone momentum balance needs p at the zone's mass
         # midpoint: p_avg - p(x_mass_mid) = c_p l^2/12 - s_p s_rho l^2/(8 rho_bar)  (explicit, frozen)
@@ -121,33 +136,80 @@ def lagrange(st, tau, phases):
                     band[(b + d) % B] = True
         if CORR_ALL[0]:
             band[:] = True
+        full = np.array([st.isface[b] and st.isface[(b + 1) % B] for b in range(B)])
+        cs_, cap_, mg_ = np.zeros(B), np.zeros(B), np.full(B, np.inf)
+        rr, cc, vv = [], [], []
         for i, z in enumerate(Zs):
             if not band[i]:
                 continue
             l = z[2] - z[1]
             rbar = z[3] / l
-            corr[i] = spp[i][1] * l * l / 12 - spp[i][0] * srr[i][0] * l * l / (8 * rbar)
+            cs_[i] = -spp[i][0] * srr[i][0] * l * l / (8 * rbar)
+            corr[i] = spp[i][1] * l * l / 12 + cs_[i]
             # never let the correction exceed a small fraction of the thermal pressure margin
             ph = phases[z[0]]
-            margin_p = zone_p(z, ph) - ph.A * z[4] / l
-            corr[i] = float(np.clip(corr[i], -0.1 * margin_p, 0.1 * margin_p))
-    D = tau * w.copy()
+            mg_[i] = 0.1 * (zone_p(z, ph) - ph.A * z[4] / l)
+            corr[i] = float(np.clip(corr[i], -mg_[i], mg_[i]))
+            if CORR_IMPLICIT[0]:
+                # the curvature part c_p l^2/12 is a second difference of p (an O(1) fraction of the
+                # acoustic operator at the grid scale): lagged it amplifies grid modes, so it is
+                # re-evaluated from the secant (midpoint) pressures inside the Newton loop
+                corr[i] = float(np.clip(cs_[i], -mg_[i], mg_[i]))
+                sym = CORR_STENCIL[0] == "fullsym"
+                if not PARABOLIC[0] or (spp[i][0] == 0.0 and not sym):
+                    continue
+                if CORR_GATE[0] and spp[i][1] == 0.0:
+                    continue          # _slopes dropped the curvature (validity check): no curvature term
+                w8 = _curv_weights(Zs, i, full if CORR_STENCIL[0] == "fullsym" else None)
+                if w8 is None or (CORR_STENCIL[0] == "fullonly" and not (full[i] and all(full[w8[0]]))):
+                    continue
+                # monotone-parabola cap on c_p (times l^2/12); fullsym: none, so the operator depends on the
+                # geometry only (a slope-dependent row set/cap switches with grid noise)
+                cap_[i] = np.inf if sym else abs(spp[i][0]) / l * l * l / 12
+                rr += [i] * 3
+                cc += list(w8[0]) + [i]
+                vv += list(w8[1] * l * l / 12) + [-w8[1].sum() * l * l / 12]
+        if CORR_IMPLICIT[0] and rr:
+            Cimp = sp.csr_matrix((vv, (rr, cc)), shape=(B, B))
+            if CORR_STENCIL[0] == "fullsym":
+                # symmetrise in the l/K inner product: diag(l/K)(I - C) symmetric positive (energy-stable)
+                lz0 = np.array([z[2] - z[1] for z in Zs])
+                K = np.array([-l0 * (pf(l0 * (1 + 1e-7)) - pf(l0 * (1 - 1e-7))) / (2e-7 * l0) for pf, Ef, l0 in funcs])
+                Hw = lz0 / K
+                # graph-Laplacian form corr_i = sum_j a_ij (p_j - p_i): symmetrise the edge weights
+                # H_i a_ij <-> H_j a_ji and rebuild the diagonal, so rows still annihilate constants
+                A = (Cimp - sp.diags(Cimp.diagonal())).tocsr()
+                A = 0.5 * (A + sp.diags(1 / Hw) @ A.T @ sp.diags(Hw))
+                Cimp = (A - sp.diags(np.asarray(A.sum(axis=1)).ravel())).tocsr()
+                cap_[:] = np.inf
+            rows_c = np.nonzero(Cimp.getnnz(axis=1))[0]
+    D = _keep_positive(np.zeros(B), -tau * w, L0)    # initial guess tau*w, shortened if it crushes a zone
     for it in range(80):
         Lz = L0 + np.roll(D, -1) - D            # zone b between boundary b and b+1
         if np.any(Lz <= 0):
             raise RuntimeError("zone collapsed")
         pt, dp = pt_of(Lz)
+        if Cimp is not None:
+            cv = np.clip(Cimp @ pt, -cap_, cap_)
+            corr[rows_c] = np.clip(cv[rows_c] + cs_[rows_c], -mg_[rows_c], mg_[rows_c])
         pt = pt - corr
         R = M * (D - tau * w) + 0.5 * tau ** 2 * (pt - np.roll(pt, 1))
         if np.max(np.abs(R) / np.maximum(M, 1e-300)) < 1e-14 * max(1.0, np.max(np.abs(D))):
             break
         c = 0.5 * tau ** 2
         idx = np.arange(B)
+        if Cimp is not None:
+            # J = diag(M) - c Dw^T (I - C) diag(dp) Dw  (zone length L = L0 + Dw D; force -(Dw^T p_force))
+            Dw = sp.csr_matrix((np.concatenate([np.ones(B), -np.ones(B)]),
+                                (np.concatenate([idx, idx]), np.concatenate([(idx + 1) % B, idx]))), shape=(B, B))
+            Jm = (sp.diags(M) - c * Dw.T @ (sp.identity(B) - Cimp) @ sp.diags(dp) @ Dw).tocsc()
+            D = _keep_positive(D, spla.spsolve(Jm, R), L0)
+            continue
         rows = np.concatenate([idx, idx, idx])
         cols = np.concatenate([(idx + 1) % B, idx, (idx - 1) % B])
         vals = np.concatenate([c * dp, M - c * dp - c * np.roll(dp, 1), c * np.roll(dp, 1)])
         Jm = sp.csc_matrix((vals, (rows, cols)), shape=(B, B))
-        D = D - spla.spsolve(Jm, R)
+        D = _keep_positive(D, spla.spsolve(Jm, R), L0)
     Lz = L0 + np.roll(D, -1) - D
     wn = 2 * D / tau - w
     newzones = []
@@ -158,6 +220,7 @@ def lagrange(st, tau, phases):
         # work of the correction force is returned to the zone as heat (total energy exact):
         # the force used p - corr, so the zone receives + corr * dL
         newzones.append([z[0], a2, a2 + L, z[3], z[4] * J ** (1 - ph.n), Ef(L) + corr[len(newzones)] * (L - l0)])
+    _LAST['corr'] = corr
     return newzones, wn, M, it
 
 
@@ -166,6 +229,12 @@ FORCE_CORR = [False]  # dual-boundary pressure correction in the Lagrange force,
 VCURV = [True]        # one-sided velocity curvature at interface nodes (only with PARABOLIC)
 CORR_ALL = [False]    # apply the force correction in every zone (stable only for moderate acoustic CFL)
 PARABOLIC = [False]   # curvature-corrected (monotone parabolic) reconstruction, section 56
+CORR_IMPLICIT = [False]  # curvature part of the force correction at the secant pressure (section 62)
+# stencil of the implicit curvature correction (section 62): "raw" = as _slopes (unstable for some
+# occupancies: diag(l/K) C not symmetric), "fullonly" = only zones whose central stencil is full zones,
+# "fullsym" = full-zone stencils, then symmetrised in the l/K inner product (energy-stable by construction)
+CORR_STENCIL = ["raw"]
+CORR_GATE = [False]   # implicit curvature term only where _slopes kept the parabola (as the lagged form)
 
 
 def rec_int(rb, s, c, xc, l, lo, hi):
@@ -194,6 +263,36 @@ def _curv_fit(rb_g, xc_g, l, nb):
         return np.linalg.solve(A, y)[1]
     except np.linalg.LinAlgError:
         return 0.0
+
+
+def _curv_weights(zones, g, full=None):
+    """Neighbours and linear weights with curvature = w . (p_nb - p_g), as in _slopes/_curv_fit.
+    With `full`, stencil members must also be full (face-to-face) zones."""
+    G = len(zones)
+    z = zones[g]
+    k, l = z[0], z[2] - z[1]
+    xc = 0.5 * (z[1] + z[2])
+    same = lambda j: zones[j % G][0] == k and (full is None or full[j % G])
+    if same(g - 1) and same(g + 1):
+        nbs = [g - 1, g + 1]
+    elif same(g + 1) and same(g + 2):
+        nbs = [g + 1, g + 2]
+    elif same(g - 1) and same(g - 2):
+        nbs = [g - 1, g - 2]
+    else:
+        return None
+    A = np.zeros((2, 2))
+    for r, j in enumerate(nbs):
+        zj = zones[j % G]
+        cj = 0.5 * (zj[1] + zj[2])
+        off = (((cj - xc + 0.5) % 1.0) - 0.5) + xc - cj
+        al, be = zj[1] + off - xc, zj[2] + off - xc
+        A[r, 0] = 0.5 * (al + be)
+        A[r, 1] = (be ** 3 - al ** 3) / (3 * (be - al)) - l * l / 12
+    try:
+        return np.array([j % G for j in nbs]), np.linalg.inv(A)[1]
+    except np.linalg.LinAlgError:
+        return None
 
 
 def _minmod(a, b):

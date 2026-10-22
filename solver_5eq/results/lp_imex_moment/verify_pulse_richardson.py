@@ -22,6 +22,16 @@ def main():
     if "--corrall" in sys.argv:
         vp.fs.CORR_ALL[0] = True
         print("CORR_ALL on", flush=True)
+    if "--corrimpl" in sys.argv:
+        vp.fs.CORR_IMPLICIT[0] = True
+        print("CORR_IMPLICIT on", flush=True)
+    if "--gate" in sys.argv:
+        vp.fs.CORR_GATE[0] = True
+        print("CORR_GATE on", flush=True)
+    for a in sys.argv:
+        if a.startswith("--stencil="):
+            vp.fs.CORR_STENCIL[0] = a.split("=", 1)[1]
+            print("CORR_STENCIL", vp.fs.CORR_STENCIL[0], flush=True)
     if "--novcurv" in sys.argv:
         vp.fs.VCURV[0] = False
     Ns = (200, 400, 800, 1600, 3200) if "--to3200" in sys.argv else (200, 400, 800, 1600)

@@ -51,12 +51,52 @@ def isentrope(L0, pcs, phases, p0):
     return (lambda L: p_of_J(L / L0)), (lambda L: I_of_J(L / L0))
 
 
+def isentrope_kapila(L0, pcs, phases, p0):
+    """Piecewise-Kapila cell isentrope: every piece (one material, moments l, m, Z)
+    compresses uniformly on its own single-material isentrope
+        p_r(J) = A zbar J^-n + (p0 - A zbar) J^-(1+Gamma),   zbar = Z/l,
+    and all pieces share one pressure. Returns p(L), E(L), J_r(L)."""
+    data = []
+    for k, a, b, m, Z in pcs:
+        ph = phases[k]
+        l = b - a
+        data.append((ph, l, Z / l, Z))
+
+    def p_piece(d, J):
+        ph, l, zb, Z = d
+        return ph.A * zb * J ** (-ph.n) + (p0 - ph.A * zb) * J ** (-1.0 - ph.G)
+
+    def J_piece(d, p):
+        return np.exp(brentq(lambda y: p_piece(d, np.exp(y)) - p, -40.0, 40.0, xtol=1e-15))
+
+    if len(data) == 1:
+        d = data[0]
+        Jr = lambda L: [L / d[1]]
+        p_of_L = lambda L: p_piece(d, L / d[1])
+    else:
+        def p_of_L(L):
+            g = lambda y: sum(d[1] * J_piece(d, np.exp(y)) for d in data) - L
+            lo, hi = np.log(p0) - 1.0, np.log(p0) + 1.0
+            while g(lo) < 0:
+                lo -= 2.0
+            while g(hi) > 0:
+                hi += 2.0
+            return np.exp(brentq(g, lo, hi, xtol=1e-15))
+        Jr = lambda L: [J_piece(d, p_of_L(L)) for d in data] if abs(L - L0) > 1e-15 * L0 else [1.0] * len(data)
+
+    def E_of_L(L):
+        p = p_of_L(L)
+        return sum(p * d[1] * J / d[0].G + d[0].C * d[3] * J ** (1 - d[0].n) for d, J in zip(data, Jr(L)))
+
+    return p_of_L, E_of_L, Jr
+
+
 def decode(pcs, I, phases):
     S = sum((q[2] - q[1]) / phases[q[0]].G for q in pcs)
     return (I - sum(phases[q[0]].C * q[4] for q in pcs)) / S
 
 
-def lagrange(state, tau, phases, visc=None):
+def lagrange(state, tau, phases, visc=None, model="allaire"):
     """AVF Lagrange stage on the staggered ring; Newton on node displacements.
 
     visc=(c1, c2): implicit compression-only artificial viscosity
@@ -69,9 +109,14 @@ def lagrange(state, tau, phases, visc=None):
     h = 1.0 / N
     m = np.array([sum(q[3] for q in pcs) for pcs in cells])
     M = 0.5 * (m + np.roll(m, -1))
-    pf, Ef = [], []
+    pf, Ef, Jrf = [], [], []
     for i, pcs in enumerate(cells):
-        p_i, E_i = isentrope(h, pcs, phases, decode(pcs, I[i], phases))
+        if model == "kapila":
+            p_i, E_i, J_i = isentrope_kapila(h, pcs, phases, decode(pcs, I[i], phases))
+        else:
+            p_i, E_i = isentrope(h, pcs, phases, decode(pcs, I[i], phases))
+            J_i = (lambda nn: (lambda L: [L / h] * nn))(len(pcs))
+        Jrf.append(J_i)
         pf.append(p_i)
         Ef.append(E_i)
 
@@ -128,18 +173,19 @@ def lagrange(state, tau, phases, visc=None):
     Jc = L / h
     newI = np.array([Ef[i](L[i]) for i in range(N)])
     pL = np.array([pf[i](L[i]) for i in range(N)])
+    Jr = [Jrf[i](L[i]) for i in range(N)]
     heat = np.zeros(N)
     if visc is not None:
         q, _ = qv(L)
         heat = -q * (L - h)
         newI = newI + heat
         for i, pcs in enumerate(cells):
-            S = sum((q_[2] - q_[1]) * Jc[i] / phases[q_[0]].G for q_ in pcs)
+            S = sum((q_[2] - q_[1]) * jr / phases[q_[0]].G for q_, jr in zip(pcs, Jr[i]))
             pL[i] += heat[i] / S
-    return dict(D=D, w=wn, J=Jc, I=newI, p=pL, M=M, m=m, iters=it, heat=heat)
+    return dict(D=D, w=wn, J=Jc, Jr=Jr, I=newI, p=pL, M=M, m=m, iters=it, heat=heat)
 
 
-def remap(state, lag, phases, slope="minmod"):
+def remap(state, lag, phases, slope="minmod", keep_piece_energy=False):
     cells = state["cells"]
     N = len(cells)
     h = 1.0 / N
@@ -148,10 +194,12 @@ def remap(state, lag, phases, slope="minmod"):
     F = np.zeros(N)  # mass flux through node j (right face of cell j), + rightward
     for i, pcs in enumerate(cells):
         XL = i * h + D[(i - 1) % N]
-        for k, a, b, mq, Z in pcs:
+        pos = XL
+        for (k, a, b, mq, Z), jr in zip(pcs, lag["Jr"][i]):
             ph = phases[k]
-            a2, b2 = XL + (a - i * h) * J[i], XL + (b - i * h) * J[i]
-            Z2 = Z * J[i] ** (1 - ph.n)
+            a2, b2 = pos, pos + (b - a) * jr
+            pos = b2
+            Z2 = Z * jr ** (1 - ph.n)
             e2 = pL[i] * (b2 - a2) / ph.G + ph.C * Z2
             c0, c1 = int(np.floor(a2 / h + TOL)), int(np.floor(b2 / h - TOL))
             for c in range(c0, c1 + 1):
@@ -178,7 +226,7 @@ def remap(state, lag, phases, slope="minmod"):
             else:
                 mg.append(list(q))
         Inew[c] = sum(q[5] for q in mg)
-        out.append([q[:5] for q in mg])
+        out.append(mg if keep_piece_energy else [q[:5] for q in mg])
 
     # nodal (dual-cell) momentum remap
     w, M = lag["w"], lag["M"]
@@ -225,7 +273,13 @@ def remap(state, lag, phases, slope="minmod"):
     Qmix = ke_frag - 0.5 * Mn * wn ** 2
     Gsplit = 0.5 * Mrem * w_rem ** 2 + 0.5 * out_r * w_or ** 2 + 0.5 * out_l * w_ol ** 2 - 0.5 * M * w ** 2
     Q = Qmix - Gsplit
-    Inew += 0.5 * Q + 0.5 * np.roll(Q, 1)
+    heatc = 0.5 * Q + 0.5 * np.roll(Q, 1)
+    Inew += heatc
+    if keep_piece_energy:
+        for c, pcs in enumerate(out):
+            S = sum((q[2] - q[1]) / phases[q[0]].G for q in pcs)
+            for q in pcs:
+                q[5] += heatc[c] * (q[2] - q[1]) / phases[q[0]].G / S
     return dict(cells=out, I=Inew, w=wn), Q
 
 
@@ -254,10 +308,10 @@ def init_state(N, phases, rho_fun, p_fun, u_fun, mat_fun=lambda x: 0):
     return dict(cells=cells, I=I, w=w)
 
 
-def run(state, phases, tau, nsteps, slope="minmod", hook=None, visc=None):
+def run(state, phases, tau, nsteps, slope="minmod", hook=None, visc=None, model="allaire"):
     Qmin, Qscale, it_max = 0.0, 0.0, 0
     for n in range(nsteps):
-        lag = lagrange(state, tau, phases, visc)
+        lag = lagrange(state, tau, phases, visc, model)
         if lag["heat"].min() < -1e-14:
             raise RuntimeError("negative viscous heat")
         it_max = max(it_max, lag["iters"])

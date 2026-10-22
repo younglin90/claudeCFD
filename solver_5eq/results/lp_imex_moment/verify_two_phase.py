@@ -97,6 +97,7 @@ def material_totals(state):
 
 
 def min_theta(state, phases):
+    """min over pieces of theta_r/(l_r p) = (p - A zbar)/(Gamma p)  (note the 1/Gamma)."""
     worst = np.inf
     for pcs, I in zip(state["cells"], state["I"]):
         p = va.decode(pcs, I, phases)

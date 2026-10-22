@@ -56,8 +56,14 @@ def decode(pcs, I, phases):
     return (I - sum(phases[q[0]].C * q[4] for q in pcs)) / S
 
 
-def lagrange(state, tau, phases):
-    """AVF Lagrange stage on the staggered ring; Newton on node displacements."""
+def lagrange(state, tau, phases, visc=None):
+    """AVF Lagrange stage on the staggered ring; Newton on node displacements.
+
+    visc=(c1, c2): implicit compression-only artificial viscosity
+      q_i = rho_i (c1 c_i s + c2 s^2),  s = max(-dL_i, 0)/tau,
+    acting as an extra cell pressure; its work -q_i dL_i >= 0 is added to the cell
+    internal energy, so total energy stays exact and the heat is non-negative.
+    """
     cells, I, w = state["cells"], state["I"], state["w"]
     N = len(cells)
     h = 1.0 / N
@@ -80,6 +86,19 @@ def lagrange(state, tau, phases):
             d = 0.5 * (pf[i](h + 0.5 * dL + e) - pf[i](h + 0.5 * dL - e)) / (2 * e)
         return pt, d
 
+    rho_c = m / h
+    if visc is not None:
+        e_ = 1e-6 * h
+        csnd = np.array([np.sqrt(max(-h * (pf[i](h + e_) - pf[i](h - e_)) / (2 * e_) / rho_c[i], 0.0)) for i in range(N)])
+
+    def qv(L):
+        if visc is None:
+            return np.zeros(N), np.zeros(N)
+        s_ = np.maximum(h - L, 0.0) / tau
+        q = rho_c * (visc[0] * csnd * s_ + visc[1] * s_ ** 2)
+        dq = np.where(h - L > 0, -rho_c * (visc[0] * csnd + 2 * visc[1] * s_) / tau, 0.0)
+        return q, dq
+
     D = tau * w.copy()
     it = 0
     for it in range(60):
@@ -90,6 +109,9 @@ def lagrange(state, tau, phases):
         dp = np.empty(N)
         for i in range(N):
             pt[i], dp[i] = ptilde(i, L[i])
+        q, dq = qv(L)
+        pt = pt + q
+        dp = dp + dq
         R = M * (D - tau * w) + 0.5 * tau ** 2 * (np.roll(pt, -1) - pt)
         if np.max(np.abs(R)) < 1e-14 * max(1.0, np.max(M * h)):
             break
@@ -106,7 +128,15 @@ def lagrange(state, tau, phases):
     Jc = L / h
     newI = np.array([Ef[i](L[i]) for i in range(N)])
     pL = np.array([pf[i](L[i]) for i in range(N)])
-    return dict(D=D, w=wn, J=Jc, I=newI, p=pL, M=M, m=m, iters=it)
+    heat = np.zeros(N)
+    if visc is not None:
+        q, _ = qv(L)
+        heat = -q * (L - h)
+        newI = newI + heat
+        for i, pcs in enumerate(cells):
+            S = sum((q_[2] - q_[1]) * Jc[i] / phases[q_[0]].G for q_ in pcs)
+            pL[i] += heat[i] / S
+    return dict(D=D, w=wn, J=Jc, I=newI, p=pL, M=M, m=m, iters=it, heat=heat)
 
 
 def remap(state, lag, phases, slope="minmod"):
@@ -224,10 +254,12 @@ def init_state(N, phases, rho_fun, p_fun, u_fun, mat_fun=lambda x: 0):
     return dict(cells=cells, I=I, w=w)
 
 
-def run(state, phases, tau, nsteps, slope="minmod", hook=None):
+def run(state, phases, tau, nsteps, slope="minmod", hook=None, visc=None):
     Qmin, Qscale, it_max = 0.0, 0.0, 0
     for n in range(nsteps):
-        lag = lagrange(state, tau, phases)
+        lag = lagrange(state, tau, phases, visc)
+        if lag["heat"].min() < -1e-14:
+            raise RuntimeError("negative viscous heat")
         it_max = max(it_max, lag["iters"])
         state, Q = remap(state, lag, phases, slope)
         Qmin = min(Qmin, Q.min())

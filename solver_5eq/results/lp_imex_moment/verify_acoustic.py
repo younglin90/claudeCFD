@@ -204,7 +204,7 @@ def remap(state, lag, phases, slope="minmod", keep_piece_energy=False):
             c0, c1 = int(np.floor(a2 / h + TOL)), int(np.floor(b2 / h - TOL))
             for c in range(c0, c1 + 1):
                 lo, hi = max(a2, c * h), min(b2, (c + 1) * h)
-                if hi - lo <= TOL * h:
+                if hi - lo <= 0.0:
                     continue
                 lam = (hi - lo) / (b2 - a2)
                 tc, off = c % N, (c // N) * 1.0

@@ -248,9 +248,37 @@ def remap(st, lz, wL, M, phases, N, recon=True, vslope=True):
                 newb[-1] = (x, False)
             continue
         newb.append((x, isf))
-    newzones = []
-    j = 0
-    for i, (xa, isf) in enumerate(newb):
+    def contents(lzz, sr_, sp_):
+        out = []
+        j = 0
+        for i, (xa, isf) in enumerate(newb):
+            xb = newb[i + 1][0] if i + 1 < len(newb) else newb[0][0] + 1.0
+            while lzz[j % B][2] + (j // B) * 1.0 <= xa + 1e-15:
+                j += 1
+            mtot = Ztot = Etot = 0.0
+            jj = j
+            k = None
+            while True:
+                z = lzz[jj % B]
+                off = (jj // B) * 1.0
+                a, b = z[1] + off, z[2] + off
+                lo, hi = max(a, xa), min(b, xb)
+                if hi > lo:
+                    zz = [z[0], a, b, z[3], z[4], z[5]]
+                    mf, Zf, Ef = _fragment(zz, phases[z[0]], sr_[jj % B], sp_[jj % B], lo, hi)
+                    mtot += mf
+                    Ztot += Zf
+                    Etot += Ef
+                    k = z[0]
+                if b >= xb - 1e-15:
+                    break
+                jj += 1
+            out.append([k, xa, xb, mtot, Ztot, Etot])
+        return out
+    newzones = contents(lz, sr, sp)
+    if False:
+     j = 0
+     for i, (xa, isf) in enumerate(newb):
         xb = newb[i + 1][0] if i + 1 < len(newb) else newb[0][0] + 1.0
         while lz[j % B][2] + (j // B) * 1.0 <= xa + 1e-15:
             j += 1
@@ -364,25 +392,69 @@ def remap(st, lz, wL, M, phases, N, recon=True, vslope=True):
     Bn = len(newzones)
     nd_lo = (mun - 0.5 * np.roll(mnz, 1)) % Mtot
     Mn = 0.5 * (mnz + np.roll(mnz, 1))
-    wn = np.zeros(Bn)
-    heat_new = np.zeros(Bn)
-    G_old = np.zeros(B)
-    split_k = np.zeros(B)
-    frag_log = []
-    for bnew in range(Bn):
-        mm, pp, kk, frags = old_avg(nd_lo[bnew], Mn[bnew])
-        wn[bnew] = pp / mm
-        heat_new[bnew] = 0.5 * kk - 0.5 * mm * wn[bnew] ** 2          # mixing gap >= 0
-        for (b, dm, wbar, lo, hi) in frags:
-            split_k[b] += 0.5 * dm * wbar ** 2
-            frag_log.append((b, lo, hi))
-    G_old = split_k - 0.5 * Mo * wL ** 2                                 # splitting gap (KE created by slopes)
-    # heat: new-node mixing gaps to adjacent new zones (half each); splitting gaps removed from the
-    # new zones overlapping the old dual zone, proportionally to mass
+
+    def repartition():
+        wn_ = np.zeros(Bn)
+        heat_ = np.zeros(Bn)
+        split_ = np.zeros(B)
+        for bnew in range(Bn):
+            mm, pp, kk, frags = old_avg(nd_lo[bnew], Mn[bnew])
+            wn_[bnew] = pp / mm
+            heat_[bnew] = 0.5 * kk - 0.5 * mm * wn_[bnew] ** 2          # mixing gap >= 0
+            for (b, dm, wbar, lo, hi) in frags:
+                split_[b] += 0.5 * dm * wbar ** 2
+        return wn_, heat_, split_ - 0.5 * Mo * wL ** 2                    # splitting gap G_b >= 0
+
+    wn, heat_new, G_old = repartition()
+    # limit the velocity slopes so that the splitting gap G_b (scales as phi_b^2) taken from the two
+    # adjacent Lagrangian zones (mass-half shares) is at most 1/4 of each zone's thermal margin
+    margin = np.empty(B)
+    for zi_ in range(B):
+        z = lz[zi_]
+        ph = phases[z[0]]
+        l = z[2] - z[1]
+        rb = z[3] / l
+        X = z[4] - zint(rb, sr[zi_], 0.0, -l / 2, l / 2, ph.n)
+        need = ph.A * ((rb + abs(sr[zi_]) * l / 2) ** ph.n + X / l)
+        margin[zi_] = max(zone_p(z, ph) - need / 0.98, 0.0) * l / ph.G
+    phi = np.ones(B)
+    for b in range(B):
+        if G_old[b] > 0:
+            fl = 0.5 * mo[(b - 1) % B] / Mo[b]
+            fr = 0.5 * mo[b] / Mo[b]
+            cap = min(0.25 * margin[(b - 1) % B] / (G_old[b] * fl), 0.25 * margin[b] / (G_old[b] * fr))
+            phi[b] = min(1.0, np.sqrt(cap))
+    if np.any(phi < 1.0):
+        sL *= phi
+        sR *= phi
+        dlt *= phi
+        wn, heat_new, G_old = repartition()
+    # subtract the splitting gaps from the Lagrangian zones BEFORE the energy re-partition, then
+    # recompute the (limited) pressure slopes; densities, masses and Z are unchanged
+    lz2 = [list(z) for z in lz]
+    for b in range(B):
+        if G_old[b] != 0:
+            lz2[(b - 1) % B][5] -= G_old[b] * 0.5 * mo[(b - 1) % B] / Mo[b]
+            lz2[b][5] -= G_old[b] * 0.5 * mo[b] / Mo[b]
+    if np.any(G_old != 0):
+        sp2 = sp.copy()
+        for zi_ in range(B):
+            z = lz2[zi_]
+            ph = phases[z[0]]
+            l = z[2] - z[1]
+            rb = z[3] / l
+            X = z[4] - zint(rb, sr[zi_], 0.0, -l / 2, l / 2, ph.n)
+            need = ph.A * ((rb + abs(sr[zi_]) * l / 2) ** ph.n + X / l)
+            room = zone_p(z, ph) - need / 0.98
+            if abs(sp2[zi_]) * l / 2 > room:
+                sp2[zi_] = np.sign(sp2[zi_]) * max(room, 0.0) * 2 / l
+        ez = contents(lz2, sr, sp2)
+        for zn, q in zip(newzones, ez):
+            zn[5] = q[5]
     for bnew in range(Bn):
         newzones[(bnew - 1) % Bn][5] += 0.5 * heat_new[bnew]
         newzones[bnew][5] += 0.5 * heat_new[bnew]
-    if np.any(G_old != 0):
+    if False:
         # distribute -G_old over the new zones by mass overlap in mu (fragments are already local)
         zone_lo = np.concatenate([mun - Mtot, mun, mun + Mtot])
         zone_id = np.concatenate([np.arange(Bn)] * 3)

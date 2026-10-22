@@ -901,7 +901,18 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                 // solution-adaptive (reads the local pressure, not the case id) -> uniform scheme.
                 const double psmax = std::max({pe[gL - 1], pe[gL], pe[gR], pe[gR + 1]});
                 const double psmin = std::min({pe[gL - 1], pe[gL], pe[gR], pe[gR + 1]});
-                const bool face_shock = psmax > 1.3 * std::max(psmin, 1.0);
+                // A shock is compressive: only a compressive stencil may trip the 1st-order fallback.
+                const bool face_shock = psmax > 1.3 * std::max(psmin, 1.0)
+                    && ue[gR + 1] - ue[gL - 1] < 0.0;
+                // Strong (same pressure-ratio test), expansive, single-phase stencil: keep the TVD
+                // Minmod reconstruction even where the regime selects 1st-order upwind.
+                bool expansive_face = !use_minmod && psmax > 1.3 * std::max(psmin, 1.0)
+                    && ue[gR + 1] - ue[gL - 1] > 0.0;
+                if (expansive_face) {
+                    auto phx = [&](int i) { return s.alpha[std::clamp(i, 0, n - 1)] >= 0.5; };
+                    const bool q0 = phx(f - 1);
+                    expansive_face = phx(f - 2) == q0 && phx(f) == q0 && phx(f + 1) == q0;
+                }
                 bool use4 = false;
                 if (lowdiss && !face_shock) {
                     auto ph = [&](int i) { return s.alpha[std::clamp(i, 0, n - 1)] >= 0.5; };
@@ -941,7 +952,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                 const int gU = fromL ? gL : gR;  // upwind cell (ghost idx)
                 uwc_f[f] = std::clamp(gU - 2, 0, n - 1);  // upwind cell index (analytic transport Jac)
                 double pU = std::max(pe[gU], 1.0), TU = std::max(Te[gU], 1e-6), uU = ue[gU];
-                if (use_minmod) {
+                if (use_minmod || expansive_face) {
                     // Minmod TVD 2nd-order reconstruction of the convected primitives from the
                     // upwind side. p,T,u are CONTINUOUS across the contact (only rho jumps), so
                     // no interface fallback is needed; this cuts the 1st-order acoustic

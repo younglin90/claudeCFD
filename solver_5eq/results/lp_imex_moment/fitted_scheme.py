@@ -134,6 +134,37 @@ def lagrange(st, tau, phases):
 
 
 # ------------------------------------------------------------------ remap helpers
+PARABOLIC = [False]   # curvature-corrected (monotone parabolic) reconstruction, section 56
+
+
+def rec_int(rb, s, c, xc, l, lo, hi):
+    """Integral over [lo, hi] of rb + s (x-xc) + c ((x-xc)^2 - l^2/12)."""
+    u, v = lo - xc, hi - xc
+    return (hi - lo) * rb + s * (v * v - u * u) / 2 + c * ((v ** 3 - u ** 3) / 3 - l * l / 12 * (hi - lo))
+
+
+def rec_powint(rb, s, c, xc, l, lo, hi, n):
+    xm, xr = 0.5 * (lo + hi), 0.5 * (hi - lo)
+    x = xm + xr * _GX
+    r = rb + s * (x - xc) + c * ((x - xc) ** 2 - l * l / 12)
+    return xr * np.sum(_GW * r ** n)
+
+
+def _curv_fit(rb_g, xc_g, l, nb):
+    """Curvature of the mean-preserving parabola matching the averages of two neighbour zones."""
+    A = np.zeros((2, 2))
+    y = np.zeros(2)
+    for i, (av, a, b) in enumerate(nb):
+        al, be = a - xc_g, b - xc_g
+        A[i, 0] = 0.5 * (al + be)
+        A[i, 1] = (be ** 3 - al ** 3) / (3 * (be - al)) - l * l / 12
+        y[i] = av - rb_g
+    try:
+        return np.linalg.solve(A, y)[1]
+    except np.linalg.LinAlgError:
+        return 0.0
+
+
 def _minmod(a, b):
     return np.sign(a) * min(abs(a), abs(b)) if a * b > 0 else 0.0
 
@@ -143,7 +174,7 @@ def _slopes(zones, phases, recon):
     G = len(zones)
     sr, sp = np.zeros(G), np.zeros(G)
     if not recon:
-        return sr, sp
+        return np.zeros((G, 2)), np.zeros((G, 2))
     rb = np.array([z[3] / (z[2] - z[1]) for z in zones])
     xc = np.array([0.5 * (z[1] + z[2]) for z in zones])
     pz = np.array([zone_p(z, phases[z[0]]) for z in zones])
@@ -195,31 +226,70 @@ def _slopes(zones, phases, recon):
                     hi = mid
             phi = lo
         sr[g], sp[g] = phi * s0, phi * p0s
-    return sr, sp
+    cr, cp = np.zeros(G), np.zeros(G)
+    if PARABOLIC[0]:
+        def unwrap(j, ref):
+            zj = zones[j]
+            cj = 0.5 * (zj[1] + zj[2])
+            off = (((cj - ref + 0.5) % 1.0) - 0.5) + ref - cj
+            return zj[1] + off, zj[2] + off
+        for g in range(G):
+            z = zones[g]
+            l = z[2] - z[1]
+            k = z[0]
+            same = lambda j: zones[j % G][0] == k
+            if same(g - 1) and same(g + 1):
+                nbs = [g - 1, g + 1]
+            elif same(g + 1) and same(g + 2):
+                nbs = [g + 1, g + 2]
+            elif same(g - 1) and same(g - 2):
+                nbs = [g - 1, g - 2]
+            else:
+                continue
+            for arr_s, arr_c, val in ((sr, cr, rb), (sp, cp, pz)):
+                if arr_s[g] == 0.0:
+                    continue
+                nb = [(val[j % G],) + unwrap(j % G, xc[g]) for j in nbs]
+                c = _curv_fit(val[g], xc[g], l, nb)
+                cmax = abs(arr_s[g]) / l          # keeps the parabola monotone inside the zone
+                arr_c[g] = float(np.clip(c, -cmax, cmax))
+        for g in range(G):
+            z = zones[g]
+            ph = phases[z[0]]
+            l = z[2] - z[1]
+            ends = [rb[g] + sgn * sr[g] * l / 2 + cr[g] * l * l / 6 for sgn in (-1, 1)]
+            pends = [pz[g] + sgn * sp[g] * l / 2 + cp[g] * l * l / 6 for sgn in (-1, 1)]
+            X = z[4] - rec_powint(rb[g], sr[g], cr[g], 0.0, l, -l / 2, l / 2, ph.n)
+            need = ph.A * (max(ends) ** ph.n + X / l)
+            if min(ends) <= 0.05 * rb[g] or X < 0 or need >= 0.98 * min(pends):
+                cr[g] = cp[g] = 0.0
+    return np.stack([sr, cr], 1), np.stack([sp, cp], 1)
 
 
 def _fragment(z, ph, s_r, s_p, lo, hi):
-    """Content (m, Z, E) of the sub-interval [lo, hi] of Lagrangian zone z."""
+    """Content (m, Z, E) of the sub-interval [lo, hi] of Lagrangian zone z; s_r, s_p = (slope, curvature)."""
     a, b, m, Z = z[1], z[2], z[3], z[4]
     l = b - a
     rb, xc = m / l, 0.5 * (a + b)
     p = zone_p(z, ph)
     lam = (hi - lo) / l
-    if s_r == 0.0:
+    (s1, c1), (s2, c2) = s_r, s_p
+    if s1 == 0.0 and c1 == 0.0:
         mf, Zf = lam * m, lam * Z
     else:
-        X = Z - zint(rb, s_r, xc, a, b, ph.n)
-        mf = (hi - lo) * (rb + s_r * (0.5 * (lo + hi) - xc))
-        Zf = zint(rb, s_r, xc, lo, hi, ph.n) + lam * X
-    pint = p * (hi - lo) + s_p * (0.5 * (lo + hi) - xc) * (hi - lo)
+        X = Z - rec_powint(rb, s1, c1, xc, l, a, b, ph.n)
+        mf = rec_int(rb, s1, c1, xc, l, lo, hi)
+        Zf = rec_powint(rb, s1, c1, xc, l, lo, hi, ph.n) + lam * X
+    pint = rec_int(p, s2, c2, xc, l, lo, hi)
     return mf, Zf, pint / ph.G + ph.C * Zf
 
 
 def _mass_at(z, s_r, x):
-    """Mass of zone z from its left end up to position x (linear density)."""
+    """Mass of zone z from its left end up to position x."""
     a = z[1]
-    rb, xc = z[3] / (z[2] - z[1]), 0.5 * (z[1] + z[2])
-    return (x - a) * (rb + s_r * (0.5 * (a + x) - xc))
+    l = z[2] - z[1]
+    rb, xc = z[3] / l, 0.5 * (z[1] + z[2])
+    return rec_int(rb, s_r[0], s_r[1], xc, l, a, x)
 
 
 # ------------------------------------------------------------------ remap
@@ -414,8 +484,9 @@ def remap(st, lz, wL, M, phases, N, recon=True, vslope=True):
         ph = phases[z[0]]
         l = z[2] - z[1]
         rb = z[3] / l
-        X = z[4] - zint(rb, sr[zi_], 0.0, -l / 2, l / 2, ph.n)
-        need = ph.A * ((rb + abs(sr[zi_]) * l / 2) ** ph.n + X / l)
+        s1, c1 = sr[zi_]
+        X = z[4] - rec_powint(rb, s1, c1, 0.0, l, -l / 2, l / 2, ph.n)
+        need = ph.A * ((rb + abs(s1) * l / 2 + c1 * l * l / 6) ** ph.n + X / l)
         margin[zi_] = max(zone_p(z, ph) - need / 0.98, 0.0) * l / ph.G
     phi = np.ones(B)
     for b in range(B):
@@ -443,11 +514,12 @@ def remap(st, lz, wL, M, phases, N, recon=True, vslope=True):
             ph = phases[z[0]]
             l = z[2] - z[1]
             rb = z[3] / l
-            X = z[4] - zint(rb, sr[zi_], 0.0, -l / 2, l / 2, ph.n)
-            need = ph.A * ((rb + abs(sr[zi_]) * l / 2) ** ph.n + X / l)
+            s1, c1 = sr[zi_]
+            X = z[4] - rec_powint(rb, s1, c1, 0.0, l, -l / 2, l / 2, ph.n)
+            need = ph.A * ((rb + abs(s1) * l / 2 + c1 * l * l / 6) ** ph.n + X / l)
             room = zone_p(z, ph) - need / 0.98
-            if abs(sp2[zi_]) * l / 2 > room:
-                sp2[zi_] = np.sign(sp2[zi_]) * max(room, 0.0) * 2 / l
+            if abs(sp2[zi_][0]) * l / 2 + abs(sp2[zi_][1]) * l * l / 6 > room:
+                sp2[zi_] = np.array([np.sign(sp2[zi_][0]) * max(room, 0.0) * 2 / l, 0.0])
         ez = contents(lz2, sr, sp2)
         for zn, q in zip(newzones, ez):
             zn[5] = q[5]

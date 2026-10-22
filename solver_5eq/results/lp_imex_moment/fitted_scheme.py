@@ -1,0 +1,424 @@
+"""Interface-fitted staggered LP-IMEX (section 45).
+
+Zones = material pieces in global order; boundaries = Eulerian faces + material interfaces.
+Each zone: (k, a, b, m, Z, E) with its own pressure p = Gamma (E - C Z)/l (no relaxation).
+Each boundary carries a velocity; interface boundaries are Lagrangian (never remapped).
+
+Step:
+  1. AVF Lagrange stage on the zone chain (each zone on its own single-material isentrope).
+  2. Remap: faces return to the Eulerian grid, interfaces stay; zone contents re-partitioned
+     with a limited linear density and pressure reconstruction (mass, Z, E exact).
+  3. Nodal momentum re-partition in the Lagrangian mass coordinate (material does not move
+     during the remap): minmod-linear velocity per dual zone, new velocity = mass average;
+     the kinetic-energy change is returned to the zones as heat.
+"""
+import numpy as np
+import scipy.sparse as sp
+import scipy.sparse.linalg as spla
+
+_GX, _GW = np.polynomial.legendre.leggauss(4)
+
+
+class Phase:
+    def __init__(self, A, n, G):
+        self.A, self.n, self.G = A, n, G
+        self.C = A * (1.0 / (n - 1) - 1.0 / G)
+
+
+def zint(rb, s, xc, lo, hi, n):
+    xm, xr = 0.5 * (lo + hi), 0.5 * (hi - lo)
+    r = rb + s * (xm + xr * _GX - xc)
+    return xr * np.sum(_GW * r ** n)
+
+
+def zone_p(z, ph):
+    return ph.G * (z[5] - ph.C * z[4]) / (z[2] - z[1])
+
+
+class State:
+    """zones: list [k, a, b, m, Z, E] in increasing position (periodic, positions may exceed 1 for the
+    last zone); bnd: list of (position, is_face, face_index); w: boundary velocities.
+    Boundary b is the LEFT boundary of zone b."""
+
+    def __init__(self, zones, isface, w):
+        self.zones = zones
+        self.isface = isface
+        self.w = np.asarray(w, float)
+
+
+# ------------------------------------------------------------------ construction
+def build(N, phases, mat_of, rho_of, p_of, u_of, interfaces):
+    """Exact-ish initial zones on N cells with the given interface positions in (0,1)."""
+    h = 1.0 / N
+    cuts = sorted(set([c * h for c in range(N)] + [x for x in interfaces]))
+    zones, isface, w = [], [], []
+    GX, GW = np.polynomial.legendre.leggauss(8)
+    for i, a in enumerate(cuts):
+        b = cuts[i + 1] if i + 1 < len(cuts) else 1.0 + cuts[0]
+        xm = 0.5 * (a + b)
+        k = mat_of(xm % 1.0)
+        ph = phases[k]
+        xs = xm + 0.5 * (b - a) * GX
+        m = 0.5 * (b - a) * np.sum(GW * rho_of(k, xs % 1.0))
+        Z = 0.5 * (b - a) * np.sum(GW * rho_of(k, xs % 1.0) ** ph.n)
+        p = 0.5 * np.sum(GW * p_of(xs % 1.0))
+        zones.append([k, a, b, m, Z, p * (b - a) / ph.G + ph.C * Z])
+        isface.append(abs(a / h - round(a / h)) < 1e-12)
+        w.append(u_of(a % 1.0))
+    return State(zones, isface, w)
+
+
+# ------------------------------------------------------------------ Lagrange (AVF)
+def _isentrope(z, ph):
+    l0, Z0 = z[2] - z[1], z[4]
+    zb = Z0 / l0
+    p0 = zone_p(z, ph)
+
+    def p(L):
+        J = L / l0
+        return ph.A * zb * J ** (-ph.n) + (p0 - ph.A * zb) * J ** (-1.0 - ph.G)
+
+    def E(L):
+        J = L / l0
+        return p(L) * L / ph.G + ph.C * Z0 * J ** (1 - ph.n)
+    return p, E, l0
+
+
+def lagrange(st, tau, phases):
+    Zs = st.zones
+    B = len(Zs)
+    m = np.array([z[3] for z in Zs])
+    M = 0.5 * (m + np.roll(m, 1))            # boundary b between zone b-1 and b
+    funcs = [_isentrope(z, phases[z[0]]) for z in Zs]
+    L0 = np.array([f[2] for f in funcs])
+    w = st.w
+
+    def pt_of(Lz):
+        pt, dp = np.empty(B), np.empty(B)
+        for i, (pf, Ef, l0) in enumerate(funcs):
+            dL = Lz[i] - l0
+            if abs(dL) > 1e-7 * l0:
+                pt[i] = -(Ef(Lz[i]) - Ef(l0)) / dL
+                dp[i] = (pf(Lz[i]) - pt[i]) / dL
+            else:
+                pt[i] = (pf(l0) + 4 * pf(l0 + 0.5 * dL) + pf(Lz[i])) / 6.0
+                e = 1e-7 * l0
+                dp[i] = 0.5 * (pf(l0 + 0.5 * dL + e) - pf(l0 + 0.5 * dL - e)) / (2 * e)
+        return pt, dp
+
+    D = tau * w.copy()
+    for it in range(80):
+        Lz = L0 + np.roll(D, -1) - D            # zone b between boundary b and b+1
+        if np.any(Lz <= 0):
+            raise RuntimeError("zone collapsed")
+        pt, dp = pt_of(Lz)
+        R = M * (D - tau * w) + 0.5 * tau ** 2 * (pt - np.roll(pt, 1))
+        if np.max(np.abs(R) / np.maximum(M, 1e-300)) < 1e-14 * max(1.0, np.max(np.abs(D))):
+            break
+        c = 0.5 * tau ** 2
+        idx = np.arange(B)
+        rows = np.concatenate([idx, idx, idx])
+        cols = np.concatenate([(idx + 1) % B, idx, (idx - 1) % B])
+        vals = np.concatenate([c * dp, M - c * dp - c * np.roll(dp, 1), c * np.roll(dp, 1)])
+        Jm = sp.csc_matrix((vals, (rows, cols)), shape=(B, B))
+        D = D - spla.spsolve(Jm, R)
+    Lz = L0 + np.roll(D, -1) - D
+    wn = 2 * D / tau - w
+    newzones = []
+    for z, (pf, Ef, l0), L, Db in zip(Zs, funcs, Lz, D):
+        ph = phases[z[0]]
+        J = L / l0
+        a2 = z[1] + Db
+        newzones.append([z[0], a2, a2 + L, z[3], z[4] * J ** (1 - ph.n), Ef(L)])
+    return newzones, wn, M, it
+
+
+# ------------------------------------------------------------------ remap helpers
+def _minmod(a, b):
+    return np.sign(a) * min(abs(a), abs(b)) if a * b > 0 else 0.0
+
+
+def _slopes(zones, phases, recon):
+    """Limited linear density slope s_rho and pressure slope s_p per Lagrangian zone."""
+    G = len(zones)
+    sr, sp = np.zeros(G), np.zeros(G)
+    if not recon:
+        return sr, sp
+    rb = np.array([z[3] / (z[2] - z[1]) for z in zones])
+    xc = np.array([0.5 * (z[1] + z[2]) for z in zones])
+    pz = np.array([zone_p(z, phases[z[0]]) for z in zones])
+
+    def dist(i, j):
+        return (xc[j] - xc[i]) % 1.0 if j != i else 1.0
+    for g in range(G):
+        gl, gr = (g - 1) % G, (g + 1) % G
+        z = zones[g]
+        ph = phases[z[0]]
+        l = z[2] - z[1]
+        sl, srr = zones[gl][0] == z[0], zones[gr][0] == z[0]
+        dl = (rb[g] - rb[gl]) / dist(gl, g) if sl else None
+        dr = (rb[gr] - rb[g]) / dist(g, gr) if srr else None
+        if dl is not None and dr is not None:
+            s0 = _minmod(dl, dr)
+        elif dl is not None or dr is not None:
+            s0 = dl if dr is None else dr
+        else:
+            s0 = 0.0
+        # pressure is continuous across interfaces but its gradient jumps (impedance): same-material
+        # neighbours only, one-sided at an interface
+        pl_ = (pz[g] - pz[gl]) / dist(gl, g) if sl else None
+        pr_ = (pz[gr] - pz[g]) / dist(g, gr) if srr else None
+        if pl_ is not None and pr_ is not None:
+            p0s = _minmod(pl_, pr_)
+        elif pl_ is not None or pr_ is not None:
+            p0s = pl_ if pr_ is None else pr_
+        else:
+            p0s = 0.0
+
+        def ok(phi_r, phi_p):
+            s = phi_r * s0
+            if rb[g] - abs(s) * l / 2 <= 0.05 * rb[g]:
+                return False
+            X = z[4] - zint(rb[g], s, 0.0, -l / 2, l / 2, ph.n)
+            if X < 0:
+                return False
+            need = ph.A * ((rb[g] + abs(s) * l / 2) ** ph.n + X / l)
+            return need < 0.98 * (pz[g] - abs(phi_p * p0s) * l / 2)
+        phi = 1.0
+        if not ok(phi, phi):
+            lo, hi = 0.0, 1.0
+            for _ in range(40):
+                mid = 0.5 * (lo + hi)
+                if ok(mid, mid):
+                    lo = mid
+                else:
+                    hi = mid
+            phi = lo
+        sr[g], sp[g] = phi * s0, phi * p0s
+    return sr, sp
+
+
+def _fragment(z, ph, s_r, s_p, lo, hi):
+    """Content (m, Z, E) of the sub-interval [lo, hi] of Lagrangian zone z."""
+    a, b, m, Z = z[1], z[2], z[3], z[4]
+    l = b - a
+    rb, xc = m / l, 0.5 * (a + b)
+    p = zone_p(z, ph)
+    lam = (hi - lo) / l
+    if s_r == 0.0:
+        mf, Zf = lam * m, lam * Z
+    else:
+        X = Z - zint(rb, s_r, xc, a, b, ph.n)
+        mf = (hi - lo) * (rb + s_r * (0.5 * (lo + hi) - xc))
+        Zf = zint(rb, s_r, xc, lo, hi, ph.n) + lam * X
+    pint = p * (hi - lo) + s_p * (0.5 * (lo + hi) - xc) * (hi - lo)
+    return mf, Zf, pint / ph.G + ph.C * Zf
+
+
+def _mass_at(z, s_r, x):
+    """Mass of zone z from its left end up to position x (linear density)."""
+    a = z[1]
+    rb, xc = z[3] / (z[2] - z[1]), 0.5 * (z[1] + z[2])
+    return (x - a) * (rb + s_r * (0.5 * (a + x) - xc))
+
+
+# ------------------------------------------------------------------ remap
+def remap(st, lz, wL, M, phases, N, recon=True, vslope=True):
+    h = 1.0 / N
+    B = len(lz)
+    sr, sp = _slopes(lz, phases, recon)
+    # new boundaries: Eulerian faces + interface positions (Lagrangian, unchanged by the remap)
+    ifc = [lz[b][1] for b in range(B) if not st.isface[b]]
+    faces = [c * h for c in range(N)]
+    x0 = lz[0][1]
+    span_lo, span_hi = x0, x0 + 1.0
+    cand = []
+    for f in faces:
+        for sh in (-1.0, 0.0, 1.0):
+            if span_lo - 1e-14 <= f + sh < span_hi - 1e-14:
+                cand.append((f + sh, True))
+    for x in ifc:
+        cand.append((x, False))
+    cand.sort()
+    # merge interface points that coincide with a face (keep the interface)
+    newb = []
+    for x, isf in cand:
+        if newb and abs(x - newb[-1][0]) < 1e-13:
+            if not isf:
+                newb[-1] = (x, False)
+            continue
+        newb.append((x, isf))
+    newzones = []
+    j = 0
+    for i, (xa, isf) in enumerate(newb):
+        xb = newb[i + 1][0] if i + 1 < len(newb) else newb[0][0] + 1.0
+        while lz[j % B][2] + (j // B) * 1.0 <= xa + 1e-15:
+            j += 1
+        mtot = Ztot = Etot = 0.0
+        jj = j
+        k = None
+        while True:
+            z = lz[jj % B]
+            off = (jj // B) * 1.0
+            a, b = z[1] + off, z[2] + off
+            lo, hi = max(a, xa), min(b, xb)
+            if hi > lo:
+                zz = [z[0], a, b, z[3], z[4], z[5]]
+                mf, Zf, Ef = _fragment(zz, phases[z[0]], sr[jj % B], sp[jj % B], lo, hi)
+                mtot += mf
+                Ztot += Zf
+                Etot += Ef
+                k = z[0]
+            if b >= xb - 1e-15:
+                break
+            jj += 1
+        newzones.append([k, xa, xb, mtot, Ztot, Etot])
+    # normalise positions to start in [0, 1)
+    shift = np.floor(newzones[0][1])
+    for z in newzones:
+        z[1] -= shift
+        z[2] -= shift
+    isface = [isf for _, isf in newb]
+
+    # ---------------- nodal momentum re-partition in the mass coordinate ----------------
+    # anchor: first interface boundary (present in both partitions)
+    # old dual zones (Lagrangian): node b owns [mu_b - m_{b-1}/2, mu_b + m_b/2]
+    mo = np.array([z[3] for z in lz])
+    muo = np.concatenate([[0.0], np.cumsum(mo)])[:-1]          # mass coordinate of old boundary b
+    Mtot = mo.sum()
+    # mass coordinate of new boundaries relative to the same material origin (old boundary 0 at x0)
+    mn = np.array([z[3] for z in newzones])
+    # position of old boundary 0 is lz[0][1]; locate it in the new partition
+    x_anchor = newzones[0][1] + ((lz[0][1] - shift - newzones[0][1]) % 1.0)
+    jz = 0
+    while not (newzones[jz][1] - 1e-15 <= x_anchor < newzones[jz][2] - 1e-15):
+        jz += 1
+    zN = newzones[jz]
+    # mass of the new zone from its left end to the anchor, measured with the old fields
+    acc = 0.0
+    for jj in range(B):
+        z = lz[jj]
+        a, b = z[1] - shift, z[2] - shift
+        for off in (-1.0, 0.0, 1.0):
+            lo, hi = max(a + off, zN[1]), min(b + off, x_anchor)
+            if hi > lo:
+                acc += _mass_at([z[0], a + off, b + off, z[3]], sr[jj], hi) - _mass_at([z[0], a + off, b + off, z[3]], sr[jj], lo)
+    mun = np.concatenate([[0.0], np.cumsum(mn)])[:-1]
+    mun = (mun - (mun[jz] + acc)) % Mtot                         # new boundary mass coordinates
+    # old velocity field per old dual zone, linear in mu about the dual-zone centroid
+    dual_lo = (muo - 0.5 * np.roll(mo, 1)) % Mtot
+    Mo = 0.5 * (mo + np.roll(mo, 1))
+    # velocity slopes in mu about the node; interface nodes get one-sided (kinked) profiles because
+    # u_x jumps across a contact; delta keeps the dual-zone mean equal to the node velocity
+    sL, sR, dlt = np.zeros(B), np.zeros(B), np.zeros(B)
+    if vslope:
+        for b in range(B):
+            bl, br, bll, brr = (b - 1) % B, (b + 1) % B, (b - 2) % B, (b + 2) % B
+            mL, mR = mo[(b - 1) % B], mo[b]
+            dl = (wL[b] - wL[bl]) / mL
+            dr = (wL[br] - wL[b]) / mR
+            if st.isface[b]:
+                left_ok = st.isface[bl] or True
+                sL[b] = sR[b] = _minmod(dl, dr)
+            else:
+                dll = (wL[bl] - wL[bll]) / mo[(b - 2) % B]
+                drr = (wL[brr] - wL[br]) / mo[(b + 1) % B]
+                sL[b] = _minmod(dl, dll) if st.isface[bl] else dl
+                sR[b] = _minmod(dr, drr) if st.isface[br] else dr
+            dlt[b] = -(sR[b] * mR ** 2 / 8 - sL[b] * mL ** 2 / 8) / Mo[b]
+
+    # extended (periodic) list of old dual intervals sorted in mu for local search
+    order = np.argsort(dual_lo)
+    ext_lo = np.concatenate([dual_lo[order] - Mtot, dual_lo[order], dual_lo[order] + Mtot])
+    ext_b = np.concatenate([order, order, order])
+    ext_off = np.concatenate([np.full(B, -Mtot), np.zeros(B), np.full(B, Mtot)])
+
+    def old_avg(mu_a, L):
+        """old field on the mass interval [mu_a, mu_a + L] (periodic): mass, momentum, fragments."""
+        out_m = out_p = out_k = 0.0
+        frags = []
+        i0 = max(np.searchsorted(ext_lo, mu_a, side="right") - 1, 0)
+        i = i0
+        while i < len(ext_lo) and ext_lo[i] < mu_a + L:
+            b = ext_b[i]
+            s_lo = ext_lo[i]
+            lo, hi = max(s_lo, mu_a), min(s_lo + Mo[b], mu_a + L)
+            if hi > lo:
+                node = s_lo + 0.5 * mo[(b - 1) % B]
+                a1, b1 = lo - node, hi - node
+                if b1 <= 0:
+                    wbar = wL[b] + dlt[b] + sL[b] * 0.5 * (a1 + b1)
+                elif a1 >= 0:
+                    wbar = wL[b] + dlt[b] + sR[b] * 0.5 * (a1 + b1)
+                else:
+                    wbar = wL[b] + dlt[b] + (sL[b] * (-a1 * a1 / 2) + sR[b] * (b1 * b1 / 2)) / (b1 - a1)
+                dm = hi - lo
+                out_m += dm
+                out_p += dm * wbar
+                out_k += dm * wbar ** 2
+                frags.append((b, dm, wbar, lo, hi))
+            i += 1
+        return out_m, out_p, out_k, frags
+
+    mnz = mn
+    Bn = len(newzones)
+    nd_lo = (mun - 0.5 * np.roll(mnz, 1)) % Mtot
+    Mn = 0.5 * (mnz + np.roll(mnz, 1))
+    wn = np.zeros(Bn)
+    heat_new = np.zeros(Bn)
+    G_old = np.zeros(B)
+    split_k = np.zeros(B)
+    frag_log = []
+    for bnew in range(Bn):
+        mm, pp, kk, frags = old_avg(nd_lo[bnew], Mn[bnew])
+        wn[bnew] = pp / mm
+        heat_new[bnew] = 0.5 * kk - 0.5 * mm * wn[bnew] ** 2          # mixing gap >= 0
+        for (b, dm, wbar, lo, hi) in frags:
+            split_k[b] += 0.5 * dm * wbar ** 2
+            frag_log.append((b, lo, hi))
+    G_old = split_k - 0.5 * Mo * wL ** 2                                 # splitting gap (KE created by slopes)
+    # heat: new-node mixing gaps to adjacent new zones (half each); splitting gaps removed from the
+    # new zones overlapping the old dual zone, proportionally to mass
+    for bnew in range(Bn):
+        newzones[(bnew - 1) % Bn][5] += 0.5 * heat_new[bnew]
+        newzones[bnew][5] += 0.5 * heat_new[bnew]
+    if np.any(G_old != 0):
+        # distribute -G_old over the new zones by mass overlap in mu (fragments are already local)
+        zone_lo = np.concatenate([mun - Mtot, mun, mun + Mtot])
+        zone_id = np.concatenate([np.arange(Bn)] * 3)
+        zorder = np.argsort(zone_lo)
+        zl, zi = zone_lo[zorder], zone_id[zorder]
+        for (b, lo, hi) in frag_log:
+            if G_old[b] == 0:
+                continue
+            j0 = max(np.searchsorted(zl, lo, side="right") - 1, 0)
+            j = j0
+            while j < len(zl) and zl[j] < hi:
+                zn = zi[j]
+                a_, b_ = max(zl[j], lo), min(zl[j] + mnz[zn], hi)
+                if b_ > a_:
+                    newzones[zn][5] -= G_old[b] * (b_ - a_) / Mo[b]
+                j += 1
+    return State(newzones, isface, wn), heat_new.sum() - G_old.sum()
+
+
+def step(st, tau, phases, N, recon=True, vslope=True):
+    lz, wL, M, it = lagrange(st, tau, phases)
+    new, q = remap(st, lz, wL, M, phases, N, recon, vslope)
+    return new, it
+
+
+def totals(st):
+    m = np.array([z[3] for z in st.zones])
+    M = 0.5 * (m + np.roll(m, 1))
+    return m.sum(), np.sum(M * st.w), sum(z[5] for z in st.zones) + np.sum(0.5 * M * st.w ** 2)
+
+
+def min_theta(st, phases):
+    worst = np.inf
+    for z in st.zones:
+        ph = phases[z[0]]
+        l = z[2] - z[1]
+        p = zone_p(z, ph)
+        worst = min(worst, (p * l - ph.A * z[4]) / (p * l))
+    return worst

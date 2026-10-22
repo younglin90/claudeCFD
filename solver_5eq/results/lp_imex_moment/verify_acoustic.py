@@ -108,7 +108,7 @@ def lagrange(state, tau, phases, visc=None, model="allaire"):
     N = len(cells)
     h = 1.0 / N
     m = np.array([sum(q[3] for q in pcs) for pcs in cells])
-    M = 0.5 * (m + np.roll(m, -1))
+    M = node_masses(cells, N)
     pf, Ef, Jrf = [], [], []
     for i, pcs in enumerate(cells):
         if model == "kapila":
@@ -185,13 +185,74 @@ def lagrange(state, tau, phases, visc=None, model="allaire"):
     return dict(D=D, w=wn, J=Jc, Jr=Jr, I=newI, p=pL, M=M, m=m, iters=it, heat=heat)
 
 
-def remap(state, lag, phases, slope="minmod", keep_piece_energy=False):
+RELAX_HOOK = [None]    # cells -> relaxed cells (set by the Kapila driver), used for node masses
+MOMENT_LUMP = [False]  # node masses from first moments of cell mass (linear shape functions), section 45
+
+
+def node_masses(cells, N):
+    """M_j = int rho xi over cell j + int rho (1 - xi) over cell j+1 (xi = local coordinate);
+    regular split 1/2-1/2 when MOMENT_LUMP is off."""
+    h = 1.0 / N
+    m = np.array([sum(q[3] for q in pcs) for pcs in cells])
+    if not MOMENT_LUMP[0]:
+        return 0.5 * (m + np.roll(m, -1))
+    right = np.zeros(N)
+    for i, pcs in enumerate(cells):
+        for q in pcs:
+            l = q[2] - q[1]
+            if l <= 0:
+                continue
+            xa, xb = (q[1] - i * h) / h, (q[2] - i * h) / h
+            right[i] += q[3] / l * (xb ** 2 - xa ** 2) * h / 2
+    left = m - right
+    return right + np.roll(left, -1)
+
+
+RECON = [False]   # Level-1: linear density profile inside pieces (limited), see section 44
+_GX, _GW = np.polynomial.legendre.leggauss(4)
+
+
+def _zint(rb, s, xc, lo, hi, n):
+    xm, xr = 0.5 * (lo + hi), 0.5 * (hi - lo)
+    r = rb + s * (xm + xr * _GX - xc)
+    return xr * np.sum(_GW * r ** n)
+
+
+def _limit_slope(rb, s0, l, Z, p, ph):
+    """Largest phi in [0,1] with rho>0, cold excess >= 0 and fragment thermal positivity."""
+    xc = 0.0
+
+    def ok(phi):
+        s = phi * s0
+        if rb - abs(s) * l / 2 <= 0.05 * rb:
+            return False
+        zi = _zint(rb, s, xc, -l / 2, l / 2, ph.n)
+        X = Z - zi
+        if X < 0:
+            return False
+        rmax = rb + abs(s) * l / 2
+        return ph.A * (rmax ** ph.n + X / l) < 0.98 * p
+    if s0 == 0.0 or ok(1.0):
+        return 1.0 if s0 != 0.0 else 0.0
+    lo_, hi_ = 0.0, 1.0
+    for _ in range(30):
+        mid = 0.5 * (lo_ + hi_)
+        if ok(mid):
+            lo_ = mid
+        else:
+            hi_ = mid
+    return lo_
+
+
+def remap(state, lag, phases, slope="minmod", keep_piece_energy=False, recon=None):
+    recon = RECON[0] if recon is None else recon
     cells = state["cells"]
     N = len(cells)
     h = 1.0 / N
     D, J, pL = lag["D"], lag["J"], lag["p"]
     new = [[] for _ in range(N)]
     F = np.zeros(N)  # mass flux through node j (right face of cell j), + rightward
+    lp = []          # Lagrangian pieces in global spatial order
     for i, pcs in enumerate(cells):
         XL = i * h + D[(i - 1) % N]
         pos = XL
@@ -199,20 +260,90 @@ def remap(state, lag, phases, slope="minmod", keep_piece_energy=False):
             ph = phases[k]
             a2, b2 = pos, pos + (b - a) * jr
             pos = b2
-            Z2 = Z * jr ** (1 - ph.n)
-            e2 = pL[i] * (b2 - a2) / ph.G + ph.C * Z2
-            c0, c1 = int(np.floor(a2 / h + TOL)), int(np.floor(b2 / h - TOL))
-            for c in range(c0, c1 + 1):
-                lo, hi = max(a2, c * h), min(b2, (c + 1) * h)
-                if hi - lo <= 0.0:
-                    continue
-                lam = (hi - lo) / (b2 - a2)
-                tc, off = c % N, (c // N) * 1.0
-                new[tc].append([k, lo - off, hi - off, lam * mq, lam * Z2, lam * e2])
-                if c == i + 1:
-                    F[i] += lam * mq
-                elif c == i - 1:
-                    F[(i - 1) % N] -= lam * mq
+            lp.append([i, k, a2, b2, mq, Z * jr ** (1 - ph.n), pL[i]])
+    G = len(lp)
+    slopes = np.zeros(G)
+    if recon:
+        rb = np.array([q[4] / (q[3] - q[2]) for q in lp])
+        xc = np.array([0.5 * (q[2] + q[3]) for q in lp])
+        for g in range(G):
+            gl, gr = (g - 1) % G, (g + 1) % G
+            sl, sr = lp[gl][1] == lp[g][1], lp[gr][1] == lp[g][1]
+            if not (sl or sr):
+                continue
+            dl = (rb[g] - rb[gl]) / ((xc[g] - xc[gl]) % 1.0) if sl else None
+            dr = (rb[gr] - rb[g]) / ((xc[gr] - xc[g]) % 1.0) if sr else None
+            if dl is None or dr is None:
+                # piece touching a material interface: one-sided difference from the same-material
+                # side (extrapolated variants measured worse, section 44)
+                s0 = dr if dl is None else dl
+                if s0 != 0.0:
+                    q = lp[g]
+                    slopes[g] = s0 * _limit_slope(rb[g], s0, q[3] - q[2], q[5], q[6], phases[q[1]])
+                continue
+            if dl * dr > 0:
+                s0 = np.sign(dl) * min(abs(dl), abs(dr))
+                q = lp[g]
+                slopes[g] = s0 * _limit_slope(rb[g], s0, q[3] - q[2], q[5], q[6], phases[q[1]])
+    # pressure (thermal-energy) reconstruction, cell-wise, centred at the 1/Gamma-weighted centroid
+    psl = np.zeros(N)
+    pxc = np.zeros(N)
+    if recon:
+        cell_pc = {}
+        for i in range(N):
+            cell_pc[i] = [q for q in lp if q[0] == i]
+        for i in range(N):
+            wsum = sum((q[3] - q[2]) / phases[q[1]].G for q in cell_pc[i])
+            pxc[i] = sum((q[3] ** 2 - q[2] ** 2) / 2 / phases[q[1]].G for q in cell_pc[i]) / wsum
+        for i in range(N):
+            il, ir = (i - 1) % N, (i + 1) % N
+            dl = (pL[i] - pL[il]) / ((pxc[i] - pxc[il]) % 1.0)
+            dr = (pL[ir] - pL[i]) / ((pxc[ir] - pxc[i]) % 1.0)
+            if dl * dr <= 0:
+                continue
+            sp = np.sign(dl) * min(abs(dl), abs(dr))
+            need, dmax = 0.0, 0.0
+            for q in cell_pc[i]:
+                gq = lp.index(q)
+                ph = phases[q[1]]
+                l = q[3] - q[2]
+                rbq = q[4] / l
+                sq = slopes[gq]
+                X = q[5] - _zint(rbq, sq, 0.0, -l / 2, l / 2, ph.n)
+                need = max(need, ph.A * ((rbq + abs(sq) * l / 2) ** ph.n + X / l) / 0.98)
+                dmax = max(dmax, abs(q[2] - pxc[i]), abs(q[3] - pxc[i]))
+            psi = min(1.0, max(0.0, (pL[i] - need) / (abs(sp) * dmax))) if dmax > 0 else 0.0
+            psl[i] = sp * psi
+    for g, (i, k, a2, b2, mq, Z2, pi) in enumerate(lp):
+        ph = phases[k]
+        e2 = pi * (b2 - a2) / ph.G + ph.C * Z2 + psl[i] * ((b2 ** 2 - a2 ** 2) / 2 - pxc[i] * (b2 - a2)) / ph.G
+        s_ = slopes[g]
+        sp_ = psl[i]
+        rbar, xcg = mq / (b2 - a2), 0.5 * (a2 + b2)
+        if s_ != 0.0:
+            X = Z2 - _zint(rbar, s_, xcg, a2, b2, ph.n)
+        c0, c1 = int(np.floor(a2 / h + TOL)), int(np.floor(b2 / h - TOL))
+        for c in range(c0, c1 + 1):
+            lo, hi = max(a2, c * h), min(b2, (c + 1) * h)
+            if hi - lo <= 0.0:
+                continue
+            lam = (hi - lo) / (b2 - a2)
+            if s_ == 0.0 and sp_ == 0.0:
+                mf, Zf, ef = lam * mq, lam * Z2, lam * e2
+            else:
+                if s_ == 0.0:
+                    mf, Zf = lam * mq, lam * Z2
+                else:
+                    mf = (hi - lo) * (rbar + s_ * (0.5 * (lo + hi) - xcg))
+                    Zf = _zint(rbar, s_, xcg, lo, hi, ph.n) + lam * X
+                pint = pi * (hi - lo) + sp_ * ((hi ** 2 - lo ** 2) / 2 - pxc[i] * (hi - lo))
+                ef = pint / ph.G + ph.C * Zf
+            tc, off = c % N, (c // N) * 1.0
+            new[tc].append([k, lo - off, hi - off, mf, Zf, ef])
+            if c == i + 1:
+                F[i] += mf
+            elif c == i - 1:
+                F[(i - 1) % N] -= mf
     Inew = np.zeros(N)
     out = []
     for c in range(N):
@@ -231,6 +362,12 @@ def remap(state, lag, phases, slope="minmod", keep_piece_energy=False):
     # nodal (dual-cell) momentum remap
     w, M = lag["w"], lag["M"]
     Fd = 0.5 * (np.roll(F, 1) + F)      # through center of cell j: between node j-1 and j
+    if MOMENT_LUMP[0]:
+        cfg = RELAX_HOOK[0](out) if RELAX_HOOK[0] is not None else [[q[:5] for q in pcs] for pcs in out]
+        Mt = node_masses(cfg, N)
+        # dual fluxes consistent with the new node masses: Fd[j+1] = Fd[j] + M_j - Mt_j, gauge = mean of Fd
+        inc = np.concatenate([[0.0], np.cumsum(M - Mt)[:-1]])
+        Fd = inc + (np.mean(Fd) - np.mean(inc))
     Fr = np.roll(Fd, -1)                # dual cell j right face = center of cell j+1
     Fl = Fd                             # dual cell j left face = center of cell j
     Mn = M - Fr + Fl
@@ -286,7 +423,7 @@ def remap(state, lag, phases, slope="minmod", keep_piece_energy=False):
 def totals(state, phases):
     cells, I, w = state["cells"], state["I"], state["w"]
     m = np.array([sum(q[3] for q in pcs) for pcs in cells])
-    M = 0.5 * (m + np.roll(m, -1))
+    M = node_masses(cells, len(cells))
     return m.sum(), np.sum(M * w), I.sum() + np.sum(0.5 * M * w ** 2)
 
 

@@ -91,6 +91,7 @@ def step_kapila(st, phases, tau, visc=None):
         pc, I[c] = relax_cell(pcs, phases, h, c * h)
         cells.append(pc)
     rel = dict(cells=cells, I=I, w=st["w"])
+    va.RELAX_HOOK[0] = lambda cs: relaxed_config(cs, phases)
     lag = va.lagrange(rel, tau, phases, visc, model="kapila")
     new, Q = va.remap(rel, lag, phases, keep_piece_energy=True)
     return new, Q, rel
@@ -120,9 +121,15 @@ def min_theta_isobaric(st, phases):
     return worst
 
 
+def relaxed_config(cells, phases):
+    N = len(cells)
+    h = 1.0 / N
+    return [relax_cell(pcs, phases, h, c * h)[0] if len(pcs[0]) > 5 else pcs for c, pcs in enumerate(cells)]
+
+
 def totals6(st, phases):
     m = np.array([sum(q[3] for q in pcs) for pcs in st["cells"]])
-    M = 0.5 * (m + np.roll(m, -1))
+    M = va.node_masses(relaxed_config(st["cells"], phases), len(st["cells"]))
     E = sum(q[5] for pcs in st["cells"] for q in pcs)
     return m.sum(), np.sum(M * st["w"]), E + np.sum(0.5 * M * st["w"] ** 2)
 

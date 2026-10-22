@@ -518,6 +518,8 @@ def remap(st, lz, wL, M, phases, N, recon=True, vslope=True):
     mn = np.array([z[3] for z in newzones])
     # position of old boundary 0 is lz[0][1]; locate it in the new partition
     x_anchor = newzones[0][1] + ((lz[0][1] - shift - newzones[0][1]) % 1.0)
+    if x_anchor >= newzones[-1][2] - 1e-15:                    # anchor rounded up to the period end: wrap to the start
+        x_anchor -= 1.0
     jz = 0
     while not (newzones[jz][1] - 1e-15 <= x_anchor < newzones[jz][2] - 1e-15):
         jz += 1

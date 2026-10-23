@@ -20,16 +20,20 @@ def main():
     spec.loader.exec_module(vp)
     vp.fs.PARABOLIC[0] = True
     vp.EPS = eps
+    T = float(sys.argv[3]) if len(sys.argv) > 3 else None
+    if T is not None:
+        vp.T = T
+    tag = "" if T is None else f"_T{T}"
     os.makedirs(OUT, exist_ok=True)
     if what != "summary":
         N = int(what)
         t0 = time.time()
         rho, p, w, dE = vp.run_fitted(N)
-        np.savez(f"{OUT}/grad_{eps}_{N}.npz", rho=rho, p=p, w=w)
+        np.savez(f"{OUT}/grad_{eps}{tag}_{N}.npz", rho=rho, p=p, w=w)
         print(f"EPS={eps} N={N} done in {time.time() - t0:.0f}s dE/E={dE}", flush=True)
         return
-    Ns = sorted(int(f.split("_")[2][:-4]) for f in os.listdir(OUT) if f.startswith(f"grad_{eps}_") and f.endswith(".npz"))
-    sol = {N: np.load(f"{OUT}/grad_{eps}_{N}.npz") for N in Ns}
+    Ns = sorted(int(f.split("_")[-1][:-4]) for f in os.listdir(OUT) if f.startswith(f"grad_{eps}{tag}_") and f.endswith(".npz") and (tag or "_T" not in f))
+    sol = {N: np.load(f"{OUT}/grad_{eps}{tag}_{N}.npz") for N in Ns}
     d = {}
     for N in Ns:
         if 2 * N in sol:
@@ -39,7 +43,7 @@ def main():
                     np.sqrt(h * np.sum((a["p"] - b["p"].reshape(-1, 2).mean(axis=1)) ** 2)),
                     np.sqrt(h * np.sum((a["w"] - b["w"][::2]) ** 2))]
     ks = sorted(d)
-    print(f"EPS={eps}: d_N (rho,p,w):", {k: np.round(d[k], 5).tolist() for k in ks})
+    print(f"EPS={eps} T={vp.T}: d_N (rho,p,w):", {k: np.round(d[k], 5).tolist() for k in ks})
     for k1, k2 in zip(ks[:-1], ks[1:]):
         print(f"  order d{k1}/d{k2} (rho,p,w): {np.round(np.log2(np.array(d[k1]) / np.array(d[k2])), 2)}")
 

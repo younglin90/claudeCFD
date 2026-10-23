@@ -83,6 +83,7 @@ def remap_op(zl, zr, mat, xs, X, nu, s, nf, P):
 
 
 def run(nu, theta0, W, P=None, nf=None, tau_over_h=None):
+    """nu: scalar (constant interface Courant number u tau / h) or an array of length W (time dependent, may change sign)."""
     """Interface-node trace series (normalised) for an impulse at the interface node.  c_L tau/h = lam_L."""
     P = dict(DEFAULT if P is None else P)
     c_L = np.sqrt(P["K_L"] / P["rho_L"])
@@ -105,7 +106,8 @@ def run(nu, theta0, W, P=None, nf=None, tau_over_h=None):
     for n in range(W):
         Lm, Rm, M = lagrange_ops(tau_h, zl, zr, mat, P)
         x = spla.splu(Lm).solve(Rm @ x)
-        R, X2, xs, zl2, zr2, mat2 = remap_op(zl, zr, mat, xs, X, nu, s, nf, P)
+        nu_n = nu if np.isscalar(nu) else float(nu[n])
+        R, X2, xs, zl2, zr2, mat2 = remap_op(zl, zr, mat, xs, X, nu_n, s, nf, P)
         x = R @ x
         X, zl, zr, mat = X2, zl2, zr2, mat2
         iI = int(np.argmin(np.abs(xs - X)))

@@ -98,6 +98,26 @@ def _keep_positive(D, dD, L0):
     return D
 
 
+QVISC = [0.0, 0.0]        # (c_q, c_l): von Neumann-Richtmyer quadratic and linear artificial viscosity (section 83)
+
+
+def _visc(D, Lz, dp, m, tau, L0):
+    """Artificial viscous pressure q_z(L) = rho (c_q^2 W^2 + c_l c_s W), W = (L0 - L)/tau = -(jump of the midpoint node
+    velocity across the zone), only for compression (W > 0); c_s^2 = -dp L^2 / m with dp = d p_secant / d L.
+    Returns q and dq/dL (c_s frozen) for the exact Newton Jacobian."""
+    cq, cl = QVISC
+    n = len(D)
+    if cq == 0.0 and cl == 0.0:
+        return np.zeros(n), np.zeros(n)
+    W = np.maximum((L0 - Lz) / tau, 0.0)
+    cs = np.sqrt(np.maximum(-dp * Lz ** 2 / m, 0.0))
+    rho = m / Lz
+    q = rho * (cq * cq * W ** 2 + cl * cs * W)
+    on = W > 0
+    dq = np.where(on, -(m / Lz ** 2) * (cq * cq * W ** 2 + cl * cs * W) + rho * (-2 * cq * cq * W / tau - cl * cs / tau), 0.0)
+    return q, dq
+
+
 def lagrange(st, tau, phases):
     Zs = st.zones
     B = len(Zs)
@@ -192,7 +212,9 @@ def lagrange(st, tau, phases):
         if Cimp is not None:
             cv = np.clip(Cimp @ pt, -cap_, cap_)
             corr[rows_c] = np.clip(cv[rows_c] + cs_[rows_c], -mg_[rows_c], mg_[rows_c])
-        pt = pt - corr
+        qv_, dq_ = _visc(D, Lz, dp, m, tau, L0)
+        pt = pt - corr + qv_
+        dp = dp + dq_                            # exact Jacobian including the viscous stiffness
         R = M * (D - tau * w) + 0.5 * tau ** 2 * (pt - np.roll(pt, 1))
         if np.max(np.abs(R) / np.maximum(M, 1e-300)) < 1e-14 * max(1.0, np.max(np.abs(D))):
             break
@@ -212,6 +234,8 @@ def lagrange(st, tau, phases):
         D = _keep_positive(D, spla.spsolve(Jm, R), L0)
     Lz = L0 + np.roll(D, -1) - D
     wn = 2 * D / tau - w
+    pt_f, dp_f = pt_of(Lz)
+    qv = _visc(D, Lz, dp_f, m, tau, L0)[0]   # artificial viscous pressure at the converged step (0 unless QVISC is set)
     newzones = []
     for z, (pf, Ef, l0), L, Db in zip(Zs, funcs, Lz, D):
         ph = phases[z[0]]
@@ -219,7 +243,9 @@ def lagrange(st, tau, phases):
         a2 = z[1] + Db
         # work of the correction force is returned to the zone as heat (total energy exact):
         # the force used p - corr, so the zone receives + corr * dL
-        newzones.append([z[0], a2, a2 + L, z[3], z[4] * J ** (1 - ph.n), Ef(L) + corr[len(newzones)] * (L - l0)])
+        i_ = len(newzones)
+        # the viscous work q (l0 - L) is returned to the zone as heat: total energy stays exact
+        newzones.append([z[0], a2, a2 + L, z[3], z[4] * J ** (1 - ph.n), Ef(L) + corr[i_] * (L - l0) + qv[i_] * (l0 - L)])
     _LAST['corr'] = corr
     return newzones, wn, M, it
 
@@ -234,6 +260,7 @@ CORR_IMPLICIT = [False]  # curvature part of the force correction at the secant 
 # occupancies: diag(l/K) C not symmetric), "fullonly" = only zones whose central stencil is full zones,
 # "fullsym" = full-zone stencils, then symmetrised in the l/K inner product (energy-stable by construction)
 CORR_STENCIL = ["raw"]
+X_TOL = 1e-12         # round-off tolerance of the cold-excess admissibility test (0 reproduces the earlier knife-edge behaviour)
 CORR_GATE = [False]   # implicit curvature term only where _slopes kept the parabola (as the lagged form)
 
 
@@ -341,8 +368,9 @@ def _slopes(zones, phases, recon):
             if rb[g] - abs(s) * l / 2 <= 0.05 * rb[g]:
                 return False
             X = z[4] - zint(rb[g], s, 0.0, -l / 2, l / 2, ph.n)
-            if X < 0:
+            if X < -X_TOL * z[4]:             # cold excess is 0 up to round-off for a flat density profile
                 return False
+            X = max(X, 0.0)
             need = ph.A * ((rb[g] + abs(s) * l / 2) ** ph.n + X / l)
             return need < 0.98 * (pz[g] - abs(phi_p * p0s) * l / 2)
         phi = 1.0
@@ -391,7 +419,7 @@ def _slopes(zones, phases, recon):
             pends = [pz[g] + sgn * sp[g] * l / 2 + cp[g] * l * l / 6 for sgn in (-1, 1)]
             X = z[4] - rec_powint(rb[g], sr[g], cr[g], 0.0, l, -l / 2, l / 2, ph.n)
             need = ph.A * (max(ends) ** ph.n + X / l)
-            if min(ends) <= 0.05 * rb[g] or X < 0 or need >= 0.98 * min(pends):
+            if min(ends) <= 0.05 * rb[g] or X < -X_TOL * z[4] or need >= 0.98 * min(pends):
                 cr[g] = cp[g] = 0.0
     return np.stack([sr, cr], 1), np.stack([sp, cp], 1)
 

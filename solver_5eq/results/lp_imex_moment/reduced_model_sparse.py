@@ -159,3 +159,43 @@ if __name__ == "__main__":
     tr = run(0.0358, 0.37, 70)
     print(f"sparse model: S1(W=70, nu=0.0358, theta0=0.37) = {np.abs(tr).sum():.3f} (dense model 6.865, real scheme 7.180); "
           f"{time.time() - t0:.1f}s")
+
+
+def run_channels(nu, theta0, W, P=None, nf=None, tau_over_h=None, order=1):
+    """3x3 impulse-response kernel T[n, i, j]: impulse (unit W-energy) in channel j at step 0, output channel i after step n,
+    channels = (interface-node velocity, pressure of the left cut piece, pressure of the right cut piece); each
+    channel scaled by the square root of its energy weight (M_I, l/K) so entries are amplitudes in the energy norm."""
+    P = dict(DEFAULT if P is None else P)
+    c_L = np.sqrt(P["K_L"] / P["rho_L"])
+    tau_h = (P["lam_L"] / c_L) if tau_over_h is None else tau_over_h
+    if nf is None:
+        nf = 2 * W + 80
+    s = -nf // 2
+    X = theta0
+    xs, zl, zr, mat = geometry(X, s, nf)
+    nz = len(zl)
+    nn = nz + 1
+    def chan(xs, zl, zr, mat, X):
+        iI = int(np.argmin(np.abs(xs - X)))
+        Lm, Rm, M = lagrange_ops(tau_h, zl, zr, mat, P)
+        rho, K = props(mat, P)
+        w_w = M[iI]
+        w_l = (zr[iI - 1] - zl[iI - 1]) / K[iI - 1]
+        w_r = (zr[iI] - zl[iI]) / K[iI]
+        return iI, np.array([iI, nn + iI - 1, nn + iI]), np.sqrt(np.array([w_w, w_l, w_r]))
+    iI, idx, sc = chan(xs, zl, zr, mat, X)
+    T = np.zeros((W, 3, 3))
+    X0 = X
+    for j in range(3):
+        x = np.zeros(nn + nz)
+        x[idx[j]] = 1.0 / sc[j]
+        xs_, zl_, zr_, mat_, X_ = xs, zl, zr, mat, X0
+        for n in range(W):
+            Lm, Rm, M = lagrange_ops(tau_h, zl_, zr_, mat_, P)
+            x = spla.splu(Lm).solve(Rm @ x)
+            R, X2, xs_, zl2, zr2, mat2 = remap_op(zl_, zr_, mat_, xs_, X_, nu, s, nf, P, order)
+            x = R @ x
+            X_, zl_, zr_, mat_ = X2, zl2, zr2, mat2
+            iI2, idx2, sc2 = chan(xs_, zl_, zr_, mat_, X_)
+            T[n, :, j] = x[idx2] * sc2
+    return T

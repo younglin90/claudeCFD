@@ -2,6 +2,24 @@
 
 #include "denner1d/types.hpp"
 
+#include <cmath>
+#include <cstdlib>
+
+namespace denner1d {
+// Pressure admissibility floor [Pa], shared by every pressure clamp. The ideal-gas phase needs
+// p > 0 and the stiffened-gas phases need p + pinf > 0 (checked by the EOS), so the admissible
+// set is p > 0: the default is a numerical zero (1e-30 Pa), far below every physical scale, not a
+// modelling constant. ACID_PFLOOR=<x> (x > 0) overrides it (ACID_PFLOOR=1 restores the old 1 Pa).
+inline double pressure_floor_value() {
+    static const double v = [] {
+        const char* e = std::getenv("ACID_PFLOOR");
+        const double x = e ? std::atof(e) : 1.0e-30;
+        return (x > 0.0 && std::isfinite(x)) ? x : 1.0e-30;
+    }();
+    return v;
+}
+}  // namespace denner1d
+
 namespace denner1d {
 
 struct PhaseProps {

@@ -78,7 +78,7 @@ bool recover_pressure_temperature_from_density_energy(double rho_target,
                                                       double& p,
                                                       double& T) {
     alpha = std::clamp(alpha, 0.0, 1.0);
-    p = std::max(p, 1.0);
+    p = std::max(p, pressure_floor_value());
     T = std::max(T, 1.0e-6);
     bool converged = false;
     for (int it = 0; it < 20; ++it) {
@@ -102,7 +102,7 @@ bool recover_pressure_temperature_from_density_energy(double rho_target,
             const double p_try = p + damping * dp;
             const double T_try = T + damping * dT;
             if (std::isfinite(p_try) && std::isfinite(T_try) && p_try > 0.0 && T_try > 0.0) {
-                p = std::max(p_try, 1.0);
+                p = std::max(p_try, pressure_floor_value());
                 T = std::max(T_try, 1.0e-6);
                 accepted = true;
                 break;
@@ -117,7 +117,7 @@ bool recover_pressure_temperature_from_density_energy(double rho_target,
             break;
         }
     }
-    p = std::max(p, 1.0);
+    p = std::max(p, pressure_floor_value());
     T = std::max(T, 1.0e-6);
     return converged && std::isfinite(p) && std::isfinite(T);
 }

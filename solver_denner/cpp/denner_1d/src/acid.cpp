@@ -13,6 +13,8 @@
 #include <vector>
 #ifdef _OPENMP
 #include <omp.h>
+
+static const double P_FLOOR = denner1d::pressure_floor_value();
 #endif
 
 namespace denner1d {
@@ -307,7 +309,7 @@ void eval_thermo(Field& s, const Phase& a, const Phase& b) {
         // T ceiling 1e6 K: a transient Newton overshoot at a violent shock can drive T->1e16
         // -> rho->0 -> singular momentum block. Physical post-shock T is ~6e3 K, so the
         // ceiling only clips the non-physical blowup and lets the defect-correction recover.
-        const double p = std::max(s.p[i], 1.0), T = std::clamp(s.T[i], 1e-6, 1.0e6);
+        const double p = std::max(s.p[i], P_FLOOR), T = std::clamp(s.T[i], 1e-6, 1.0e6);
         const double al = std::clamp(s.alpha[i], 0.0, 1.0);
         const auto pa = phase_props(p, T, a);
         const auto pb = phase_props(p, T, b);
@@ -333,7 +335,7 @@ void eval_thermo(Field& s, const Phase& a, const Phase& b) {
 // rho_k depends on T, so iterate a few Newton steps. Returns false if non-physical.
 bool T_from_hstat(double hstat, double p, double al, const Phase& a, const Phase& b,
                   double T_init, double& T_out) {
-    p = std::max(p, 1.0);
+    p = std::max(p, P_FLOOR);
     al = std::clamp(al, 0.0, 1.0);
     double T = std::clamp(T_init, 1e-6, 1.0e6);
     for (int it = 0; it < 30; ++it) {
@@ -694,7 +696,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                             // split exists (measured: endpoint exemption / rho-clamp forms
                             // restore case02 but bring the oscillation back) -- see
                             // docs/THINC_RHO_GUARD_RESEARCH.md before changing this.
-                            const double pu = std::max(s.p[icell], 1.0);
+                            const double pu = std::max(s.p[icell], P_FLOOR);
                             const double Tu = std::max(s.T[icell], 1e-6);
                             const double ra = phase_props(pu, Tu, A).rho;
                             const double rb = phase_props(pu, Tu, B).rho;
@@ -729,8 +731,8 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
         Vec rho_o(n), hstat_o(n), Htot_o(n);
         for (int i = 0; i < n; ++i) {
             const double al = std::clamp(s.alpha[i], 0.0, 1.0);
-            const auto pa = phase_props(std::max(p_o[i], 1.0), std::max(T_o[i], 1e-6), A);
-            const auto pb = phase_props(std::max(p_o[i], 1.0), std::max(T_o[i], 1e-6), B);
+            const auto pa = phase_props(std::max(p_o[i], P_FLOOR), std::max(T_o[i], 1e-6), A);
+            const auto pb = phase_props(std::max(p_o[i], P_FLOOR), std::max(T_o[i], 1e-6), B);
             rho_o[i] = std::max(al * pa.rho + (1.0 - al) * pb.rho, 1e-300);
             hstat_o[i] = (al * pa.rho * pa.h + (1.0 - al) * pb.rho * pb.h) / rho_o[i];
             Htot_o[i] = hstat_o[i] + 0.5 * u_o[i] * u_o[i];
@@ -951,7 +953,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                 const bool fromL = theta[f] >= 0.0;
                 const int gU = fromL ? gL : gR;  // upwind cell (ghost idx)
                 uwc_f[f] = std::clamp(gU - 2, 0, n - 1);  // upwind cell index (analytic transport Jac)
-                double pU = std::max(pe[gU], 1.0), TU = std::max(Te[gU], 1e-6), uU = ue[gU];
+                double pU = std::max(pe[gU], P_FLOOR), TU = std::max(Te[gU], 1e-6), uU = ue[gU];
                 if (use_minmod || expansive_face) {
                     // Minmod TVD 2nd-order reconstruction of the convected primitives from the
                     // upwind side. p,T,u are CONTINUOUS across the contact (only rho jumps), so
@@ -972,7 +974,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                         const double bk = q[gU] - q[gU - 1], fw = q[gU + 1] - q[gU];
                         return fromL ? q[gU] + 0.5 * mm(bk, fw) : q[gU] - 0.5 * mm(fw, bk);
                     };
-                    pU = std::max(rec(pe), 1.0); TU = std::max(rec(Te), 1e-6); uU = rec(ue);
+                    pU = std::max(rec(pe), P_FLOOR); TU = std::max(rec(Te), 1e-6); uU = rec(ue);
                 }
                 const auto ppaU = phase_thermo(pU, TU, A);  // face flux reads only .rho/.h ->
                 const auto ppbU = phase_thermo(pU, TU, B);  // lean (no sound-speed sqrt/p-partials)
@@ -1217,7 +1219,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                 if (std::getenv("ACID_AJAC_CHECK") && step == 0 && it == 0) {
                     const int i0 = n / 2;
                     const double al = std::clamp(s.alpha[i0], 0.0, 1.0);
-                    const double p = std::max(s.p[i0], 1.0), Tc = std::max(s.T[i0], 1e-6), u = s.u[i0];
+                    const double p = std::max(s.p[i0], P_FLOOR), Tc = std::max(s.T[i0], 1e-6), u = s.u[i0];
                     const auto pa = phase_props(p, Tc, A); const auto pb = phase_props(p, Tc, B);
                     const double D = al * pa.rho + (1 - al) * pb.rho;            // rho_mix
                     const double D_T = al * pa.phi + (1 - al) * pb.phi;          // drho_mix/dT
@@ -1233,17 +1235,17 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     const double drho_du = D_T * (-u / hsT);
                     const double drho_dp = D_p + D_T * (-hsp / hsT);
                     auto rho_of = [&](double pp, double TT) {
-                        return al * phase_props(std::max(pp, 1.0), std::max(TT, 1e-6), A).rho
-                             + (1 - al) * phase_props(std::max(pp, 1.0), std::max(TT, 1e-6), B).rho; };
+                        return al * phase_props(std::max(pp, P_FLOOR), std::max(TT, 1e-6), A).rho
+                             + (1 - al) * phase_props(std::max(pp, P_FLOOR), std::max(TT, 1e-6), B).rho; };
                     auto T_of = [&](double hh, double uu, double pp) {
-                        double Tn; T_from_hstat(hh - 0.5 * uu * uu, std::max(pp, 1.0), al, A, B, Tc, Tn); return Tn; };
+                        double Tn; T_from_hstat(hh - 0.5 * uu * uu, std::max(pp, P_FLOOR), al, A, B, Tc, Tn); return Tn; };
                     const double eh = 1e-4 * std::max(std::abs(s.h[i0]), 1.0);
                     const double eu = 1e-5 * std::max(std::abs(u), 1.0);
                     const double ep = 1e-3 * p;
                     const double r0 = rho_of(p, T_of(s.h[i0], u, p));
                     const double fd_dh = (rho_of(p, T_of(s.h[i0] + eh, u, p)) - r0) / eh;
                     const double fd_du = (rho_of(p, T_of(s.h[i0], u + eu, p)) - r0) / eu;
-                    const double fd_dp = (rho_of(std::max(p + ep, 1.0), T_of(s.h[i0], u, std::max(p + ep, 1.0))) - r0) / ep;
+                    const double fd_dp = (rho_of(std::max(p + ep, P_FLOOR), T_of(s.h[i0], u, std::max(p + ep, P_FLOOR))) - r0) / ep;
                     std::fprintf(stderr,
                         "AJAC i0=%d al=%.3f drho/dh A=% .6e FD=% .6e | du A=% .6e FD=% .6e | dp A=% .6e FD=% .6e\n",
                         i0, al, drho_dh, fd_dh, drho_du, fd_du, drho_dp, fd_dp);
@@ -1324,7 +1326,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     Vec dTp(n), dTh(n), dTu(n);          // d(T)/d(p,h,u) from the h->T inversion
                     for (int i = 0; i < n; ++i) {
                         const double al = std::clamp(s.alpha[i], 0.0, 1.0);
-                        const double p = std::max(s.p[i], 1.0), Tc = std::max(s.T[i], 1e-6), u = s.u[i];
+                        const double p = std::max(s.p[i], P_FLOOR), Tc = std::max(s.T[i], 1e-6), u = s.u[i];
                         const auto pa = phase_props(p, Tc, A); const auto pb = phase_props(p, Tc, B);
                         const double D = al * pa.rho + (1 - al) * pb.rho;
                         const double D_T = al * pa.phi + (1 - al) * pb.phi, D_p = al * pa.zeta + (1 - al) * pb.zeta;
@@ -1388,7 +1390,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     //     case25, cavitation case15) -- frozen transport diverges there. ---
                     for (int f = 0; f <= n; ++f) {
                         const int uw = uwc_f[f];
-                        const double pu = std::max(s.p[uw], 1.0), Tu = std::max(s.T[uw], 1e-6);
+                        const double pu = std::max(s.p[uw], P_FLOOR), Tu = std::max(s.T[uw], 1e-6);
                         const double uu = uconv[f], th = theta[f];
                         const auto pa = phase_props(pu, Tu, A); const auto pb = phase_props(pu, Tu, B);
                         const double drap = pa.zeta + pa.phi * dTp[uw], drah = pa.phi * dTh[uw], drau = pa.phi * dTu[uw];
@@ -1525,7 +1527,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                         dp = std::max(dp, std::abs(dpi));
                         dh = std::max(dh, std::abs(dhi));
                         s.u[i] = sbak.u[i] + dui;
-                        s.p[i] = std::max(sbak.p[i] + dpi, 1.0);
+                        s.p[i] = std::max(sbak.p[i] + dpi, P_FLOOR);
                         // keep total enthalpy above the kinetic floor so hstat = h - 1/2 u^2 > 0
                         const double hfloor = 0.5 * s.u[i] * s.u[i] * 1.0001 + 1.0;
                         s.h[i] = std::max(sbak.h[i] + dhi, hfloor);
@@ -1717,7 +1719,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     const double htot = sbak.hstat[i] + 0.5 * sbak.u[i] * sbak.u[i];
                     const double umax = 0.99 * std::sqrt(2.0 * std::max(htot, 1.0e-300));
                     s.u[i] = std::clamp(sbak.u[i] + dui, -umax, umax);
-                    s.p[i] = std::max(sbak.p[i] + dpi, 1.0);
+                    s.p[i] = std::max(sbak.p[i] + dpi, P_FLOOR);
                 }
                 compute_R();  // ||R|| at the trial (T held fixed during the line search)
                 if (rnorm() < n0 || al < 0.03) break;  // first reducing alpha, or give up at smallest
@@ -1740,7 +1742,7 @@ PrimitiveState solve_case_acid(const CaseDefinition& c) {
                     const double rhoH = (Cold_ene[i] - dt / dx * adv + (s.p[i] - p_o[i])) / bdf_c0[i];
                     const double Hstat = rhoH - 0.5 * s.rho[i] * s.u[i] * s.u[i];  // rho * h_static
                     // mixture: rho*h_static = T*sum(al_k rho_k gamma_k cv_k) + sum(al_k rho_k (b_k p + eta_k))
-                    const double p = std::max(s.p[i], 1.0), al = std::clamp(s.alpha[i], 0.0, 1.0);
+                    const double p = std::max(s.p[i], P_FLOOR), al = std::clamp(s.alpha[i], 0.0, 1.0);
                     const auto pa = phase_props(p, std::max(s.T[i], 1e-6), A);
                     const auto pb = phase_props(p, std::max(s.T[i], 1e-6), B);
                     const double nonT = al * pa.rho * (A.b * p + A.eta) + (1.0 - al) * pb.rho * (B.b * p + B.eta);

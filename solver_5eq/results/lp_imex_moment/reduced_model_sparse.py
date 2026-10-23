@@ -47,20 +47,27 @@ def lagrange_ops(tau_h, zl, zr, mat, P):
     return (I - 0.5 * tau_h * A).tocsc(), (I + 0.5 * tau_h * A).tocsr(), M
 
 
-def remap_op(zl, zr, mat, xs, X, nu, s, nf, P):
+def remap_op(zl, zr, mat, xs, X, nu, s, nf, P, order=1):
     X2 = X + nu
     xs2, zl2, zr2, mat2 = geometry(X2, s, nf)
     nz, nz2, nn, nn2 = len(zl), len(zl2), len(xs), len(xs2)
     rows, cols, vals = [], [], []
+    srows, scols, svals = [], [], []        # slope-correction part  (new <- old slope entries)
     k = np.arange(nz2)
     for d in range(-3, 4):
         i = k + d
         ok = (i >= 0) & (i < nz)
         kk, ii = k[ok], i[ok]
-        ov = np.clip(np.minimum(zr[ii] + nu, zr2[kk]) - np.maximum(zl[ii] + nu, zl2[kk]), 0, None)
+        lo_ = np.maximum(zl[ii] + nu, zl2[kk])
+        hi_ = np.minimum(zr[ii] + nu, zr2[kk])
+        ov = np.clip(hi_ - lo_, 0, None)
         ov = ov * (mat[ii] == mat2[kk]) / (zr2[kk] - zl2[kk])
         keep = ov > 0
         rows.append(nn2 + kk[keep]); cols.append(nn + ii[keep]); vals.append(ov[keep])
+        if order == 2:
+            cen = 0.5 * (zl[ii] + zr[ii])
+            arm = (0.5 * (lo_ + hi_) - nu - cen)
+            srows.append(kk[keep]); scols.append(ii[keep]); svals.append((ov * arm)[keep])
     rho_old = np.where(mat == 0, P["rho_L"], P["rho_R"])
     rho_new = np.where(mat2 == 0, P["rho_L"], P["rho_R"])
     mu_old = lambda x: np.where(x <= X, P["rho_L"] * (x - xs[0]), P["rho_L"] * (X - xs[0]) + P["rho_R"] * (x - X))
@@ -79,10 +86,41 @@ def remap_op(zl, zr, mat, xs, X, nu, s, nf, P):
         rows.append(jj[keep]); cols.append(ii[keep]); vals.append(ov[keep])
     R = sp.csr_matrix((np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
                       shape=(nn2 + nz2, nn + nz))
+    if order == 2:
+        # zone slopes (same-material neighbours, central difference over centre distances), node slopes in mass coord.
+        cz = 0.5 * (zl + zr)
+        i = np.arange(1, nz - 1)
+        okz = (mat[i - 1] == mat[i]) & (mat[i + 1] == mat[i])
+        iz = i[okz]
+        Sz = sp.csr_matrix((np.concatenate([1.0 / (cz[iz + 1] - cz[iz - 1]), -1.0 / (cz[iz + 1] - cz[iz - 1])]),
+                            (np.concatenate([iz, iz]), np.concatenate([iz + 1, iz - 1]))), shape=(nz, nz))
+        mc = 0.5 * (lo0 + hi0)
+        sides = (xs < X)
+        j0 = np.arange(1, nn - 1)
+        okn = (sides[j0 - 1] == sides[j0]) & (sides[j0 + 1] == sides[j0]) & (np.abs(xs[j0] - X) > 1e-12)
+        jn = j0[okn]
+        Sn = sp.csr_matrix((np.concatenate([1.0 / (mc[jn + 1] - mc[jn - 1]), -1.0 / (mc[jn + 1] - mc[jn - 1])]),
+                            (np.concatenate([jn, jn]), np.concatenate([jn + 1, jn - 1]))), shape=(nn, nn))
+        # zone part: W_z[k,i] = ov*arm  -> R_zone += W_z @ Sz
+        Wz = sp.csr_matrix((np.concatenate(svals), (np.concatenate(srows), np.concatenate(scols))), shape=(nz2, nz))
+        # node part: W_n[j,i] = ov*(mid-m_i)/width
+        nrows, ncols, nvals = [], [], []
+        j = np.arange(nn2)
+        for d in range(-3, 4):
+            ii = j + d
+            ok = (ii >= 0) & (ii < nn)
+            jj, ii = j[ok], ii[ok]
+            lo_ = np.maximum(lo0[ii], lo1[jj]); hi_ = np.minimum(hi0[ii], hi1[jj])
+            ov = np.clip(hi_ - lo_, 0, None) / (hi1[jj] - lo1[jj])
+            keep = ov > 0
+            nrows.append(jj[keep]); ncols.append(ii[keep]); nvals.append((ov * (0.5 * (lo_ + hi_) - mc[ii]))[keep])
+        Wn = sp.csr_matrix((np.concatenate(nvals), (np.concatenate(nrows), np.concatenate(ncols))), shape=(nn2, nn))
+        corr = sp.bmat([[Wn @ Sn, None], [None, Wz @ Sz]], format="csr")
+        R = R + corr
     return R, X2, xs2, zl2, zr2, mat2
 
 
-def run(nu, theta0, W, P=None, nf=None, tau_over_h=None):
+def run(nu, theta0, W, P=None, nf=None, tau_over_h=None, order=1):
     """nu: scalar (constant interface Courant number u tau / h) or an array of length W (time dependent, may change sign)."""
     """Interface-node trace series (normalised) for an impulse at the interface node.  c_L tau/h = lam_L."""
     P = dict(DEFAULT if P is None else P)
@@ -107,7 +145,7 @@ def run(nu, theta0, W, P=None, nf=None, tau_over_h=None):
         Lm, Rm, M = lagrange_ops(tau_h, zl, zr, mat, P)
         x = spla.splu(Lm).solve(Rm @ x)
         nu_n = nu if np.isscalar(nu) else float(nu[n])
-        R, X2, xs, zl2, zr2, mat2 = remap_op(zl, zr, mat, xs, X, nu_n, s, nf, P)
+        R, X2, xs, zl2, zr2, mat2 = remap_op(zl, zr, mat, xs, X, nu_n, s, nf, P, order)
         x = R @ x
         X, zl, zr, mat = X2, zl2, zr2, mat2
         iI = int(np.argmin(np.abs(xs - X)))
